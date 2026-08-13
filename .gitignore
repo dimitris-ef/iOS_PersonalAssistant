@@ -1,0 +1,25 @@
+# Swift Package Manager
+.build/
+.swiftpm/
+Package.resolved
+
+# Xcode
+*.xcodeproj/
+*.xcworkspace/
+xcuserdata/
+DerivedData/
+*.xcuserstate
+
+# Development harness storage — may contain personal data
+devdata/
+*.assistant-store/
+
+# Secrets. API keys belong in the environment or the Keychain, never in the repo.
+.env
+*.pem
+*.p12
+*.mobileprovision
+secrets.json
+
+# macOS
+.DS_Store
