@@ -14,7 +14,7 @@ final class SupportPlannerTests: XCTestCase {
 
     private func context(
         preferences: SupportPreferences = SupportPreferences(),
-        profile: UserProfile = UserProfile(defaultPreparationDuration: Duration.minutes(30))
+        profile: UserProfile = UserProfile(defaultPreparationDuration: TimeSpan.minutes(30))
     ) -> SupportPlanningContext {
         SupportPlanningContext(
             profile: profile,
@@ -28,10 +28,10 @@ final class SupportPlannerTests: XCTestCase {
         ReminderSubject(
             reference: .calendarItem(CalendarItem.ID()),
             title: "Haircut",
-            anchor: .moment(now.addingTimeInterval(Duration.days(daysAhead))),
+            anchor: .moment(now.addingTimeInterval(TimeSpan.days(daysAhead))),
             importance: .normal,
-            preparationDuration: Duration.minutes(30),
-            travelDuration: Duration.minutes(20),
+            preparationDuration: TimeSpan.minutes(30),
+            travelDuration: TimeSpan.minutes(20),
             isTimeFixed: true
         )
     }
@@ -55,7 +55,7 @@ final class SupportPlannerTests: XCTestCase {
             return XCTFail("Expected a preparation stage with a relative offset")
         }
         // 30 minutes getting ready + 20 minutes travelling.
-        XCTAssertEqual(lead, Duration.minutes(50), accuracy: 1)
+        XCTAssertEqual(lead, TimeSpan.minutes(50), accuracy: 1)
     }
 
     func testNoLeaveStageWhenThereIsNowhereToTravel() {
@@ -112,7 +112,7 @@ final class SupportPlannerTests: XCTestCase {
             reference: .task(TaskItem.ID()),
             title: "Pay the electricity bill",
             anchor: .window(
-                TimeWindow(start: now, end: now.addingTimeInterval(Duration.days(5)))
+                TimeWindow(start: now, end: now.addingTimeInterval(TimeSpan.days(5)))
             ),
             importance: .normal,
             isTimeFixed: false

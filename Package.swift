@@ -34,6 +34,10 @@ let package = Package(
         .library(name: "AIProviderRemote", targets: ["AIProviderRemote"]),
         .library(name: "AIProviderApple", targets: ["AIProviderApple"]),
         .library(name: "AIProviderLocal", targets: ["AIProviderLocal"]),
+        // Development-only. Exposed as a product so the iOS app target can use
+        // the scripted stand-in while no real provider is implemented; drop it
+        // from the app's dependencies once one is.
+        .library(name: "DevSupport", targets: ["DevSupport"]),
         .executable(name: "assistant-dev", targets: ["DevHarness"]),
     ],
     targets: [

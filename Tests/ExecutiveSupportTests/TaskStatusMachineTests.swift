@@ -90,7 +90,7 @@ final class TaskStatusMachineTests: XCTestCase {
 
     func testSnoozingIncrementsAndEventuallyEscalates() {
         let policy = SnoozePolicy(maximumSnoozes: 3, escalateAfterSnoozes: 2)
-        let until = now.addingTimeInterval(Duration.minutes(10))
+        let until = now.addingTimeInterval(TimeSpan.minutes(10))
 
         let first = machine.apply(.snoozed(until: until), to: task(), plan: plan(snooze: policy))
         XCTAssertEqual(first.status, .snoozed)
@@ -109,7 +109,7 @@ final class TaskStatusMachineTests: XCTestCase {
     func testRunningOutOfSnoozesForcesAnAlarmAndFollowUp() {
         let policy = SnoozePolicy(maximumSnoozes: 2)
         let transition = machine.apply(
-            .snoozed(until: now.addingTimeInterval(Duration.minutes(10))),
+            .snoozed(until: now.addingTimeInterval(TimeSpan.minutes(10))),
             to: task(status: .snoozed, snoozeCount: 2),
             plan: plan(snooze: policy)
         )

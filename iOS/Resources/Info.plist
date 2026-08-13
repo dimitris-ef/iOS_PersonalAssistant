@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>UILaunchScreen</key>
+	<dict/>
+	<key>UISupportedInterfaceOrientations</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+	</array>
+	<!--
+	  Usage descriptions for the capabilities the assistant will request.
+	  They are declared now so the strings are reviewed as product copy rather
+	  than written in a hurry the day the integration lands. None of these
+	  permissions is requested by the current build.
+	  TODO-XCODE: verify each string once the matching integration exists.
+	-->
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>The assistant adds the appointments you tell it about and reads what is coming up so it can remind you in time.</string>
+	<key>NSRemindersFullAccessUsageDescription</key>
+	<string>The assistant keeps your reminders in step with the tasks it is tracking for you.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Speak to the assistant instead of typing.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Your speech is turned into text so the assistant can act on what you said.</string>
+</dict>
+</plist>

@@ -132,7 +132,7 @@ public struct FollowUpPolicy: Hashable, Codable, Sendable {
     public init(
         isEnabled: Bool = true,
         maximumFollowUps: Int = 3,
-        interval: TimeInterval = Duration.hours(2),
+        interval: TimeInterval = TimeSpan.hours(2),
         escalatesEachTime: Bool = true
     ) {
         self.isEnabled = isEnabled
@@ -153,7 +153,7 @@ public struct SnoozePolicy: Hashable, Codable, Sendable {
 
     public init(
         isAllowed: Bool = true,
-        defaultDuration: TimeInterval = Duration.minutes(10),
+        defaultDuration: TimeInterval = TimeSpan.minutes(10),
         maximumSnoozes: Int = 3,
         escalateAfterSnoozes: Int = 2
     ) {
@@ -172,7 +172,7 @@ public struct CompletionPolicy: Hashable, Codable, Sendable {
 
     public init(
         requiresExplicitConfirmation: Bool = true,
-        markMissedAfter: TimeInterval? = Duration.hours(1)
+        markMissedAfter: TimeInterval? = TimeSpan.hours(1)
     ) {
         self.requiresExplicitConfirmation = requiresExplicitConfirmation
         self.markMissedAfter = markMissedAfter

@@ -90,7 +90,7 @@ public struct AlarmRequest: Identifiable, Hashable, Codable, Sendable {
         label: String,
         fireDate: Date,
         allowsSnooze: Bool = true,
-        snoozeDuration: TimeInterval = Duration.minutes(9),
+        snoozeDuration: TimeInterval = TimeSpan.minutes(9),
         maximumSnoozes: Int = 3,
         recurrence: RecurrenceRule? = nil,
         relatedTaskID: TaskItem.ID? = nil

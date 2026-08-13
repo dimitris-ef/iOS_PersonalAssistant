@@ -18,7 +18,7 @@ final class ToolRequestDecoderTests: XCTestCase {
     func testDecodesAValidCalendarEventCall() throws {
         let arguments = JSONValue.object([
             "title": .string("Haircut"),
-            "start": .string(isoString(Duration.days(3))),
+            "start": .string(isoString(TimeSpan.days(3))),
             "importance": .string("high"),
         ])
 
@@ -61,7 +61,7 @@ final class ToolRequestDecoderTests: XCTestCase {
                 name: "createCalendarEvent",
                 arguments: .object([
                     "title": .string("   "),
-                    "start": .string(isoString(Duration.days(1))),
+                    "start": .string(isoString(TimeSpan.days(1))),
                 ])
             )
         ) { error in
@@ -78,7 +78,7 @@ final class ToolRequestDecoderTests: XCTestCase {
                 name: "createAlarm",
                 arguments: .object([
                     "label": .string("Wake up"),
-                    "fireDate": .string(isoString(-Duration.hour)),
+                    "fireDate": .string(isoString(-TimeSpan.hour)),
                 ])
             )
         ) { error in

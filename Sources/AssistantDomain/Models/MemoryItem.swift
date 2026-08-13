@@ -7,6 +7,11 @@ public enum MemoryKind: String, Hashable, Codable, Sendable, CaseIterable {
     case preference
     /// "My dentist is Dr. Alvarez."
     case person
+    /// "Work is about 30 minutes away by bus."
+    ///
+    /// Distinct from `fact` because travel time to a named place feeds directly
+    /// into leave-time planning.
+    case place
     /// "Rent is due on the 1st."
     case recurringCommitment
     /// Anything else worth carrying forward.

@@ -56,8 +56,8 @@ public struct SupportPreferences: Hashable, Codable, Sendable {
     public init(
         advanceNoticeDays: [Int] = [3],
         morningOfTime: TimeOfDay = TimeOfDay(hour: 8),
-        preparationLeadDefault: TimeInterval = Duration.minutes(30),
-        finalCallLead: TimeInterval = Duration.minutes(10),
+        preparationLeadDefault: TimeInterval = TimeSpan.minutes(30),
+        finalCallLead: TimeInterval = TimeSpan.minutes(10),
         defaultEscalation: EscalationLevel = .standard,
         followUp: FollowUpPolicy = FollowUpPolicy(),
         snooze: SnoozePolicy = SnoozePolicy(),

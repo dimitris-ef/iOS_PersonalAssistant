@@ -62,13 +62,13 @@ final class DomainModelTests: XCTestCase {
         let task = TaskItem(
             title: "Pay bill",
             status: .reminded,
-            timing: .fixed(now.addingTimeInterval(Duration.hours(2))),
+            timing: .fixed(now.addingTimeInterval(TimeSpan.hours(2))),
             createdAt: now
         )
 
         let inWindow = TaskFilter(
             statuses: [.reminded],
-            window: TimeWindow(start: now, end: now.addingTimeInterval(Duration.day))
+            window: TimeWindow(start: now, end: now.addingTimeInterval(TimeSpan.day))
         )
         XCTAssertTrue(inWindow.matches(task))
 
@@ -77,8 +77,8 @@ final class DomainModelTests: XCTestCase {
 
         let outOfWindow = TaskFilter(
             window: TimeWindow(
-                start: now.addingTimeInterval(Duration.days(3)),
-                end: now.addingTimeInterval(Duration.days(4))
+                start: now.addingTimeInterval(TimeSpan.days(3)),
+                end: now.addingTimeInterval(TimeSpan.days(4))
             )
         )
         XCTAssertFalse(outOfWindow.matches(task))

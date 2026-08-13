@@ -47,7 +47,7 @@ public struct ContextAssembler: Sendable {
     public init(
         repositories: AssistantRepositories,
         dateProvider: any DateProvider,
-        upcomingWindow: TimeInterval = Duration.days(14)
+        upcomingWindow: TimeInterval = TimeSpan.days(14)
     ) {
         self.repositories = repositories
         self.dateProvider = dateProvider

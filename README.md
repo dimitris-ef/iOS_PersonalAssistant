@@ -16,8 +16,8 @@ keeps responsibility for a task until you confirm it is done.
 
 ## Status
 
-This repository currently contains the **architecture and the core**, not a
-shipping app. What exists:
+The repository contains the **core** and the **SwiftUI application**. What
+exists:
 
 - the domain models
 - the assistant turn pipeline (context → provider → structured actions → execution)
@@ -26,17 +26,23 @@ shipping app. What exists:
 - the reminder-planning layer
 - protocol-based platform services plus mock implementations
 - repository interfaces and a JSON-backed development implementation
-- a command-line harness
-- unit tests
+- a command-line harness and unit tests
+- **the iPhone app's SwiftUI interface** — Assistant, Today, Tasks, Memory and
+  Settings, with real navigation, sheets, forms and components
 
-What does not exist yet, deliberately: every Apple framework integration, and
-the SwiftUI app itself. Those need Xcode. See
-[TODO-XCODE](#todo-xcode) below.
+The UI is the production interface, not a prototype: it is SwiftUI, it sits on
+the existing architecture, and it calls the same protocols the Apple
+implementations will. What is mocked is the layer *beneath* it — the platform
+services and the model — never the UI itself.
 
-> **Not verified by a compiler.** This code was written on a machine with no
-> Swift toolchain available, so it has not been built or test-run. Expect to fix
-> compile errors on the first `swift build`. The architecture is the deliverable;
-> treat the first build as part of adopting it.
+What does not exist yet, deliberately: every Apple framework integration. Those
+need Xcode. See [TODO-XCODE](#todo-xcode) below.
+
+> **Not verified by a compiler.** All of this was written on a machine with no
+> Swift toolchain and no Apple SDK, so nothing has been built or run — the core
+> or the UI. Expect to fix compile errors on the first build. The architecture
+> and the interface are the deliverable; treat the first build as part of
+> adopting them.
 
 ---
 
@@ -96,8 +102,18 @@ PhonePersonalAI/
 │   ├── DevSupport/             Scripted provider for development only
 │   └── DevHarness/             CLI harness (assistant-dev)
 ├── Tests/
-├── iOS/                        Not in the package. Xcode territory.
-└── Docs/ARCHITECTURE.md
+├── iOS/                        The SwiftUI app. Not in the package — Xcode territory.
+│   ├── App/                    Entry point, composition root, shared state
+│   ├── Data/                   Centralised demo content
+│   ├── Presentation/           Domain → display mapping
+│   ├── ViewModels/             Per-screen state
+│   ├── UI/                     Views and reusable components
+│   ├── Platform/               Apple adapters (TODO-XCODE skeletons)
+│   └── Resources/              Assets, Info.plist
+├── project.yml                 XcodeGen spec for the app target
+└── Docs/
+    ├── ARCHITECTURE.md
+    └── UI-ARCHITECTURE.md
 ```
 
 Dependencies point one way: `AssistantDomain` ← everything else, and the engine
@@ -229,6 +245,28 @@ Platform execution (simulated — nothing reached a device):
   - [simulated:MockNotifications] Notification scheduled: ...
 ```
 
+## The app
+
+Five screens, built on the core:
+
+- **Assistant** — a conversation that produces structured results. Replies sit
+  in the page; what the assistant *did* appears as a card beneath, with the
+  reminder plan drawn inside it.
+- **Today** — what to care about today. An assistant-written summary, an
+  Up Next card with the lead-in that actually helps ("start getting ready in
+  1h 25m"), and a timeline where preparation and leave reminders sit alongside
+  events as equals.
+- **Tasks** — To Do / In Progress / Done, with filters, swipe actions, detail
+  and an editor. The finer domain states (snoozed, missed, needs follow-up) stay
+  visible on the row.
+- **Memory** — everything the assistant knows, grouped and editable, with the
+  provenance of each entry shown.
+- **Settings** — assistant, model selector, ADHD assistance, notifications,
+  appearance, privacy.
+
+See [`Docs/UI-ARCHITECTURE.md`](Docs/UI-ARCHITECTURE.md) for how the layers fit
+together, and [`iOS/README.md`](iOS/README.md) for opening it in Xcode.
+
 ## Running the tests
 
 ```bash
@@ -262,12 +300,17 @@ Current list:
 | `Package.swift` | Raise the iOS deployment target for Foundation Models / AlarmKit |
 | `Sources/AIProviderApple/AppleFoundationModelsProvider.swift` | Implement `respond(to:)` and real availability against `FoundationModels` |
 | `Sources/AssistantPlatform/PlatformService.swift` | Real permission flow |
+| `iOS/App/AppEnvironment.swift` | Swap `makeDemo()` for a live environment |
+| `iOS/App/UnconfiguredCloudAdapter.swift` | A real `RemoteAPIAdapter` |
+| `iOS/Data/DemoDataSeeder.swift` | Seeding should move behind a debug flag |
+| `iOS/UI/Assistant/AssistantComposerView.swift` | Microphone capture and speech recognition |
+| `iOS/UI/Shared/SimulatedReminderView.swift` | Real notification categories and actions |
+| `iOS/Resources/Info.plist` | Verify usage descriptions |
+| `project.yml` | Never run through XcodeGen |
+| Every `#Preview` | Marked `TODO-XCODE: Verify SwiftUI preview` |
 | `Sources/AssistantPlatform/PlatformProtocols.swift` | EventKit / AlarmKit / UserNotifications implementation notes |
 | `Sources/MockPlatform/MockPermissionService.swift` | iOS permission prompts cannot be modelled here |
 | `Sources/AIProviderRemote/RemoteAPIAdapter.swift` | Keychain-backed credential storage |
-| `iOS/App/AssistantComposition.swift` | Wire real services; replace the JSON store |
-| `iOS/App/PersonalAssistantApp.swift` | App entry point |
-| `iOS/UI/ConversationView.swift` | The conversation screen |
 | `iOS/Platform/EventKitCalendarService.swift` | EventKit calendar |
 | `iOS/Platform/UserNotificationsService.swift` | Notification delivery and the Done/Snooze actions |
 | `iOS/Platform/AlarmKitAlarmService.swift` | AlarmKit alarms |

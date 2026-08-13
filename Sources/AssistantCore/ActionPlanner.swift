@@ -174,7 +174,7 @@ public struct DefaultActionPlanner: ActionPlanner {
     }
 
     private func minutes(_ value: Int?) -> TimeInterval? {
-        value.map { Duration.minutes(Double($0)) }
+        value.map { TimeSpan.minutes(Double($0)) }
     }
 
     private func kind(for reminder: ScheduledReminder) -> ToolKind {

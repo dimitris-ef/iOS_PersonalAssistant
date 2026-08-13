@@ -26,8 +26,8 @@ public struct UserProfile: Identifiable, Hashable, Codable, Sendable {
         timeZoneIdentifier: String = TimeZone.current.identifier,
         wakeTime: TimeOfDay? = nil,
         sleepTime: TimeOfDay? = nil,
-        defaultPreparationDuration: TimeInterval = Duration.minutes(30),
-        defaultTravelDuration: TimeInterval = Duration.minutes(20),
+        defaultPreparationDuration: TimeInterval = TimeSpan.minutes(30),
+        defaultTravelDuration: TimeInterval = TimeSpan.minutes(20),
         quietHours: DayWindow? = nil
     ) {
         self.id = id

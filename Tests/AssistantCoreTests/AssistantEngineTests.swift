@@ -39,8 +39,8 @@ final class AssistantEngineTests: XCTestCase {
         try await repositories.settings.update(settings)
 
         var profile = try await repositories.profile.profile()
-        profile.defaultPreparationDuration = Duration.minutes(30)
-        profile.defaultTravelDuration = Duration.minutes(20)
+        profile.defaultPreparationDuration = TimeSpan.minutes(30)
+        profile.defaultTravelDuration = TimeSpan.minutes(20)
         try await repositories.profile.update(profile)
 
         let log = PlatformEventLog()
@@ -69,7 +69,7 @@ final class AssistantEngineTests: XCTestCase {
             .createCalendarEvent,
             CreateCalendarEventInput(
                 title: "Haircut",
-                start: now.addingTimeInterval(Duration.days(7)),
+                start: now.addingTimeInterval(TimeSpan.days(7)),
                 location: "Barber",
                 importance: .normal
             )
@@ -96,7 +96,7 @@ final class AssistantEngineTests: XCTestCase {
         XCTAssertTrue(plannerActions.allSatisfy { $0.rationale != nil })
 
         let events = try await harness.services.calendar.events(
-            in: TimeWindow(start: now, end: now.addingTimeInterval(Duration.days(30)))
+            in: TimeWindow(start: now, end: now.addingTimeInterval(TimeSpan.days(30)))
         )
         XCTAssertEqual(events.map(\.title), ["Haircut"])
 
@@ -107,7 +107,7 @@ final class AssistantEngineTests: XCTestCase {
     func testMockExecutionIsReportedAsSimulatedNotExecuted() async throws {
         let call = try ToolCallFactory.make(
             .createCalendarEvent,
-            CreateCalendarEventInput(title: "Haircut", start: now.addingTimeInterval(Duration.days(2)))
+            CreateCalendarEventInput(title: "Haircut", start: now.addingTimeInterval(TimeSpan.days(2)))
         )
         let harness = try await makeHarness(providers: [StubAIProvider(toolCalls: [call])])
 
@@ -128,7 +128,7 @@ final class AssistantEngineTests: XCTestCase {
             .createTask,
             CreateTaskInput(
                 title: "Pay the electricity bill",
-                fixedDate: now.addingTimeInterval(Duration.days(3))
+                fixedDate: now.addingTimeInterval(TimeSpan.days(3))
             )
         )
         let harness = try await makeHarness(providers: [StubAIProvider(toolCalls: [call])])
@@ -149,7 +149,7 @@ final class AssistantEngineTests: XCTestCase {
     func testDeniedToolsAreNeverExecuted() async throws {
         let call = try ToolCallFactory.make(
             .createAlarm,
-            CreateAlarmInput(label: "Wake up", fireDate: now.addingTimeInterval(Duration.hours(8)))
+            CreateAlarmInput(label: "Wake up", fireDate: now.addingTimeInterval(TimeSpan.hours(8)))
         )
         let harness = try await makeHarness(
             providers: [StubAIProvider(toolCalls: [call])],
@@ -186,7 +186,7 @@ final class AssistantEngineTests: XCTestCase {
             .createCalendarEvent,
             CreateCalendarEventInput(
                 title: "Haircut",
-                start: now.addingTimeInterval(Duration.days(2)),
+                start: now.addingTimeInterval(TimeSpan.days(2)),
                 wantsReminderSupport: false
             )
         )
@@ -316,7 +316,7 @@ final class AssistantEngineTests: XCTestCase {
         XCTAssertTrue(result.plan.actions.contains { $0.origin == .supportPlanner })
 
         let events = try await harness.services.calendar.events(
-            in: TimeWindow(start: now, end: now.addingTimeInterval(Duration.days(30)))
+            in: TimeWindow(start: now, end: now.addingTimeInterval(TimeSpan.days(30)))
         )
         XCTAssertEqual(events.first?.title.lowercased(), "haircut")
     }

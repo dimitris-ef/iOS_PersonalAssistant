@@ -35,8 +35,8 @@ struct HarnessSession {
         if existingProfile.displayName == nil {
             var profile = existingProfile
             profile.displayName = "Dev User"
-            profile.defaultPreparationDuration = Duration.minutes(30)
-            profile.defaultTravelDuration = Duration.minutes(20)
+            profile.defaultPreparationDuration = TimeSpan.minutes(30)
+            profile.defaultTravelDuration = TimeSpan.minutes(20)
             profile.wakeTime = TimeOfDay(hour: 7)
             profile.quietHours = DayWindow(start: TimeOfDay(hour: 23), end: TimeOfDay(hour: 7))
             try await repositories.profile.update(profile)

@@ -193,7 +193,7 @@ public struct ToolRequestDecoder: Sendable {
     private func requireFuture(_ date: Date, field: String, kind: ToolKind) throws {
         // A small grace period: a model may compute a fire date a moment before
         // we get around to validating it.
-        if date < dateProvider.now.addingTimeInterval(-Duration.minutes(1)) {
+        if date < dateProvider.now.addingTimeInterval(-TimeSpan.minutes(1)) {
             throw ToolDecodingError.failedValidation(kind: kind, detail: "\(field) is in the past")
         }
     }

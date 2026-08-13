@@ -1,10 +1,15 @@
 // TODO-XCODE: this file is part of the iOS app target, not the Swift package.
 // It does not compile during Windows-stage development.
 
-import AlarmKit
 import AssistantDomain
 import AssistantPlatform
 import Foundation
+
+// AlarmKit needs a much newer SDK than this target's deployment minimum, so the
+// whole file is guarded. Nothing references this type yet.
+// TODO-XCODE: raise the deployment target and drop the guard when adopting it.
+#if canImport(AlarmKit)
+import AlarmKit
 
 /// AlarmKit-backed alarms.
 ///
@@ -36,3 +41,4 @@ actor AlarmKitAlarmService: AlarmService {
         throw PlatformError.notAvailable(capability: .alarms, reason: "TODO-XCODE: AlarmKit not implemented")
     }
 }
+#endif

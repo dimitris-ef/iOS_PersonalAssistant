@@ -23,7 +23,7 @@ final class ProviderSwapTests: XCTestCase {
         )
         let taskCall = try ToolCallFactory.make(
             .createTask,
-            CreateTaskInput(title: "Pay the electricity bill", dueDate: now.addingTimeInterval(Duration.days(4)))
+            CreateTaskInput(title: "Pay the electricity bill", dueDate: now.addingTimeInterval(TimeSpan.days(4)))
         )
 
         let onDevice = StubAIProvider(

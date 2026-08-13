@@ -206,8 +206,8 @@ public struct DefaultSupportPlanner: SupportPlanner {
         switch stage.offset {
         case .beforeAnchor(let interval): return interval
         case .afterAnchor(let interval): return -interval
-        case .daysBefore(let days, _): return Double(days) * Duration.day
-        case .morningOf: return Duration.hours(12)
+        case .daysBefore(let days, _): return Double(days) * TimeSpan.day
+        case .morningOf: return TimeSpan.hours(12)
         case .absolute: return 0
         }
     }

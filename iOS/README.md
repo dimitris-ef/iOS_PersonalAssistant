@@ -1,55 +1,101 @@
-# iOS layer
+# The iOS application
 
-Everything in this directory needs Xcode and an Apple SDK. **None of it is part
-of the Swift package**, and none of it is compiled or tested during the
-Windows-first development stage — `Package.swift` never references this
-directory, so `swift build` on Windows or Linux ignores it entirely.
+This is the real app. Not a prototype, not a preview, not a mock-up in another
+framework — this is the SwiftUI code the iPhone app ships with.
 
-The files here are skeletons that show where each Apple integration plugs into
-the core. Every one of them is marked `TODO-XCODE`. They do not work, and they
-do not pretend to.
+It is written on Windows, where it cannot be compiled or run. That constraint
+changes *when* it is verified, not *what* it is: opening this repository on a
+Mac gives you this UI, not a design to reimplement.
 
-## What goes here
+## Layout
 
-| Path | Purpose | Apple framework |
+```
+iOS/
+├── App/            Entry point, composition root, shared app state
+│   ├── PersonalAssistantApp.swift   @main, appearance preference
+│   ├── AppEnvironment.swift         The only place implementations are chosen
+│   ├── AppModel.swift               Shared observable state; talks to the core
+│   ├── RootView.swift               TabView, settings + reminder presentation
+│   └── UnconfiguredCloudAdapter.swift
+├── Data/           Centralised demo content
+│   ├── DemoData.swift               Seed values, built relative to "now"
+│   └── DemoDataSeeder.swift         Writes them through the real interfaces
+├── Presentation/   Domain → display mapping (no SwiftUI state)
+│   ├── AppFormatters.swift
+│   ├── ConversationPresentation.swift
+│   ├── ReminderPlanPresentation.swift
+│   ├── TodayPresentation.swift
+│   ├── TaskPresentation.swift
+│   ├── MemoryPresentation.swift
+│   └── SimulatedReminder.swift
+├── ViewModels/     Per-screen state
+├── UI/             Views, grouped by screen, plus Components/ and Shared/
+├── Platform/       Apple framework adapters — all TODO-XCODE skeletons
+├── Integrations/   App Intents, widgets, background execution — notes only
+└── Resources/      Assets.xcassets, Info.plist
+```
+
+## How the UI reaches the core
+
+```
+View  →  ViewModel (screen state)  →  AppModel  →  AssistantEngine / repositories
+                                                 →  PlatformServices (mocked)
+```
+
+`AppModel` is the only type that talks to the core. Views never construct a
+service, and no business rule lives in a `body`: completing a task, dismissing a
+reminder and planning reminders all happen in `ExecutiveSupport` and
+`AssistantCore`, exactly as they will in the shipping app.
+
+`AppEnvironment.makeDemo()` is the single line to change when the Apple layer
+arrives. Nothing in `UI/` knows which services it is running against.
+
+## Opening it on a Mac
+
+Either generate the project:
+
+```bash
+brew install xcodegen
+xcodegen generate           # reads project.yml at the repository root
+open PersonalAssistant.xcodeproj
+```
+
+…or create an iOS App target by hand and use `project.yml` as the checklist:
+add `iOS/` (minus this README) as sources, point `INFOPLIST_FILE` at
+`iOS/Resources/Info.plist`, add the package at the repository root as a local
+dependency, and link `AssistantCore`, `AssistantDomain`, `AssistantAI`,
+`AssistantTools`, `AssistantPlatform`, `AssistantPersistence`,
+`ExecutiveSupport`, `MockPlatform`, `AIProviderApple`, `AIProviderLocal`,
+`AIProviderRemote` and `DevSupport`.
+
+Expect to fix compile errors on the first build. None of this has been through a
+compiler — see the Status section of the root README.
+
+## What is honest about the current build
+
+Every one of these is stated in the UI itself, not just here:
+
+- The Assistant screen carries a notice that the selected model is unavailable
+  and replies come from a scripted development stand-in.
+- Action cards produced by mock services show "Simulated · nothing was
+  scheduled on this device".
+- Event detail says the event is held by the app's mock calendar.
+- The reminder sheet is labelled a simulation and only appears in-app.
+- Settings → Notifications says delivery is not connected.
+- Settings → Privacy describes the app as it is, including what is missing.
+
+## Replacing the mocks
+
+Each of these is an implementation task with no UI consequences:
+
+| To make real | Implement | Register in |
 | --- | --- | --- |
-| `App/` | The `@main` app entry point and dependency wiring | SwiftUI |
-| `UI/` | Screens: conversation, plan review, tasks, settings | SwiftUI |
-| `Platform/` | Implementations of the `AssistantPlatform` protocols | EventKit, UserNotifications, AlarmKit |
-| `Integrations/` | App Intents, Siri, widgets, Live Activities | AppIntents, WidgetKit, ActivityKit |
-
-## Bringing this up on a Mac
-
-1. Create an iOS App target in Xcode (`PersonalAssistant`).
-2. Add the package at the repository root as a local Swift Package dependency,
-   and link `AssistantCore`, `MockPlatform` (debug only), `AIProviderApple`,
-   `AIProviderLocal` and `AIProviderRemote`.
-3. Add the files from this directory to the app target.
-4. Raise the deployment target as needed — Apple Foundation Models and AlarmKit
-   both require a newer minimum than the package currently declares.
-5. Add the usage descriptions and entitlements: calendar, reminders,
-   notifications, and (for alarms) whatever AlarmKit requires.
-6. Replace `PlatformServices.mock(...)` in `AssistantComposition` with the real
-   services one at a time. Each one can be swapped independently, because the
-   core only ever sees the protocol.
-
-## What the core already guarantees
-
-The work below is *implementation*, not redesign. None of it requires changing
-the assistant's logic:
-
-- **Apple Foundation Models** — implement `respond(to:)` in
-  `AIProviderApple`. Nothing else changes; the provider is already registered
-  and already reports itself unavailable.
-- **A downloaded local model** — implement `LocalModelRuntime` and inject it
-  into `LocalModelProvider`. The runtime has deliberately not been chosen.
-- **A remote API** — implement one `RemoteAPIAdapter`. Vendor-specific request
-  and response shapes live entirely inside the adapter.
-- **EventKit / AlarmKit / UserNotifications** — implement `CalendarService`,
-  `ReminderService`, `AlarmService` and `NotificationService`, and set
-  `fidelity` to `.live` once they genuinely reach the OS.
-- **App Intents / Siri** — build `ToolRequest` values directly and hand them to
-  the same executor the model's requests go through. An intent is just another
-  origin; the authorization and execution path is shared.
-- **Widgets / Live Activities** — read from the repositories. They never need
-  an AI provider.
+| Calendar | `EventKitCalendarService` | `AppEnvironment` |
+| Reminders | An EventKit-backed `ReminderService` | `AppEnvironment` |
+| Notifications | `UserNotificationsService` + a delegate feeding `EngagementEvent`s | `AppEnvironment` |
+| Alarms | `AlarmKitAlarmService` | `AppEnvironment` |
+| On-device model | `respond(to:)` in `AppleFoundationModelsProvider` | already registered |
+| Local model | A `LocalModelRuntime` | `LocalModelProvider` |
+| Cloud model | A `RemoteAPIAdapter` replacing `UnconfiguredCloudAdapter` | `AppEnvironment` |
+| Voice input | `AVAudioEngine` + `SFSpeechRecognizer` | `VoiceInputPlaceholderView` |
+| Storage | A `SnapshotStore` over SwiftData/SQLite | `AppEnvironment` |

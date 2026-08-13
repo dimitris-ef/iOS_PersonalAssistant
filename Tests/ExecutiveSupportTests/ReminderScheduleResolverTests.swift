@@ -31,10 +31,10 @@ final class ReminderScheduleResolverTests: XCTestCase {
 
     func testRelativeStagesResolveToConcreteDates() {
         let resolver = ReminderScheduleResolver(calendar: calendar)
-        let anchorOffset = Duration.days(2)
+        let anchorOffset = TimeSpan.days(2)
         let stage = ReminderStage(
             kind: .finalCall,
-            offset: .beforeAnchor(Duration.minutes(10)),
+            offset: .beforeAnchor(TimeSpan.minutes(10)),
             message: "Starting soon"
         )
 
@@ -46,7 +46,7 @@ final class ReminderScheduleResolverTests: XCTestCase {
         XCTAssertEqual(resolved.count, 1)
         XCTAssertEqual(
             resolved[0].fireDate.timeIntervalSince1970,
-            now.addingTimeInterval(anchorOffset - Duration.minutes(10)).timeIntervalSince1970,
+            now.addingTimeInterval(anchorOffset - TimeSpan.minutes(10)).timeIntervalSince1970,
             accuracy: 1
         )
     }
@@ -54,13 +54,13 @@ final class ReminderScheduleResolverTests: XCTestCase {
     func testStagesAlreadyInThePastAreDropped() {
         let resolver = ReminderScheduleResolver(calendar: calendar)
         let stages = [
-            ReminderStage(kind: .advanceNotice, offset: .beforeAnchor(Duration.days(3)), message: "Soon"),
-            ReminderStage(kind: .finalCall, offset: .beforeAnchor(Duration.minutes(10)), message: "Now"),
+            ReminderStage(kind: .advanceNotice, offset: .beforeAnchor(TimeSpan.days(3)), message: "Soon"),
+            ReminderStage(kind: .finalCall, offset: .beforeAnchor(TimeSpan.minutes(10)), message: "Now"),
         ]
 
         // Anchor is only one day away, so the three-day stage is already past.
         let resolved = resolver.resolve(
-            plan: plan(anchorOffset: Duration.day, stages: stages),
+            plan: plan(anchorOffset: TimeSpan.day, stages: stages),
             now: now
         )
 
@@ -70,12 +70,12 @@ final class ReminderScheduleResolverTests: XCTestCase {
     func testResolvedRemindersAreOrderedByFireDate() {
         let resolver = ReminderScheduleResolver(calendar: calendar)
         let stages = [
-            ReminderStage(kind: .finalCall, offset: .beforeAnchor(Duration.minutes(10)), message: "Now"),
-            ReminderStage(kind: .preparation, offset: .beforeAnchor(Duration.hours(2)), message: "Get ready"),
+            ReminderStage(kind: .finalCall, offset: .beforeAnchor(TimeSpan.minutes(10)), message: "Now"),
+            ReminderStage(kind: .preparation, offset: .beforeAnchor(TimeSpan.hours(2)), message: "Get ready"),
         ]
 
         let resolved = resolver.resolve(
-            plan: plan(anchorOffset: Duration.days(2), stages: stages),
+            plan: plan(anchorOffset: TimeSpan.days(2), stages: stages),
             now: now
         )
 
@@ -86,14 +86,14 @@ final class ReminderScheduleResolverTests: XCTestCase {
         let resolver = ReminderScheduleResolver(calendar: calendar)
         let stage = ReminderStage(
             kind: .finalCall,
-            offset: .beforeAnchor(Duration.minutes(10)),
+            offset: .beforeAnchor(TimeSpan.minutes(10)),
             message: "Now",
             requiresConfirmation: false
         )
 
         let resolved = resolver.resolve(
             plan: plan(
-                anchorOffset: Duration.days(1),
+                anchorOffset: TimeSpan.days(1),
                 stages: [stage],
                 completion: CompletionPolicy(requiresExplicitConfirmation: true)
             ),
@@ -107,7 +107,7 @@ final class ReminderScheduleResolverTests: XCTestCase {
         let resolver = ReminderScheduleResolver(calendar: calendar)
         // Anchor at 03:00 UTC on some future day, reminder fires right then.
         let anchor = TimeOfDay(hour: 3).resolved(
-            on: now.addingTimeInterval(Duration.days(2)),
+            on: now.addingTimeInterval(TimeSpan.days(2)),
             calendar: calendar
         )
         let plan = ReminderPlan(
@@ -138,7 +138,7 @@ final class ReminderScheduleResolverTests: XCTestCase {
     func testAlarmLevelRemindersIgnoreQuietHours() {
         let resolver = ReminderScheduleResolver(calendar: calendar)
         let anchor = TimeOfDay(hour: 3).resolved(
-            on: now.addingTimeInterval(Duration.days(2)),
+            on: now.addingTimeInterval(TimeSpan.days(2)),
             calendar: calendar
         )
         let plan = ReminderPlan(

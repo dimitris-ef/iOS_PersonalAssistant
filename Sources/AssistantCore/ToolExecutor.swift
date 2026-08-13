@@ -91,7 +91,7 @@ public struct DefaultToolExecutor: ToolExecutor {
                 id: input.eventID ?? CalendarItem.ID(),
                 title: input.title,
                 start: input.start,
-                end: input.end ?? input.start.addingTimeInterval(Duration.hour),
+                end: input.end ?? input.start.addingTimeInterval(TimeSpan.hour),
                 isAllDay: input.isAllDay ?? false,
                 location: input.location,
                 notes: input.notes,
@@ -138,7 +138,7 @@ public struct DefaultToolExecutor: ToolExecutor {
                 label: input.label,
                 fireDate: input.fireDate,
                 allowsSnooze: input.allowsSnooze ?? true,
-                snoozeDuration: minutes(input.snoozeMinutes) ?? Duration.minutes(9),
+                snoozeDuration: minutes(input.snoozeMinutes) ?? TimeSpan.minutes(9),
                 maximumSnoozes: input.maximumSnoozes ?? 3
             )
             let receipt = try await services.alarms.schedule(request)
@@ -258,7 +258,7 @@ public struct DefaultToolExecutor: ToolExecutor {
         case .getUpcomingSchedule(let input):
             let window = input.window ?? TimeWindow(
                 start: context.now,
-                end: context.now.addingTimeInterval(Duration.days(7))
+                end: context.now.addingTimeInterval(TimeSpan.days(7))
             )
             let events = try await services.calendar.events(in: window)
             let tasks = try await repositories.tasks.tasks(
@@ -283,7 +283,7 @@ public struct DefaultToolExecutor: ToolExecutor {
     }
 
     private func minutes(_ value: Int?) -> TimeInterval? {
-        value.map { Duration.minutes(Double($0)) }
+        value.map { TimeSpan.minutes(Double($0)) }
     }
 
     /// Faithfully reports whether the platform really did the thing.

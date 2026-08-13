@@ -48,7 +48,7 @@ public struct TimeWindow: Hashable, Codable, Sendable {
 }
 
 /// Common durations, so planning code does not sprinkle magic numbers around.
-public enum Duration {
+public enum TimeSpan {
     public static let minute: TimeInterval = 60
     public static let hour: TimeInterval = 3_600
     public static let day: TimeInterval = 86_400
