@@ -10,6 +10,11 @@ xcuserdata/
 DerivedData/
 *.xcuserstate
 
+# CI preview output (generated on the macOS runner, and locally if you run the
+# same commands). The .xcodeproj is generated from project.yml, never committed.
+.ci-deriveddata/
+artifacts/
+
 # Development harness storage — may contain personal data
 devdata/
 *.assistant-store/

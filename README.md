@@ -267,6 +267,28 @@ Five screens, built on the core:
 See [`Docs/UI-ARCHITECTURE.md`](Docs/UI-ARCHITECTURE.md) for how the layers fit
 together, and [`iOS/README.md`](iOS/README.md) for opening it in Xcode.
 
+## Seeing it run, from Windows
+
+`.github/workflows/ios-simulator-preview.yml` uses a GitHub-hosted macOS runner
+as the Mac this project does not have. On every push touching `iOS/**`,
+`Sources/**`, `Package.swift` or `project.yml` — or on demand from the Actions
+tab — it generates the Xcode project with XcodeGen, builds the real
+`PersonalAssistant` app for an iPhone Simulator, boots the simulator, installs
+and launches the app, and uploads:
+
+| Artifact | What it is |
+| --- | --- |
+| `ios-simulator-screenshot` | The app actually running, in light and dark |
+| `PersonalAssistant-iOS-Simulator` | The `.app`, zipped — usable with Appetize |
+| `xcodebuild-log` | The full build log, uploaded only when the build fails |
+
+No Apple Developer account, certificate or secret is involved: it is a Simulator
+build with code signing disabled, running against the same mock services and
+seeded data as everything else.
+
+This gives a build-and-look loop, not interactive development. It cannot tell
+you how a gesture feels.
+
 ## Running the tests
 
 ```bash
