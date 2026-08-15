@@ -1,0 +1,15 @@
+// Base build configuration for the app target.
+//
+// Development secrets are NOT here. They live in Config/LocalSecrets.xcconfig,
+// which is gitignored and included below with `#include?` — the optional form,
+// so the build works fine when the file does not exist (as in CI, and for
+// anyone who has not created one).
+
+// Empty defaults. When LocalSecrets.xcconfig is absent these stay blank, the
+// app reads no development configuration, and the remote provider reports that
+// it needs setting up.
+REMOTE_AI_BASE_URL =
+REMOTE_AI_MODEL =
+REMOTE_AI_API_KEY =
+
+#include? "LocalSecrets.xcconfig"

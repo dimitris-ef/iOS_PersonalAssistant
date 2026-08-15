@@ -102,48 +102,178 @@ public final class AssistantEngine: Sendable {
 
         // 2. Ask whichever provider settings point at.
         let provider = try await router.selectProvider(from: providers, settings: context.settings)
-        let request = AIRequest(
-            model: context.settings.preferredModelID,
-            systemPrompt: promptBuilder.systemPrompt(for: context),
-            messages: promptBuilder.messages(for: context),
-            tools: promptBuilder.toolSchemas()
-        )
-        let response = try await provider.respond(to: request)
+        let turn = try await runTurn(with: provider, context: context)
 
-        // 3. Type and validate everything it asked for, discarding the rest.
-        let limitedCalls = Array(response.toolCalls.prefix(request.options.maximumToolCalls))
-        let decoded = decoder.decode(
-            limitedCalls.map { AIToolCallEnvelope(id: $0.id, name: $0.name, arguments: $0.arguments) }
-        )
-
-        // 4. Plan, including the reminder support the app adds itself.
-        let planning = planner.makePlan(from: decoded, context: context)
-        for reminderPlan in planning.reminderPlans {
-            try await repositories.reminderPlans.save(reminderPlan)
-        }
-
-        // 5. Execute what is authorized.
-        let results = await executor.execute(planning.plan, context: context)
-
-        // 6. Record the turn.
+        // 3. Record the turn.
         let assistantMessage = Message(
             role: .assistant,
-            text: response.text,
+            text: turn.text,
             createdAt: dateProvider.now,
-            actionPlanID: planning.plan.id
+            actionPlanID: turn.plan.id
         )
         conversation.append(assistantMessage)
         try await repositories.conversations.save(conversation)
 
-        try await linkReminderPlans(planning)
+        try await linkReminderPlans(turn.reminderPlans)
 
         return AssistantTurnResult(
             conversation: conversation,
             assistantMessage: assistantMessage,
-            plan: planning.plan,
-            results: results,
-            providerID: response.providerID
+            plan: turn.plan,
+            results: turn.results,
+            providerID: turn.providerID
         )
+    }
+
+    /// What one turn produced, possibly across more than one provider round.
+    private struct TurnOutcome {
+        var text: String
+        var plan: AssistantActionPlan
+        var results: [ToolResult]
+        var reminderPlans: [ReminderPlan]
+        var providerID: AIProviderIdentifier
+    }
+
+    /// Asks the provider, executes what it proposed, and — for providers that
+    /// support it — shows it the results and asks for a closing reply.
+    ///
+    /// The loop is bounded by `maximumToolRounds` and by the provider's own
+    /// `supportsToolResultContinuation` flag. A provider that cannot read tool
+    /// results gets exactly one round, so it can never be re-asked the same
+    /// question and duplicate the actions it already proposed.
+    private func runTurn(
+        with provider: any AIProvider,
+        context: AssistantContext
+    ) async throws -> TurnOutcome {
+        let options = AIGenerationOptions()
+        var messages = promptBuilder.messages(for: context)
+
+        var text = ""
+        var actions: [AssistantAction] = []
+        var rejected: [RejectedToolCall] = []
+        var results: [ToolResult] = []
+        var reminderPlans: [ReminderPlan] = []
+        var providerID = provider.metadata.id
+        var round = 0
+
+        while true {
+            round += 1
+
+            let request = AIRequest(
+                model: context.settings.preferredModelID,
+                systemPrompt: promptBuilder.systemPrompt(for: context),
+                messages: messages,
+                tools: promptBuilder.toolSchemas(),
+                options: options
+            )
+
+            let response: AIResponse
+            if round == 1 {
+                response = try await provider.respond(to: request)
+            } else {
+                // A failure while asking for the closing remark must not lose
+                // the actions already taken — keep what we have and stop.
+                do {
+                    response = try await provider.respond(to: request)
+                } catch {
+                    break
+                }
+            }
+
+            providerID = response.providerID
+            if !response.text.isEmpty { text = response.text }
+
+            // Type and validate everything it asked for, discarding the rest.
+            let calls = Array(response.toolCalls.prefix(options.maximumToolCalls))
+            let decoded = decoder.decode(
+                calls.map { AIToolCallEnvelope(id: $0.id, name: $0.name, arguments: $0.arguments) }
+            )
+            rejected.append(contentsOf: decoded.rejected)
+
+            guard !decoded.accepted.isEmpty else { break }
+
+            // Plan, including the reminder support the app adds itself.
+            let planning = planner.makePlan(from: decoded, context: context)
+            for reminderPlan in planning.reminderPlans {
+                try await repositories.reminderPlans.save(reminderPlan)
+            }
+            reminderPlans.append(contentsOf: planning.reminderPlans)
+
+            // Execute what is authorized.
+            let roundResults = await executor.execute(planning.plan, context: context)
+            actions.append(contentsOf: planning.plan.actions)
+            results.append(contentsOf: roundResults)
+
+            guard
+                provider.metadata.supportsToolResultContinuation,
+                round < options.maximumToolRounds
+            else { break }
+
+            // Show the model what it asked for, then what happened.
+            messages.append(
+                AIMessage(role: .assistant, content: response.text, toolCalls: calls)
+            )
+            messages.append(
+                contentsOf: toolResultMessages(
+                    for: calls,
+                    plan: planning.plan,
+                    results: roundResults
+                )
+            )
+        }
+
+        return TurnOutcome(
+            text: text,
+            plan: AssistantActionPlan(
+                actions: actions,
+                rejected: rejected,
+                createdAt: dateProvider.now
+            ),
+            results: results,
+            reminderPlans: reminderPlans,
+            providerID: providerID
+        )
+    }
+
+    /// One `.tool` message per call, so the model sees the outcome of each.
+    private func toolResultMessages(
+        for calls: [AIToolCall],
+        plan: AssistantActionPlan,
+        results: [ToolResult]
+    ) -> [AIMessage] {
+        calls.map { call in
+            let content: String
+            if let action = plan.actions.first(where: { $0.sourceCallID == call.id }),
+               let result = results.first(where: { $0.actionID == action.id }) {
+                content = Self.describe(result)
+            } else if let rejection = plan.rejected.first(where: { $0.callID == call.id }) {
+                // Telling the model why it was rejected is how it corrects
+                // itself; it still cannot bypass the rejection.
+                content = "Rejected. \(rejection.error)"
+            } else {
+                content = "No result was produced."
+            }
+            return AIMessage(role: .tool, content: content, toolCallID: call.id)
+        }
+    }
+
+    /// Describes an outcome for the model — including, plainly, when the work
+    /// was only simulated, so it cannot tell the user their phone did something.
+    private static func describe(_ result: ToolResult) -> String {
+        switch result.outcome {
+        case .executed:
+            return "Done. \(result.message)"
+        case .simulated(let platform):
+            return "Recorded by the app's \(platform). This is simulated — nothing was scheduled on the device. \(result.message)"
+        case .awaitingConfirmation:
+            return "Prepared, but waiting for the user to approve it. \(result.message)"
+        case .denied(let reason):
+            return "Not permitted: \(reason)"
+        case .failed(let reason):
+            return "Failed: \(reason)"
+        case .unsupported(let reason):
+            return "Not supported: \(reason)"
+        }
     }
 
     /// Applies an engagement event (notification dismissed, snoozed, confirmed)
@@ -172,8 +302,8 @@ public final class AssistantEngine: Sendable {
 
     /// Points newly created tasks at the reminder plan generated for them, so
     /// follow-up logic can later consult the policies that were in force.
-    private func linkReminderPlans(_ planning: PlanningOutput) async throws {
-        for reminderPlan in planning.reminderPlans {
+    private func linkReminderPlans(_ reminderPlans: [ReminderPlan]) async throws {
+        for reminderPlan in reminderPlans {
             guard case .task(let taskID) = reminderPlan.subject.reference else { continue }
             guard var task = try await repositories.tasks.task(id: taskID) else { continue }
             guard task.reminderPlanID == nil else { continue }

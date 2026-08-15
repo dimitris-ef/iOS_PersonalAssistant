@@ -37,22 +37,22 @@ public struct LocalModelProvider: AIProvider {
         guard let runtime else {
             // TODO: choose an inference runtime. Deliberately unresolved — see
             // `LocalModelRuntime`.
-            return .unavailable(reason: "No local inference runtime is configured.")
+            return .unsupported(reason: "No local inference runtime is configured.")
         }
         guard let model = await resolveModel() else {
-            return .unavailable(reason: "No local model has been downloaded.")
+            return .configurationRequired(reason: "No local model has been downloaded.")
         }
         switch await runtime.state(of: model) {
         case .ready:
             return .available
         case .notDownloaded:
-            return .unavailable(reason: "\(model.displayName) is not downloaded.")
+            return .configurationRequired(reason: "\(model.displayName) is not downloaded.")
         case .downloading(let fraction):
-            return .unavailable(
+            return .temporarilyUnavailable(
                 reason: "\(model.displayName) is downloading (\(Int(fraction * 100))%)."
             )
         case .failed(let reason):
-            return .unavailable(reason: reason)
+            return .temporarilyUnavailable(reason: reason)
         }
     }
 

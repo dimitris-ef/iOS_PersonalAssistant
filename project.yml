@@ -30,10 +30,16 @@ targets:
   PersonalAssistant:
     type: application
     platform: iOS
+    # Development configuration. Config/App.xcconfig optionally includes the
+    # gitignored Config/LocalSecrets.xcconfig; absent, everything stays blank.
+    configFiles:
+      Debug: Config/App.xcconfig
+      Release: Config/App.xcconfig
     sources:
       - path: iOS/App
       - path: iOS/Data
       - path: iOS/Presentation
+      - path: iOS/RemoteAI
       - path: iOS/ViewModels
       - path: iOS/UI
       - path: iOS/Resources

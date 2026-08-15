@@ -13,11 +13,13 @@ import Observation
 final class SettingsViewModel {
     enum Route: Identifiable, Hashable {
         case modelSelector
+        case remoteAI
         case privacy(PrivacyTopic)
 
         var id: String {
             switch self {
             case .modelSelector: return "model"
+            case .remoteAI: return "remote-ai"
             case .privacy(let topic): return "privacy-\(topic.rawValue)"
             }
         }
@@ -34,11 +36,7 @@ final class SettingsViewModel {
     }
 
     func selectedProviderIsAvailable(for model: AppModel) -> Bool {
-        guard
-            let id = model.settings.preferredProviderID,
-            let option = model.providerOptions.first(where: { $0.id == id })
-        else { return false }
-        return option.isAvailable
+        model.selectedProviderOption?.isAvailable ?? false
     }
 }
 
@@ -94,8 +92,13 @@ enum PrivacyTopic: String, CaseIterable, Identifiable {
             you download, and a cloud model all sit behind the same interface, and none of them owns \
             your conversations, tasks or memory.
 
-            None of the three can answer yet. Replies in this build come from a scripted development \
-            stand-in, which is why the Assistant screen says so.
+            Apple's on-device model and downloaded local models are not implemented yet. A cloud \
+            model works once you give it an endpoint, a key and a model name; until then, replies \
+            come from a scripted development stand-in and the Assistant screen says so.
+
+            If you configure a cloud model, your messages and the context the assistant assembles \
+            are sent to that service. Your API key is kept in the device keychain and is never \
+            written to settings, logs or backups.
             """
         case .permissions:
             return """

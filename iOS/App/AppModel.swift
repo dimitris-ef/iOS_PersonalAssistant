@@ -1,3 +1,4 @@
+import AIProviderRemote
 import AssistantAI
 import AssistantCore
 import AssistantDomain
@@ -31,6 +32,12 @@ final class AppModel {
     private(set) var settings = AssistantSettings()
     private(set) var profile = UserProfile()
     private(set) var providerOptions: [ProviderOption] = []
+
+    /// The remote provider's non-secret settings, mirrored for the UI.
+    private(set) var remoteConfiguration = RemoteAIConfiguration()
+    /// Whether an API key is stored. The key itself is never held here — the
+    /// UI only ever needs to know that one exists.
+    private(set) var hasRemoteAPIKey = false
 
     /// Action plans and results, keyed by plan, so the conversation can render
     /// what the assistant actually did beneath what it said.
@@ -70,7 +77,7 @@ final class AppModel {
             actionPlans = seeded.actionPlans
             toolResults = seeded.toolResults
             await reload()
-            providerOptions = await environment.providerOptions()
+            await refreshProviderState()
         } catch {
             banner = BannerMessage(
                 text: "Couldn't load demo data.",
@@ -121,6 +128,55 @@ final class AppModel {
         return Array(unique.values)
     }
 
+    /// Re-reads provider availability and the remote configuration.
+    ///
+    /// Called after anything that could change readiness, so the model selector
+    /// never shows a stale "Setup needed".
+    func refreshProviderState() async {
+        remoteConfiguration = environment.remoteConfiguration.current
+        hasRemoteAPIKey = await environment.hasRemoteAPIKey()
+        providerOptions = await environment.providerOptions()
+    }
+
+    /// Saves the remote endpoint and model, and the key if one was entered.
+    ///
+    /// `apiKey` is `nil` when the user did not touch the field, which leaves any
+    /// stored key alone; an empty string clears it.
+    func saveRemoteConfiguration(baseURL: String, model: String, apiKey: String?) async {
+        environment.remoteConfiguration.update(baseURL: baseURL, model: model)
+
+        if let apiKey {
+            do {
+                try await environment.setRemoteAPIKey(apiKey.isEmpty ? nil : apiKey)
+            } catch {
+                banner = BannerMessage(
+                    text: "Couldn't save the API key to the keychain.",
+                    style: .warning
+                )
+            }
+        }
+
+        await refreshProviderState()
+        banner = BannerMessage(text: "Remote AI settings saved.", style: .success)
+    }
+
+    func clearRemoteAPIKey() async {
+        do {
+            try await environment.setRemoteAPIKey(nil)
+            await refreshProviderState()
+            banner = BannerMessage(text: "API key removed.", style: .neutral)
+        } catch {
+            banner = BannerMessage(text: "Couldn't remove the API key.", style: .warning)
+        }
+    }
+
+    /// The provider currently selected in settings, if it is one the user can
+    /// choose. Used by the Assistant screen's notice.
+    var selectedProviderOption: ProviderOption? {
+        guard let id = settings.preferredProviderID else { return nil }
+        return providerOptions.first { $0.id == id }
+    }
+
     // MARK: Lookups
 
     func task(id: TaskItem.ID) -> TaskItem? {
@@ -168,13 +224,35 @@ final class AppModel {
             toolResults[result.plan.id] = result.results
             await reload()
         } catch {
-            // Surfaced rather than swallowed: if no provider can answer, the
-            // user should be told, not left with a silent composer.
-            banner = BannerMessage(
-                text: "The assistant couldn't respond right now.",
-                style: .warning
-            )
-            isAssistantResponding = false
+            // Surfaced rather than swallowed: if the provider cannot answer, the
+            // user is told why, and the composer never sits in a silent
+            // loading state.
+            banner = BannerMessage(text: Self.describe(error), style: .warning)
+        }
+    }
+
+    /// Turns a provider failure into a sentence worth reading.
+    ///
+    /// The remote layer has already mapped HTTP statuses and transport errors
+    /// into explanations; this only unwraps them. No case can contain a
+    /// credential — `RemoteAIError` never carries one.
+    private static func describe(_ error: any Error) -> String {
+        guard let providerError = error as? AIProviderError else {
+            if error is CancellationError { return "Cancelled." }
+            return "The assistant couldn't respond right now."
+        }
+
+        switch providerError {
+        case .notImplemented(let detail), .unavailable(let detail):
+            return detail
+        case .missingCredentials(let detail):
+            return detail
+        case .modelNotFound(let id):
+            return "The model \(id) isn't available."
+        case .transport(let detail), .invalidResponse(let detail):
+            return detail
+        case .cancelled:
+            return "Cancelled."
         }
     }
 
@@ -326,6 +404,7 @@ final class AppModel {
     /// in the repositories, which the provider never touches.
     func selectProvider(_ id: AIProviderIdentifier) async {
         await updateSettings { $0.preferredProviderID = id }
+        await refreshProviderState()
         banner = BannerMessage(
             text: "Model changed. Nothing else moved.",
             style: .neutral

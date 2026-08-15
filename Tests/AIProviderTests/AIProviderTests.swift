@@ -39,8 +39,8 @@ final class ProviderStubTests: XCTestCase {
         )
 
         let availability = await provider.availability()
-        guard case .unavailable(let reason) = availability else {
-            return XCTFail("Expected unavailable without a runtime")
+        guard case .unsupported(let reason) = availability else {
+            return XCTFail("Expected unsupported without a runtime")
         }
         XCTAssertTrue(reason.contains("runtime"))
 
@@ -71,13 +71,20 @@ final class ProviderStubTests: XCTestCase {
     func testRemoteProviderIsUnavailableWithoutACredential() async {
         let provider = RemoteAIProvider(
             adapter: StubRemoteAdapter(),
-            transport: StubTransport(response: HTTPResponse(statusCode: 200, body: Data())),
-            credentials: StubCredentials(credential: nil)
+            configuration: StaticRemoteAIConfigurationSource(Self.readyConfiguration),
+            credentials: StubCredentials(credential: nil),
+            transport: StubTransport(response: HTTPResponse(statusCode: 200, body: Data()))
         )
 
         let availability = await provider.availability()
         XCTAssertFalse(availability.isAvailable)
+        XCTAssertTrue(availability.isUserResolvable)
     }
+
+    private static let readyConfiguration = RemoteAIConfiguration(
+        baseURL: "https://api.example.invalid/v1",
+        model: "stub-model"
+    )
 
     func testRemoteProviderDelegatesEncodingAndParsingToItsAdapter() async throws {
         let adapter = StubRemoteAdapter()
@@ -86,8 +93,9 @@ final class ProviderStubTests: XCTestCase {
         )
         let provider = RemoteAIProvider(
             adapter: adapter,
-            transport: transport,
-            credentials: StubCredentials(credential: "secret")
+            configuration: StaticRemoteAIConfigurationSource(Self.readyConfiguration),
+            credentials: StubCredentials(credential: "secret"),
+            transport: transport
         )
 
         let response = try await provider.respond(
@@ -103,10 +111,11 @@ final class ProviderStubTests: XCTestCase {
     func testRemoteProviderSurfacesHTTPFailures() async {
         let provider = RemoteAIProvider(
             adapter: StubRemoteAdapter(),
+            configuration: StaticRemoteAIConfigurationSource(Self.readyConfiguration),
+            credentials: StubCredentials(credential: "secret"),
             transport: StubTransport(
                 response: HTTPResponse(statusCode: 500, body: Data("boom".utf8))
-            ),
-            credentials: StubCredentials(credential: "secret")
+            )
         )
 
         do {
@@ -149,7 +158,7 @@ private struct StubRemoteAdapter: RemoteAPIAdapter {
     var displayName: String { "Stub API" }
     var capabilityRank: Int { 90 }
 
-    func availableModels() async throws -> [AIModel] {
+    func availableModels(configuration: RemoteAIConfiguration) async throws -> [AIModel] {
         [
             AIModel(
                 id: "remote.stub.model",
@@ -160,7 +169,11 @@ private struct StubRemoteAdapter: RemoteAPIAdapter {
         ]
     }
 
-    func makeRequest(from request: AIRequest, credential: String) throws -> HTTPRequest {
+    func makeRequest(
+        from request: AIRequest,
+        configuration: RemoteAIConfiguration,
+        credential: String
+    ) throws -> HTTPRequest {
         HTTPRequest(
             url: URL(string: "https://example.invalid/v1/messages")!,
             headers: ["Authorization": "Bearer \(credential)"],

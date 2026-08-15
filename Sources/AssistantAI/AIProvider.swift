@@ -43,6 +43,11 @@ public struct AIProviderMetadata: Hashable, Codable, Sendable, Identifiable {
     public var requiresCredentials: Bool
     /// Relative capability hint used by `.preferMostCapable` routing.
     public var capabilityRank: Int
+    /// Whether the provider can be sent tool results and asked to continue.
+    ///
+    /// Providers that cannot are given exactly one round, so the engine never
+    /// re-asks a provider that would simply repeat its previous tool calls.
+    public var supportsToolResultContinuation: Bool
 
     public init(
         id: AIProviderIdentifier,
@@ -50,7 +55,8 @@ public struct AIProviderMetadata: Hashable, Codable, Sendable, Identifiable {
         kind: AIProviderKind,
         requiresNetwork: Bool,
         requiresCredentials: Bool,
-        capabilityRank: Int
+        capabilityRank: Int,
+        supportsToolResultContinuation: Bool = false
     ) {
         self.id = id
         self.displayName = displayName
@@ -58,17 +64,7 @@ public struct AIProviderMetadata: Hashable, Codable, Sendable, Identifiable {
         self.requiresNetwork = requiresNetwork
         self.requiresCredentials = requiresCredentials
         self.capabilityRank = capabilityRank
-    }
-}
-
-public enum AIProviderAvailability: Hashable, Sendable {
-    case available
-    /// Present but not usable right now, with a reason worth showing the user.
-    case unavailable(reason: String)
-
-    public var isAvailable: Bool {
-        if case .available = self { return true }
-        return false
+        self.supportsToolResultContinuation = supportsToolResultContinuation
     }
 }
 

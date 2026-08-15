@@ -19,11 +19,21 @@ public struct AIMessage: Hashable, Codable, Sendable {
     public var content: String
     /// Present on `.tool` messages: which call this is answering.
     public var toolCallID: ToolCallID?
+    /// Present on `.assistant` messages that proposed tool calls. Needed so a
+    /// follow-up request can show the model what it asked for before showing
+    /// it the results.
+    public var toolCalls: [AIToolCall]
 
-    public init(role: AIMessageRole, content: String, toolCallID: ToolCallID? = nil) {
+    public init(
+        role: AIMessageRole,
+        content: String,
+        toolCallID: ToolCallID? = nil,
+        toolCalls: [AIToolCall] = []
+    ) {
         self.role = role
         self.content = content
         self.toolCallID = toolCallID
+        self.toolCalls = toolCalls
     }
 }
 

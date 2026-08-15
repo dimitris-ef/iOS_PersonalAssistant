@@ -124,7 +124,9 @@ let package = Package(
         .testTarget(
             name: "AIProviderTests",
             dependencies: [
+                "AssistantDomain",
                 "AssistantAI",
+                "AssistantTools",
                 "AIProviderRemote",
                 "AIProviderApple",
                 "AIProviderLocal",

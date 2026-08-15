@@ -6,15 +6,21 @@ public struct AIGenerationOptions: Hashable, Codable, Sendable {
     public var maximumOutputTokens: Int?
     /// Hard ceiling on how many tool calls one turn may produce.
     public var maximumToolCalls: Int
+    /// How many times a provider may be asked within one turn, counting the
+    /// first. 2 means: propose tools, see the results, write a final reply.
+    /// This is what stops a model that keeps proposing tools from looping.
+    public var maximumToolRounds: Int
 
     public init(
         temperature: Double? = nil,
         maximumOutputTokens: Int? = nil,
-        maximumToolCalls: Int = 8
+        maximumToolCalls: Int = 8,
+        maximumToolRounds: Int = 2
     ) {
         self.temperature = temperature
         self.maximumOutputTokens = maximumOutputTokens
         self.maximumToolCalls = maximumToolCalls
+        self.maximumToolRounds = max(1, maximumToolRounds)
     }
 }
 

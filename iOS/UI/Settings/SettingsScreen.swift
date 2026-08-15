@@ -52,6 +52,8 @@ struct SettingsScreen: View {
                 switch route {
                 case .modelSelector:
                     ModelSelectorView()
+                case .remoteAI:
+                    RemoteAISettingsView()
                 case .privacy(let topic):
                     PrivacyDetailView(topic: topic)
                 }

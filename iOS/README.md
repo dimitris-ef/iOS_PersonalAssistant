@@ -15,11 +15,11 @@ iOS/
 │   ├── PersonalAssistantApp.swift   @main, appearance preference
 │   ├── AppEnvironment.swift         The only place implementations are chosen
 │   ├── AppModel.swift               Shared observable state; talks to the core
-│   ├── RootView.swift               TabView, settings + reminder presentation
-│   └── UnconfiguredCloudAdapter.swift
+│   └── RootView.swift               TabView, settings + reminder presentation
 ├── Data/           Centralised demo content
 │   ├── DemoData.swift               Seed values, built relative to "now"
 │   └── DemoDataSeeder.swift         Writes them through the real interfaces
+├── RemoteAI/       Remote-provider configuration and credential bridging
 ├── Presentation/   Domain → display mapping (no SwiftUI state)
 │   ├── AppFormatters.swift
 │   ├── ConversationPresentation.swift
@@ -66,7 +66,8 @@ add `iOS/` (minus this README) as sources, point `INFOPLIST_FILE` at
 dependency, and link `AssistantCore`, `AssistantDomain`, `AssistantAI`,
 `AssistantTools`, `AssistantPlatform`, `AssistantPersistence`,
 `ExecutiveSupport`, `MockPlatform`, `AIProviderApple`, `AIProviderLocal`,
-`AIProviderRemote` and `DevSupport`.
+`AIProviderRemote` and `DevSupport`. Point `configFiles` at `Config/App.xcconfig`
+so development secrets are picked up when present.
 
 Expect to fix compile errors on the first build. None of this has been through a
 compiler — see the Status section of the root README.
@@ -75,8 +76,9 @@ compiler — see the Status section of the root README.
 
 Every one of these is stated in the UI itself, not just here:
 
-- The Assistant screen carries a notice that the selected model is unavailable
-  and replies come from a scripted development stand-in.
+- The Assistant screen carries a notice when the selected model is unavailable,
+  saying replies come from a scripted development stand-in. It disappears once a
+  cloud model is configured.
 - Action cards produced by mock services show "Simulated · nothing was
   scheduled on this device".
 - Event detail says the event is held by the app's mock calendar.
@@ -96,6 +98,7 @@ Each of these is an implementation task with no UI consequences:
 | Alarms | `AlarmKitAlarmService` | `AppEnvironment` |
 | On-device model | `respond(to:)` in `AppleFoundationModelsProvider` | already registered |
 | Local model | A `LocalModelRuntime` | `LocalModelProvider` |
-| Cloud model | A `RemoteAPIAdapter` replacing `UnconfiguredCloudAdapter` | `AppEnvironment` |
+| Cloud model | Done — see [`Docs/REMOTE-AI.md`](../Docs/REMOTE-AI.md) | Settings → AI Model |
 | Voice input | `AVAudioEngine` + `SFSpeechRecognizer` | `VoiceInputPlaceholderView` |
 | Storage | A `SnapshotStore` over SwiftData/SQLite | `AppEnvironment` |
+| Keychain | Verify `KeychainCredentialStore` on a device | already wired |

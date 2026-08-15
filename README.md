@@ -144,13 +144,21 @@ Three categories are supported:
   inference, which is delegated to a `LocalModelRuntime`. **No runtime is
   chosen** — not llama.cpp, MLX, Core ML or ExecuTorch. That decision is
   deliberately deferred, and making it later means writing one type.
-- **`AIProviderRemote`** — models over the network. Vendor-specific request and
-  response shapes live in a `RemoteAPIAdapter`; the provider itself is neutral.
-  Credentials come from a `CredentialProvider`, never from source.
+- **`AIProviderRemote`** — **working.** Speaks the OpenAI-compatible
+  chat-completions protocol, including tool calling, against any endpoint you
+  configure: OpenAI, a compatible vendor, or a self-hosted server. The wire
+  format lives entirely in `OpenAICompatibleAdapter`; the provider itself is
+  neutral. Endpoint and model are settings; the API key is kept in the Keychain.
+  See [`Docs/REMOTE-AI.md`](Docs/REMOTE-AI.md).
 
 `ModelRouter` picks one per turn based on settings (`preferOnDevice`,
 `preferMostCapable`, `explicit`). Under `explicit`, an unavailable provider is an
-error rather than a silent substitution.
+error rather than a silent substitution. With nothing configured, routing falls
+back to the scripted development provider, so the app always works.
+
+Availability is a provider-neutral state — `available`, `configurationRequired`,
+`temporarilyUnavailable`, `unsupported` — so Settings can tell "needs an API
+key" apart from "not built yet" without matching on error strings.
 
 **Switching providers costs the user nothing.** Conversations, memories, the
 profile, routines, tasks, reminder plans, automations, settings and the tool
@@ -323,7 +331,6 @@ Current list:
 | `Sources/AIProviderApple/AppleFoundationModelsProvider.swift` | Implement `respond(to:)` and real availability against `FoundationModels` |
 | `Sources/AssistantPlatform/PlatformService.swift` | Real permission flow |
 | `iOS/App/AppEnvironment.swift` | Swap `makeDemo()` for a live environment |
-| `iOS/App/UnconfiguredCloudAdapter.swift` | A real `RemoteAPIAdapter` |
 | `iOS/Data/DemoDataSeeder.swift` | Seeding should move behind a debug flag |
 | `iOS/UI/Assistant/AssistantComposerView.swift` | Microphone capture and speech recognition |
 | `iOS/UI/Shared/SimulatedReminderView.swift` | Real notification categories and actions |
@@ -332,7 +339,7 @@ Current list:
 | Every `#Preview` | Marked `TODO-XCODE: Verify SwiftUI preview` |
 | `Sources/AssistantPlatform/PlatformProtocols.swift` | EventKit / AlarmKit / UserNotifications implementation notes |
 | `Sources/MockPlatform/MockPermissionService.swift` | iOS permission prompts cannot be modelled here |
-| `Sources/AIProviderRemote/RemoteAPIAdapter.swift` | Keychain-backed credential storage |
+| `iOS/Platform/KeychainCredentialStore.swift` | Verify against a real Keychain |
 | `iOS/Platform/EventKitCalendarService.swift` | EventKit calendar |
 | `iOS/Platform/UserNotificationsService.swift` | Notification delivery and the Done/Snooze actions |
 | `iOS/Platform/AlarmKitAlarmService.swift` | AlarmKit alarms |

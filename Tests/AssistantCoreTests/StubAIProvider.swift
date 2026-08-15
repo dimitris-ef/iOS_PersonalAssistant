@@ -95,7 +95,7 @@ struct UnavailableProvider: AIProvider {
         self.reason = reason
     }
 
-    func availability() async -> AIProviderAvailability { .unavailable(reason: reason) }
+    func availability() async -> AIProviderAvailability { .unsupported(reason: reason) }
 
     func availableModels() async throws -> [AIModel] { [] }
 

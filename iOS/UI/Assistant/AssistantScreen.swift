@@ -103,12 +103,15 @@ struct AssistantScreen: View {
     }
 
     /// Says plainly when the chosen model cannot actually answer.
+    ///
+    /// Absent entirely once a real model is configured — a working assistant
+    /// should not carry a permanent disclaimer.
     private var providerNotice: String? {
-        guard
-            let selected = model.settings.preferredProviderID,
-            let option = model.providerOptions.first(where: { $0.id == selected }),
-            !option.isAvailable
-        else { return nil }
+        guard let option = model.selectedProviderOption, !option.isAvailable else { return nil }
+
+        if option.needsConfiguration {
+            return "\(option.metadata.displayName) needs setting up, so replies come from a development stand-in. Configure it in Settings."
+        }
         return "\(option.metadata.displayName) isn't available yet, so replies come from a development stand-in."
     }
 }

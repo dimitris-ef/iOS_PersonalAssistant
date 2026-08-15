@@ -39,9 +39,9 @@ public struct AppleFoundationModelsProvider: AIProvider {
         // TODO-XCODE: ask `SystemLanguageModel.default.availability` here and
         // translate its cases (device not eligible, model not downloaded,
         // Apple Intelligence disabled) into a reason string.
-        return .unavailable(reason: "Apple Foundation Models integration is not implemented yet.")
+        return .unsupported(reason: "Apple Foundation Models integration is not implemented yet.")
         #else
-        return .unavailable(
+        return .unsupported(
             reason: "Apple Foundation Models is only available in an Apple SDK build."
         )
         #endif

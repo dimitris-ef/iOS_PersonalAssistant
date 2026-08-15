@@ -19,7 +19,9 @@ artifacts/
 devdata/
 *.assistant-store/
 
-# Secrets. API keys belong in the environment or the Keychain, never in the repo.
+# Secrets. API keys belong in the keychain, never in the repo.
+# Config/LocalSecrets.example.xcconfig IS committed; the real one never is.
+Config/LocalSecrets.xcconfig
 .env
 *.pem
 *.p12

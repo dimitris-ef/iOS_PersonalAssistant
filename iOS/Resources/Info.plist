@@ -27,6 +27,19 @@
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 
+	<!--
+	  Development-only remote AI configuration, injected from
+	  Config/LocalSecrets.xcconfig when that file exists. Blank otherwise —
+	  including in CI. Values entered in Settings always take priority, and the
+	  API key entered there goes to the keychain, not here.
+	-->
+	<key>RemoteAIBaseURL</key>
+	<string>$(REMOTE_AI_BASE_URL)</string>
+	<key>RemoteAIModel</key>
+	<string>$(REMOTE_AI_MODEL)</string>
+	<key>RemoteAIAPIKey</key>
+	<string>$(REMOTE_AI_API_KEY)</string>
+
 	<key>UILaunchScreen</key>
 	<dict/>
 	<key>UISupportedInterfaceOrientations</key>
