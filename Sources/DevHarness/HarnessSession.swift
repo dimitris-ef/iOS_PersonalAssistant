@@ -107,8 +107,14 @@ struct HarnessSession {
             let availability = await provider.availability()
             let status: String
             switch availability {
-            case .available: status = "available"
-            case .unavailable(let reason): status = "unavailable — \(reason)"
+            case .available:
+                status = "available"
+            case .configurationRequired(let reason):
+                status = "needs configuration — \(reason)"
+            case .temporarilyUnavailable(let reason):
+                status = "temporarily unavailable — \(reason)"
+            case .unsupported(let reason):
+                status = "unsupported — \(reason)"
             }
             print("  \(provider.metadata.id)")
             print("    \(provider.metadata.displayName)")

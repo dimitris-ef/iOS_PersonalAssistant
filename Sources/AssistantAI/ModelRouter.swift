@@ -27,16 +27,20 @@ public struct ModelRouter: Sendable {
                 return try await fallback(from: registry, settings: settings)
             }
 
+            // Routing only cares whether the provider can answer. *Why* it
+            // cannot is carried through to the error so the caller can say
+            // something useful — "needs an API key" rather than "unavailable".
             let availability = await provider.availability()
-            switch availability {
-            case .available:
-                return provider
-            case .unavailable(let reason):
+            guard availability.isAvailable else {
                 if settings.routingPolicy == .explicit {
-                    throw ModelRoutingError.explicitProviderUnavailable(preferred, reason: reason)
+                    throw ModelRoutingError.explicitProviderUnavailable(
+                        preferred,
+                        reason: availability.reason ?? "The provider is unavailable."
+                    )
                 }
                 return try await fallback(from: registry, settings: settings)
             }
+            return provider
         }
 
         if settings.routingPolicy == .explicit {
