@@ -311,10 +311,38 @@ jobs:
           if-no-files-found: ignore
 
       - name: Upload simulator diagnostics
-        if: failure()
+        # Only useful once there is an app to run: a compile failure has nothing
+        # to do with the device. Filtering to this app also keeps the dump from
+        # burying the compiler output under three minutes of system logging.
+        if: failure() && steps.app.outputs.bundle_id != ''
         run: |
           set -euo pipefail
           UDID="${{ steps.simulator.outputs.udid }}"
           echo "::group::Recent simulator log"
-          xcrun simctl spawn "$UDID" log show --last 3m --style compact || true
+          xcrun simctl spawn "$UDID" log show --last 3m --style compact \
+            --predicate "processImagePath CONTAINS[c] '$SCHEME'" 2>/dev/null \
+            | tail -n 200 || true
           echo "::endgroup::"
+
+      - name: Report compiler errors
+        # Last on purpose. The build log is uploaded as an artifact above, but
+        # an artifact is no use to someone reading the job from a phone or an
+        # API — so the errors themselves go in the log, at the end, where they
+        # can be found without scrolling through everything else.
+        if: failure()
+        run: |
+          set -uo pipefail
+          if [ ! -f "$BUILD_LOG" ]; then
+            echo "No build log — the failure was before xcodebuild ran."
+            exit 0
+          fi
+
+          echo "===== compiler errors ====="
+          # Swift/clang diagnostics, plus xcodebuild's own summary lines.
+          grep -E "error:|\*\* BUILD FAILED|The following build commands failed" \
+            "$BUILD_LOG" \
+            | sort -u \
+            | head -n 60 \
+            || echo "(nothing matched — see the xcodebuild-log artifact)"
+          echo "===== end ====="
+          echo "Full log: $(wc -l < "$BUILD_LOG") lines, uploaded as the xcodebuild-log artifact."
