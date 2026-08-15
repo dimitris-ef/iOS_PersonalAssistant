@@ -204,7 +204,10 @@ public struct OpenAICompatibleAdapter: RemoteAPIAdapter {
                 outputTokens: decoded.usage?.completionTokens
             ),
             providerID: providerID,
-            modelID: decoded.model.map(AIModelIdentifier.init) ?? request.model
+            // Spelled out rather than `map(AIModelIdentifier.init)`: the type
+            // has both a plain and a string-literal initialiser, so the
+            // unapplied reference is ambiguous.
+            modelID: decoded.model.map { AIModelIdentifier($0) } ?? request.model
         )
     }
 
