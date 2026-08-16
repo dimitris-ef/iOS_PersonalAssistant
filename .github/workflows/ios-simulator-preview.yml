@@ -231,7 +231,12 @@ jobs:
           UDID="${{ steps.simulator.outputs.udid }}"
           BUNDLE_ID="${{ steps.app.outputs.bundle_id }}"
 
-          if ! xcrun simctl launch "$UDID" "$BUNDLE_ID"; then
+          # The app no longer seeds demo content on its own — a real user's
+          # store starts empty, which is correct and makes a dull screenshot.
+          # This flag asks a DEBUG build for the seeded dataset in temporary
+          # in-memory storage. It does nothing in a release build: the branch
+          # behind it is compiled out. See iOS/App/AppLaunchConfiguration.swift.
+          if ! xcrun simctl launch "$UDID" "$BUNDLE_ID" -seed-demo-data; then
             echo "::error::Launch failed for $BUNDLE_ID."
             echo "Recent device log:"
             xcrun simctl spawn "$UDID" log show --last 2m --predicate "processImagePath CONTAINS[c] '$SCHEME'" --style compact || true

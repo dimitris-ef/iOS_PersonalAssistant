@@ -12,7 +12,10 @@ public enum ActionOrigin: String, Hashable, Codable, Sendable {
     case automation
 }
 
-public struct AssistantAction: Identifiable, Hashable, Sendable {
+/// `Codable` so an executed action can be written to the conversation history
+/// and read back to rebuild its card. The plan it belongs to is not `Codable`:
+/// its `rejected` list is turn-scoped and deliberately not persisted.
+public struct AssistantAction: Identifiable, Hashable, Codable, Sendable {
     public typealias ID = Identifier<AssistantAction>
 
     public var id: ID
@@ -99,7 +102,7 @@ public enum ToolOutcome: Hashable, Codable, Sendable {
     }
 }
 
-public struct ToolResult: Identifiable, Hashable, Sendable {
+public struct ToolResult: Identifiable, Hashable, Codable, Sendable {
     public typealias ID = Identifier<ToolResult>
 
     public var id: ID

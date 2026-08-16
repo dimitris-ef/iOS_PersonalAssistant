@@ -87,52 +87,17 @@ public actor SnapshotMemoryRepository: MemoryRepository {
         return items.values.sorted { $0.createdAt < $1.createdAt }
     }
 
-    /// Keyword-overlap scoring. Crude on purpose: retrieval quality is a
-    /// separate problem, and this keeps the seam where a better implementation
-    /// (embeddings, on-device index) will slot in.
+    /// Ranking lives in `MemoryQuery.rank(_:)` so every backend answers this
+    /// question identically. See the note there.
     public func search(_ query: MemoryQuery) async throws -> [MemoryItem] {
         try await loadIfNeeded()
-
-        var candidates = Array(items.values)
-        if !query.kinds.isEmpty {
-            candidates = candidates.filter { query.kinds.contains($0.kind) }
-        }
-        if !query.tags.isEmpty {
-            let wanted = Set(query.tags.map { $0.lowercased() })
-            candidates = candidates.filter { !wanted.isDisjoint(with: Set($0.tags.map { $0.lowercased() })) }
-        }
-
-        // Keyword overlap ranks the results, but salience keeps every memory
-        // eligible: an unrelated question should still surface what the
-        // assistant knows, just lower down.
-        let terms = Self.terms(in: query.text ?? "")
-        let scored = candidates.map { item -> (item: MemoryItem, score: Double) in
-            let itemTerms = Self.terms(in: item.content).union(Set(item.tags.map { $0.lowercased() }))
-            let overlap = terms.isEmpty
-                ? 0
-                : Double(terms.intersection(itemTerms).count) / Double(terms.count)
-            return (item, overlap + item.salience * 0.25)
-        }
-
-        return scored
-            .sorted { lhs, rhs in
-                lhs.score == rhs.score ? lhs.item.createdAt > rhs.item.createdAt : lhs.score > rhs.score
-            }
-            .prefix(query.limit)
-            .map(\.item)
+        return query.rank(Array(items.values))
     }
 
     public func delete(id: MemoryItem.ID) async throws {
         try await loadIfNeeded()
         items.removeValue(forKey: id)
         try await persist()
-    }
-
-    private static func terms(in text: String) -> Set<String> {
-        let separators = CharacterSet.alphanumerics.inverted
-        let parts = text.lowercased().components(separatedBy: separators)
-        // Two-character words carry almost no signal here.
-        return Set(parts.filter { $0.count > 2 })
     }
 
     private func loadIfNeeded() async throws {
@@ -306,11 +271,17 @@ extension AssistantRepositories {
             tasks: SnapshotTaskRepository(store: store),
             reminderPlans: SnapshotReminderPlanRepository(store: store),
             settings: SnapshotSettingsRepository(store: store),
-            profile: SnapshotUserProfileRepository(store: store)
+            profile: SnapshotUserProfileRepository(store: store),
+            actionPlans: SnapshotActionPlanRepository(store: store)
         )
     }
 
-    /// In-memory repositories, for tests.
+    /// In-memory repositories.
+    ///
+    /// Still the right choice for tests, SwiftUI previews, deterministic
+    /// screenshots and the dev harness — anywhere a clean, disposable store is
+    /// what you want. It is no longer what the shipping app runs on: see
+    /// `AssistantRepositories.persistent(...)` in `AssistantPersistenceSwiftData`.
     public static func ephemeral() -> AssistantRepositories {
         snapshot(store: EphemeralSnapshotStore())
     }

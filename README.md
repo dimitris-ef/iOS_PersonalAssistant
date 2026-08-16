@@ -25,7 +25,8 @@ exists:
 - the structured tool system, with validation and authorization
 - the reminder-planning layer
 - protocol-based platform services plus mock implementations
-- repository interfaces and a JSON-backed development implementation
+- repository interfaces with two implementations: **SwiftData on disk for the
+  app**, and in-memory/JSON for tests, previews and the dev harness
 - a command-line harness and unit tests
 - **the iPhone app's SwiftUI interface** — Assistant, Today, Tasks, Memory and
   Settings, with real navigation, sheets, forms and components
@@ -360,6 +361,10 @@ Current list:
 - **Memory retrieval is keyword overlap.** Good enough to prove the seam, not
   good enough to ship.
 - **The JSON snapshot repositories rewrite the whole file on every save.** Fine
-  for development, not for a real message history.
+  for the dev harness and fixtures, which is all they are used for now; the app
+  runs on SwiftData.
+- **Reminder plans are never deleted.** Deleting a task leaves its plan row
+  behind — unreachable, because plans are only found through a task or event id,
+  but still taking up space. See `Docs/PERSISTENCE.md`.
 - **The scripted development provider understands very few phrasings.** By
   design — it exists to make the pipeline runnable, not to be smart.

@@ -8,10 +8,12 @@ final class CredentialStoreTests: XCTestCase {
     func testStoresAndReadsBack() async throws {
         let store = EphemeralCredentialStore()
 
-        XCTAssertNil(try await store.credential(for: key))
+        let stored1 = try await store.credential(for: key)
+        XCTAssertNil(stored1)
 
         try await store.setCredential("a-secret", for: key)
-        XCTAssertEqual(try await store.credential(for: key), "a-secret")
+        let stored2 = try await store.credential(for: key)
+        XCTAssertEqual(stored2, "a-secret")
     }
 
     func testAnEmptyValueClearsRatherThanStoringBlank() async throws {
@@ -19,11 +21,13 @@ final class CredentialStoreTests: XCTestCase {
         try await store.setCredential("a-secret", for: key)
 
         try await store.setCredential("", for: key)
-        XCTAssertNil(try await store.credential(for: key))
+        let stored1 = try await store.credential(for: key)
+        XCTAssertNil(stored1)
 
         try await store.setCredential("a-secret", for: key)
         try await store.setCredential(nil, for: key)
-        XCTAssertNil(try await store.credential(for: key))
+        let stored2 = try await store.credential(for: key)
+        XCTAssertNil(stored2)
     }
 
     func testRemoving() async throws {
@@ -31,7 +35,8 @@ final class CredentialStoreTests: XCTestCase {
         try await store.setCredential("a-secret", for: key)
 
         try await store.removeCredential(for: key)
-        XCTAssertNil(try await store.credential(for: key))
+        let stored = try await store.credential(for: key)
+        XCTAssertNil(stored)
 
         // Removing something absent is not an error.
         try await store.removeCredential(for: key)
@@ -44,8 +49,10 @@ final class CredentialStoreTests: XCTestCase {
         try await store.setCredential("first", for: key)
         try await store.setCredential("second", for: other)
 
-        XCTAssertEqual(try await store.credential(for: key), "first")
-        XCTAssertEqual(try await store.credential(for: other), "second")
+        let stored1 = try await store.credential(for: key)
+        XCTAssertEqual(stored1, "first")
+        let stored2 = try await store.credential(for: other)
+        XCTAssertEqual(stored2, "second")
         XCTAssertNotEqual(key, other)
     }
 

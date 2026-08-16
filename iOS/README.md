@@ -100,5 +100,5 @@ Each of these is an implementation task with no UI consequences:
 | Local model | A `LocalModelRuntime` | `LocalModelProvider` |
 | Cloud model | Done — see [`Docs/REMOTE-AI.md`](../Docs/REMOTE-AI.md) | Settings → AI Model |
 | Voice input | `AVAudioEngine` + `SFSpeechRecognizer` | `VoiceInputPlaceholderView` |
-| Storage | A `SnapshotStore` over SwiftData/SQLite | `AppEnvironment` |
+| Storage | Done — see [`Docs/PERSISTENCE.md`](../Docs/PERSISTENCE.md) | `AppEnvironment.makePersistent()` |
 | Keychain | Verify `KeychainCredentialStore` on a device | already wired |

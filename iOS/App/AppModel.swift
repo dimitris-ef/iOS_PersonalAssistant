@@ -42,8 +42,8 @@ final class AppModel {
     /// Action plans and results, keyed by plan, so the conversation can render
     /// what the assistant actually did beneath what it said.
     ///
-    /// Held in memory only. The core does not persist action plans yet; when it
-    /// does, this becomes a repository read.
+    /// Read from `ActionPlanRepository` when a conversation loads, so the cards
+    /// under a reply are still there after a relaunch.
     private(set) var actionPlans: [ActionPlanID: AssistantActionPlan] = [:]
     private(set) var toolResults: [ActionPlanID: [ToolResult]] = [:]
 
@@ -69,21 +69,64 @@ final class AppModel {
 
     // MARK: Loading
 
-    /// Seeds demo content on first launch and loads everything into memory.
+    /// Opens the user's data and loads everything the screens display.
+    ///
+    /// A production launch reads whatever is in the store and writes nothing:
+    /// a new user gets an empty conversation, an empty task list and no
+    /// memories. Demo content is only ever written when the launch
+    /// configuration asks for it, which happens in previews, in CI and in a
+    /// developer's debug build — never in a shipped app. See
+    /// `AppLaunchConfiguration`.
     func bootstrap() async {
         do {
-            let seeded = try await DemoDataSeeder(environment: environment).seedIfNeeded()
-            conversation = seeded.conversation
-            actionPlans = seeded.actionPlans
-            toolResults = seeded.toolResults
+            if environment.launch.seedsDemoData {
+                _ = try await DemoDataSeeder(environment: environment).seedIfNeeded()
+            }
+            conversation = try await loadOrStartConversation()
             await reload()
             await refreshProviderState()
         } catch {
-            banner = BannerMessage(
-                text: "Couldn't load demo data.",
-                style: .warning
-            )
+            banner = BannerMessage(text: "Couldn't load your data.", style: .warning)
         }
+    }
+
+    /// The conversation to show, and the action history beneath it.
+    ///
+    /// The most recently updated conversation is the one the user was last in.
+    /// If there is none — a first launch — one is created and saved, so the
+    /// first message has somewhere to go.
+    private func loadOrStartConversation() async throws -> Conversation {
+        let existing = try await environment.repositories.conversations.allConversations()
+
+        guard let latest = existing.first else {
+            actionPlans = [:]
+            toolResults = [:]
+            return try await environment.engine.startConversation(title: "Assistant")
+        }
+
+        try await loadActionHistory(for: latest.id)
+        return latest
+    }
+
+    /// Rebuilds the cards shown under past assistant replies.
+    ///
+    /// Without this the transcript would come back as plain text: every
+    /// `Message.actionPlanID` would point at a plan nothing had kept, and the
+    /// event cards, reminder timelines and "simulated" badges would be gone
+    /// with no sign that anything had been dropped.
+    private func loadActionHistory(for conversationID: Conversation.ID) async throws {
+        let records = try await environment.repositories.actionPlans.records(
+            inConversation: conversationID
+        )
+
+        var plans: [ActionPlanID: AssistantActionPlan] = [:]
+        var results: [ActionPlanID: [ToolResult]] = [:]
+        for record in records {
+            plans[record.plan.id] = record.plan
+            results[record.plan.id] = record.results
+        }
+        actionPlans = plans
+        toolResults = results
     }
 
     /// Re-reads everything the screens display.
@@ -462,7 +505,28 @@ final class AppModel {
 
     // MARK: Demo data
 
+    /// True when this launch is running on seeded, temporary storage.
+    ///
+    /// Drives whether the developer section appears at all. It reads the launch
+    /// configuration rather than `#if DEBUG` directly, so a debug build opened
+    /// normally — on the developer's own real data — is treated exactly like a
+    /// user's.
+    var isRunningOnDemoData: Bool { environment.launch.seedsDemoData }
+
+    /// Rebuilds the demo dataset.
+    ///
+    /// Guarded, because this deletes conversations, tasks and memories before
+    /// writing the fake ones. On a normal launch those would be the user's. The
+    /// guard is the enforcement; hiding the button is only the courtesy.
     func resetDemoData() async {
+        guard isRunningOnDemoData else {
+            banner = BannerMessage(
+                text: "Demo data isn't available on your own storage.",
+                style: .warning
+            )
+            return
+        }
+
         do {
             let seeded = try await DemoDataSeeder(environment: environment).reseed()
             conversation = seeded.conversation

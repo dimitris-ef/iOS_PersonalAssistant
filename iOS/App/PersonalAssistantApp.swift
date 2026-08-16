@@ -7,22 +7,46 @@ import SwiftUI
 /// frameworks is a change in `AppEnvironment` alone.
 @main
 struct PersonalAssistantApp: App {
-    @State private var model: AppModel
+    /// Either a running app or an explanation of why there isn't one.
+    ///
+    /// Persistence is opened once, here, before any view exists. A screen that
+    /// opened its own store would be a second store, and two contexts over one
+    /// database disagree with each other.
+    private enum Startup {
+        case ready(AppModel)
+        case failed(String)
+    }
+
+    @State private var startup: Startup
     @AppStorage(AppearancePreference.storageKey) private var appearance: AppearancePreference = .system
 
     init() {
-        // TODO-XCODE: `makeDemo()` uses mock platform services and in-memory
-        // storage. Replace with the live environment once the Apple layer
-        // exists — nothing in the UI changes when that happens.
-        _model = State(initialValue: AppModel(environment: AppEnvironment.makeDemo()))
+        // TODO-XCODE: platform services are still mocks; storage is not. The
+        // remaining substitution is `PlatformServices.mock()` in AppEnvironment.
+        do {
+            let environment = try AppEnvironment.makePersistent()
+            _startup = State(initialValue: .ready(AppModel(environment: environment)))
+        } catch {
+            // Deliberately not a fallback to in-memory storage. The user would
+            // get a working-looking app that loses a day's work at
+            // termination — and would have no way to know. Better to say so.
+            _startup = State(initialValue: .failed(String(describing: error)))
+        }
     }
 
     var body: some Scene {
         WindowGroup {
-            RootView()
-                .environment(model)
-                .preferredColorScheme(appearance.colorScheme)
-                .task { await model.bootstrap() }
+            Group {
+                switch startup {
+                case .ready(let model):
+                    RootView()
+                        .environment(model)
+                        .task { await model.bootstrap() }
+                case .failed(let detail):
+                    PersistenceFailureView(detail: detail)
+                }
+            }
+            .preferredColorScheme(appearance.colorScheme)
         }
     }
 }

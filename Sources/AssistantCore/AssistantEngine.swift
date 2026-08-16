@@ -114,6 +114,18 @@ public final class AssistantEngine: Sendable {
         conversation.append(assistantMessage)
         try await repositories.conversations.save(conversation)
 
+        // The message carries the plan's id; store the plan itself so that
+        // pointer still resolves after a relaunch and the reply keeps the cards
+        // beneath it. Saved after the conversation because the plan is attached
+        // to it.
+        try await repositories.actionPlans.save(
+            ActionPlanRecord(
+                plan: turn.plan,
+                results: turn.results,
+                conversationID: conversation.id
+            )
+        )
+
         try await linkReminderPlans(turn.reminderPlans)
 
         return AssistantTurnResult(

@@ -7,7 +7,14 @@ import Foundation
 /// these. That is the security boundary described in the architecture doc: the
 /// model proposes, the decoder types it, the policy authorizes it, and only
 /// then does a service execute it.
-public enum ToolRequest: Hashable, Sendable {
+///
+/// `Codable` because an executed request is also a historical record: the
+/// action cards under a reply are rebuilt from stored requests when a
+/// conversation is loaded. Every input type is already `Codable`, so the
+/// conformance is synthesised. It grants no new authority — decoding produces a
+/// request, and a request still has to go through authorization before anything
+/// runs.
+public enum ToolRequest: Hashable, Codable, Sendable {
     case createCalendarEvent(CreateCalendarEventInput)
     case updateCalendarEvent(UpdateCalendarEventInput)
     case deleteCalendarEvent(DeleteCalendarEventInput)

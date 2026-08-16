@@ -59,6 +59,9 @@ targets:
         product: AssistantPlatform
       - package: PhonePersonalAI
         product: AssistantPersistence
+      # The production store. SwiftData lives in this target and nowhere else.
+      - package: PhonePersonalAI
+        product: AssistantPersistenceSwiftData
       - package: PhonePersonalAI
         product: ExecutiveSupport
       - package: PhonePersonalAI

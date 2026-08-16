@@ -188,15 +188,24 @@ struct SettingsScreen: View {
         }
     }
 
+    /// Only shown in a launch that is already running on demo content.
+    ///
+    /// On a normal launch this section does not exist. "Reset demo data" would
+    /// mean deleting the user's real conversations, tasks and memories and
+    /// replacing them with a fake haircut — a destructive action mislabelled as
+    /// a development convenience, sitting one tap away in Settings.
+    @ViewBuilder
     private var developerSection: some View {
-        Section {
-            Button("Reset demo data") {
-                viewModel.isConfirmingReset = true
+        if model.isRunningOnDemoData {
+            Section {
+                Button("Reset demo data") {
+                    viewModel.isConfirmingReset = true
+                }
+            } header: {
+                Text("Development")
+            } footer: {
+                Text("Restores the seeded conversation, tasks, events and memories. This build is running on temporary demo storage, not your own data.")
             }
-        } header: {
-            Text("Development")
-        } footer: {
-            Text("Restores the seeded conversation, tasks, events and memories.")
         }
     }
 

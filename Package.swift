@@ -18,9 +18,14 @@ let package = Package(
     // These minimums matter only when the package is consumed from Xcode.
     // TODO-XCODE: raise the iOS minimum once we adopt Apple Foundation Models
     // and AlarmKit, both of which require a newer deployment target.
+    // macOS 14 is the floor for SwiftData, which `AssistantPersistenceSwiftData`
+    // needs; iOS 17 already was. Nothing else in the package requires it, and
+    // the iOS deployment target is unchanged. Raised only because the store
+    // could not otherwise be opened on a Mac — including in the tests that
+    // verify it.
     platforms: [
         .iOS(.v17),
-        .macOS(.v13),
+        .macOS(.v14),
     ],
     products: [
         .library(name: "AssistantDomain", targets: ["AssistantDomain"]),
@@ -28,6 +33,10 @@ let package = Package(
         .library(name: "AssistantTools", targets: ["AssistantTools"]),
         .library(name: "AssistantPlatform", targets: ["AssistantPlatform"]),
         .library(name: "AssistantPersistence", targets: ["AssistantPersistence"]),
+        // The production store. Apple-only in practice — every file is behind
+        // `#if canImport(SwiftData)`, so the target still builds on Linux and
+        // Windows, it just contains nothing there.
+        .library(name: "AssistantPersistenceSwiftData", targets: ["AssistantPersistenceSwiftData"]),
         .library(name: "ExecutiveSupport", targets: ["ExecutiveSupport"]),
         .library(name: "AssistantCore", targets: ["AssistantCore"]),
         .library(name: "MockPlatform", targets: ["MockPlatform"]),
@@ -51,7 +60,18 @@ let package = Package(
 
         .target(name: "AssistantPlatform", dependencies: ["AssistantDomain"]),
 
-        .target(name: "AssistantPersistence", dependencies: ["AssistantDomain"]),
+        // Depends on AssistantTools for `AssistantActionPlan`: what the
+        // assistant did is part of a stored conversation, not a separate
+        // concept. The dependency is one-way — the tool layer knows nothing
+        // about storage.
+        .target(name: "AssistantPersistence", dependencies: ["AssistantDomain", "AssistantTools"]),
+
+        // SwiftData lives here and nowhere else. No core target depends on it,
+        // which is what keeps the package buildable where SwiftData is not.
+        .target(
+            name: "AssistantPersistenceSwiftData",
+            dependencies: ["AssistantDomain", "AssistantPersistence", "AssistantTools"]
+        ),
 
         .target(name: "ExecutiveSupport", dependencies: ["AssistantDomain"]),
 
@@ -106,7 +126,19 @@ let package = Package(
         .testTarget(name: "AssistantDomainTests", dependencies: ["AssistantDomain"]),
         .testTarget(name: "AssistantToolsTests", dependencies: ["AssistantTools"]),
         .testTarget(name: "ExecutiveSupportTests", dependencies: ["ExecutiveSupport"]),
-        .testTarget(name: "AssistantPersistenceTests", dependencies: ["AssistantPersistence"]),
+        .testTarget(
+            name: "AssistantPersistenceTests",
+            dependencies: ["AssistantPersistence", "AssistantDomain", "AssistantTools"]
+        ),
+        .testTarget(
+            name: "AssistantPersistenceSwiftDataTests",
+            dependencies: [
+                "AssistantPersistenceSwiftData",
+                "AssistantPersistence",
+                "AssistantDomain",
+                "AssistantTools",
+            ]
+        ),
         .testTarget(
             name: "AssistantCoreTests",
             dependencies: [

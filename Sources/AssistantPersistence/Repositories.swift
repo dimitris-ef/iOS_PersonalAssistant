@@ -60,6 +60,8 @@ public struct AssistantRepositories: Sendable {
     public let reminderPlans: any ReminderPlanRepository
     public let settings: any SettingsRepository
     public let profile: any UserProfileRepository
+    /// What the assistant did, so a loaded conversation still shows its cards.
+    public let actionPlans: any ActionPlanRepository
 
     public init(
         conversations: any ConversationRepository,
@@ -67,7 +69,8 @@ public struct AssistantRepositories: Sendable {
         tasks: any TaskRepository,
         reminderPlans: any ReminderPlanRepository,
         settings: any SettingsRepository,
-        profile: any UserProfileRepository
+        profile: any UserProfileRepository,
+        actionPlans: any ActionPlanRepository
     ) {
         self.conversations = conversations
         self.memories = memories
@@ -75,5 +78,6 @@ public struct AssistantRepositories: Sendable {
         self.reminderPlans = reminderPlans
         self.settings = settings
         self.profile = profile
+        self.actionPlans = actionPlans
     }
 }

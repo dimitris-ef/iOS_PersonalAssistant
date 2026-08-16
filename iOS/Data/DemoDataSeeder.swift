@@ -50,9 +50,12 @@ struct DemoDataSeeder {
             _ = try? await environment.services.calendar.deleteEvent(id: event.id)
         }
 
-        // Reminder plans are left in place: `ReminderPlanRepository` has no
-        // delete, and orphaned plans are unreachable because every lookup goes
-        // through a task or event id.
+        // Reminder plans and action plans are left in place: neither repository
+        // has a delete, and both become unreachable once the things that index
+        // them are gone — reminder plans are only ever found through a task or
+        // event id, action plans only through a conversation. On the SwiftData
+        // backend the conversation delete above cascades to its action plans
+        // anyway.
         return try await seed()
     }
 
@@ -144,6 +147,15 @@ struct DemoDataSeeder {
             updatedAt: now
         )
         try await environment.repositories.conversations.save(conversation)
+
+        // Through the repository, like everything else here. The seeded
+        // transcript then reloads by exactly the path a real one does, so a
+        // screenshot run is testing the restore, not a shortcut around it.
+        for (plan, results) in [(eventPlan, eventResults), (memoryPlan, memoryResults)] {
+            try await environment.repositories.actionPlans.save(
+                ActionPlanRecord(plan: plan, results: results, conversationID: conversation.id)
+            )
+        }
 
         return Seeded(
             conversation: conversation,

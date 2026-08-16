@@ -177,15 +177,26 @@ structured, while memory is open-ended text.
 
 ## Persistence
 
-Repositories are protocols. The current implementations keep a working set in
-memory and write a JSON snapshot through a `SnapshotStore` after each change.
+Repositories are protocols, and there are two implementations of each.
 
-`SnapshotStore` is intentionally dumb (`read(key:)` / `write(_:key:)`), so
-replacing it with SwiftData, SQLite or an app-group container is a substitution
-at composition time. The repositories own the encoding; the store owns bytes.
+The **iOS app runs on SwiftData**, on disk, through
+`AssistantRepositories.persistent(...)`. The domain models are not SwiftData
+models; separate `SD*` entities and explicit mappers sit behind the same
+repository protocols. See [`PERSISTENCE.md`](PERSISTENCE.md).
 
-No credentials go through here. API keys come from a `CredentialProvider`, which
-on iOS will be Keychain-backed.
+The **snapshot implementations** keep a working set in memory and write a JSON
+snapshot through a `SnapshotStore` after each change. `SnapshotStore` is
+intentionally dumb (`read(key:)` / `write(_:key:)`). They remain the right
+choice for tests, previews, the dev harness and fixtures —
+`AssistantRepositories.ephemeral()` is not deprecated, it is just not what
+ships.
+
+Having two backends is what keeps the abstraction honest: parity tests hold both
+to the same behaviour, so swapping storage really is a substitution at
+composition time rather than a rewrite.
+
+No credentials go through either. API keys come from a `CredentialProvider`,
+Keychain-backed on iOS, and never enter the database.
 
 ## Extension points
 

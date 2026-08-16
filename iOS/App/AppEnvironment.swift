@@ -5,6 +5,7 @@ import AssistantAI
 import AssistantCore
 import AssistantDomain
 import AssistantPersistence
+import AssistantPersistenceSwiftData
 import AssistantPlatform
 import DevSupport
 import Foundation
@@ -26,6 +27,8 @@ final class AppEnvironment: Sendable {
     let credentialStore: any CredentialStore
     /// Endpoint and model for the remote provider. Not secret.
     let remoteConfiguration: RemoteAIConfigurationStore
+    /// What this launch is: production, or a seeded preview/CI run.
+    let launch: AppLaunchConfiguration
 
     /// The provider the remote configuration belongs to.
     static let remoteProviderID: AIProviderIdentifier = "remote.openai-compatible"
@@ -37,7 +40,8 @@ final class AppEnvironment: Sendable {
         providers: AIProviderRegistry,
         dateProvider: any DateProvider,
         credentialStore: any CredentialStore,
-        remoteConfiguration: RemoteAIConfigurationStore
+        remoteConfiguration: RemoteAIConfigurationStore,
+        launch: AppLaunchConfiguration
     ) {
         self.engine = engine
         self.repositories = repositories
@@ -46,16 +50,40 @@ final class AppEnvironment: Sendable {
         self.dateProvider = dateProvider
         self.credentialStore = credentialStore
         self.remoteConfiguration = remoteConfiguration
+        self.launch = launch
     }
 
-    /// The configuration used while the Apple layer does not exist.
+    /// The environment the app actually launches with.
+    ///
+    /// Storage is SwiftData, on disk, in the app's own container. Everything
+    /// the user creates — conversations, tasks, memories, reminder plans,
+    /// settings, profile — is still there next launch.
+    ///
+    /// Throws if the store cannot be opened, and does **not** quietly fall back
+    /// to in-memory repositories. A fallback would produce an app that looks
+    /// completely healthy while silently discarding everything at termination,
+    /// which is a worse outcome than refusing to start. `PersonalAssistantApp`
+    /// catches this and says so.
+    @MainActor
+    static func makePersistent(
+        configuration: AppLaunchConfiguration = .current()
+    ) throws -> AppEnvironment {
+        let container = try AssistantPersistenceContainer.make(location: configuration.persistence)
+        let repositories = AssistantRepositories.persistent(container: container)
+        return make(repositories: repositories, launch: configuration)
+    }
+
+    /// In-memory repositories and mock services, for previews and tests.
+    ///
+    /// Still `ephemeral()`, and deliberately so: a preview should start from a
+    /// clean, predictable store every time and must never write into the store
+    /// a real launch would open.
     ///
     /// - Platform services are mocks. They record intent in memory and report
     ///   `.simulated`, so nothing in the UI can claim an event, alarm or
     ///   notification reached the operating system. **This stays true even when
     ///   a real model is connected**: the remote model proposes actions, and
     ///   they still execute against mocks.
-    /// - Storage is in-memory. Nothing survives relaunch yet.
     /// - Four providers are registered. Apple's and the local one report
     ///   themselves unsupported. The remote one becomes usable as soon as it has
     ///   an endpoint, a key and a model. `ScriptedDevProvider` is the fallback
@@ -65,13 +93,35 @@ final class AppEnvironment: Sendable {
     /// UI does not change when that happens.
     @MainActor
     static func makeDemo() -> AppEnvironment {
+        make(
+            repositories: AssistantRepositories.ephemeral(),
+            // Previews want content to render. Because the store is ephemeral,
+            // seeding it cannot reach anything a real launch would open.
+            launch: AppLaunchConfiguration(persistence: .inMemory, seedsDemoData: true)
+        )
+    }
+
+    /// Everything except the choice of storage.
+    ///
+    /// The providers, the engine, the credential store and the platform
+    /// services are identical whichever repositories are passed in — which is
+    /// the whole claim the repository abstraction makes, stated as code.
+    @MainActor
+    private static func make(
+        repositories: AssistantRepositories,
+        launch: AppLaunchConfiguration
+    ) -> AppEnvironment {
         let dateProvider = SystemDateProvider()
-        let repositories = AssistantRepositories.ephemeral()
         let services = PlatformServices.mock()
 
         // TODO-XCODE: `KeychainCredentialStore` has not been verified against a
         // real Keychain. If it misbehaves, the app still runs — a failed read
         // reads as "no credential", which shows as "Setup needed".
+        //
+        // Note what is *not* in the paragraph above: SwiftData. The API key
+        // lives here, in the Keychain, and never enters the database. The store
+        // holds the provider's identifier and nothing that could authenticate
+        // as anyone.
         let credentialStore: any CredentialStore = KeychainCredentialStore()
         let remoteConfiguration = RemoteAIConfigurationStore()
 
@@ -112,7 +162,8 @@ final class AppEnvironment: Sendable {
             providers: providers,
             dateProvider: dateProvider,
             credentialStore: credentialStore,
-            remoteConfiguration: remoteConfiguration
+            remoteConfiguration: remoteConfiguration,
+            launch: launch
         )
     }
 
