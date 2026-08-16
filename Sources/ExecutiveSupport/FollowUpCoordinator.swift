@@ -92,7 +92,14 @@ public struct FollowUpCoordinator: Sendable {
         // Idempotency. A stage that already carries an outcome does not take a
         // second one, so a notification callback delivered twice — which real
         // ones are — produces one follow-up, not two.
-        if let stageID {
+        //
+        // It applies only to outcomes *about the reminder*. Completing and
+        // cancelling are statements about the task, and must land whatever the
+        // named stage has already been through: someone who dismissed a
+        // reminder at 6:00 and taps Done at 6:05 on the same sheet has finished
+        // the task, and swallowing that because the stage was resolved would
+        // leave them being chased about work they had done.
+        if let stageID, !outcome.resolvesTask {
             let recorded = plan.recordOutcome(
                 stageState(for: outcome),
                 forStage: stageID,

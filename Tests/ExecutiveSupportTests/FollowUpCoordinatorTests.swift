@@ -480,6 +480,37 @@ final class FollowUpCoordinatorTests: XCTestCase {
         XCTAssertFalse(decision.cancel.isEmpty)
     }
 
+    /// Dismiss at 6:00, then tap Done at 6:05 on the same sheet.
+    ///
+    /// The stage has already been resolved, but finishing the task is a
+    /// statement about the task. Swallowing it would leave someone being chased
+    /// about work they had done.
+    func testCompletingThroughAnAlreadyResolvedStageStillCompletes() {
+        let f = makeFixture()
+        let coordinator = FollowUpCoordinator()
+
+        let dismissed = coordinator.apply(
+            outcome: .dismissed,
+            toStage: f.stage.id,
+            task: f.task,
+            plan: f.plan,
+            context: context()
+        )
+
+        let completed = coordinator.apply(
+            outcome: .completed,
+            toStage: f.stage.id,
+            task: dismissed.task,
+            plan: dismissed.plan,
+            context: context(at: now.addingTimeInterval(300))
+        )
+
+        XCTAssertTrue(completed.didChange)
+        XCTAssertEqual(completed.task.status, .completed)
+        XCTAssertTrue(completed.plan.pendingStages.isEmpty)
+        XCTAssertFalse(completed.cancel.isEmpty, "the follow-up must be withdrawn")
+    }
+
     func testCancellationStopsSupportWithoutClaimingTheWorkWasDone() {
         let f = makeFixture()
         let decision = FollowUpCoordinator().apply(
