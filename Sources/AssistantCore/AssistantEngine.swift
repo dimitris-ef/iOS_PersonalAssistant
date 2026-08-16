@@ -51,6 +51,12 @@ public final class AssistantEngine: Sendable {
     private let decoder: ToolRequestDecoder
     private let dateProvider: any DateProvider
 
+    /// The support lifecycle: what happens after a reminder is shown.
+    ///
+    /// Exposed so the UI and the tool layer share one route into it. Nothing
+    /// else in the app is allowed to change a task's status directly.
+    public let followUp: FollowUpService
+
     public init(
         providers: AIProviderRegistry,
         repositories: AssistantRepositories,
@@ -59,7 +65,8 @@ public final class AssistantEngine: Sendable {
         router: ModelRouter = ModelRouter(),
         planner: (any ActionPlanner)? = nil,
         executor: (any ToolExecutor)? = nil,
-        promptBuilder: SystemPromptBuilder = SystemPromptBuilder()
+        promptBuilder: SystemPromptBuilder = SystemPromptBuilder(),
+        timing: FollowUpTiming = .default
     ) {
         self.providers = providers
         self.repositories = repositories
@@ -67,7 +74,20 @@ public final class AssistantEngine: Sendable {
         self.dateProvider = dateProvider
         self.router = router
         self.planner = planner ?? DefaultActionPlanner()
-        self.executor = executor ?? DefaultToolExecutor(services: services, repositories: repositories)
+        let followUp = FollowUpService(
+            repositories: repositories,
+            services: services,
+            dateProvider: dateProvider,
+            timing: timing
+        )
+        self.followUp = followUp
+        self.executor = executor
+            ?? DefaultToolExecutor(
+                services: services,
+                repositories: repositories,
+                followUp: followUp,
+                dateProvider: dateProvider
+            )
         self.promptBuilder = promptBuilder
         self.decoder = ToolRequestDecoder(dateProvider: dateProvider)
         self.contextAssembler = ContextAssembler(
@@ -293,8 +313,33 @@ public final class AssistantEngine: Sendable {
     ///
     /// This is the entry point the notification handlers on iOS will call, and
     /// it is where "dismissed is not done" is enforced for real.
+    ///
+    /// It now runs the full support lifecycle rather than only the status
+    /// change: the reminder's own outcome is recorded, and — unless the task
+    /// has been resolved — the planner schedules the next intervention. Before,
+    /// this method updated a status and stopped, which is precisely how support
+    /// ended at the first dismissal.
+    ///
+    /// `stageID` names the reminder the event came from, when there is one.
     @discardableResult
     public func record(
+        _ event: EngagementEvent,
+        for taskID: TaskItem.ID,
+        stageID: ReminderStage.ID? = nil
+    ) async throws -> TaskItem {
+        guard let outcome = ReminderOutcome(event) else {
+            // An event with no reminder-lifecycle meaning — `deferred`,
+            // `anchorPassed`. Handled by the status machine alone, as before.
+            return try await applyStatusOnly(event, for: taskID)
+        }
+        return try await followUp.handle(
+            outcome: outcome,
+            forTask: taskID,
+            stageID: stageID
+        ).task
+    }
+
+    private func applyStatusOnly(
         _ event: EngagementEvent,
         for taskID: TaskItem.ID,
         statusMachine: TaskStatusMachine = TaskStatusMachine()

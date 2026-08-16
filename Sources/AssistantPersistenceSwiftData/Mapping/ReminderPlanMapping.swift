@@ -113,6 +113,9 @@ enum ReminderPlanMapper {
                 found.offsetHour = offset.hour
                 found.offsetMinute = offset.minute
                 found.offsetDate = offset.date
+                found.stateRaw = stage.state.rawValue
+                found.stateChangedAt = stage.stateChangedAt
+                found.scheduledFor = stage.scheduledFor
             } else {
                 let inserted = SDReminderStage(
                     id: stage.id.rawValue,
@@ -127,7 +130,10 @@ enum ReminderPlanMapper {
                     offsetDays: offset.days,
                     offsetHour: offset.hour,
                     offsetMinute: offset.minute,
-                    offsetDate: offset.date
+                    offsetDate: offset.date,
+                    stateRaw: stage.state.rawValue,
+                    stateChangedAt: stage.stateChangedAt,
+                    scheduledFor: stage.scheduledFor
                 )
                 inserted.plan = row
                 context.insert(inserted)
@@ -199,7 +205,16 @@ enum ReminderPlanMapper {
                 field: "escalation"
             ),
             message: row.message,
-            requiresConfirmation: row.requiresConfirmation
+            requiresConfirmation: row.requiresConfirmation,
+            // A row written before schema V2 has no recorded state. It becomes
+            // `.pending` — a reminder still waiting — because the alternative
+            // would silently treat every reminder from before this feature as
+            // already dealt with, which is the exact failure the feature fixes.
+            state: row.stateRaw.map {
+                ReminderStageState(rawValue: $0) ?? .pending
+            } ?? .pending,
+            stateChangedAt: row.stateChangedAt,
+            scheduledFor: row.scheduledFor
         )
     }
 

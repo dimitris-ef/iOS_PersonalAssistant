@@ -23,7 +23,8 @@ exists:
 - the assistant turn pipeline (context → provider → structured actions → execution)
 - the AI provider abstraction, with three provider types
 - the structured tool system, with validation and authorization
-- the reminder-planning layer
+- the reminder-planning layer, including follow-up after a reminder is
+  dismissed, snoozed or ignored
 - protocol-based platform services plus mock implementations
 - repository interfaces with two implementations: **SwiftData on disk for the
   app**, and in-memory/JSON for tests, previews and the dev harness
@@ -351,6 +352,10 @@ Current list:
 ## Known limitations
 
 - **Unverified build.** No Swift toolchain was available; see Status above.
+- **Missed reminders are only noticed when the app opens.** The follow-up
+  engine is complete and tested, but nothing delivers a notification yet, so
+  "this reminder went unanswered" is discovered at the next launch rather than
+  when it happens. See `Docs/FOLLOW-UP.md`.
 - **Single-pass turns.** A turn asks the provider once and executes what comes
   back. Tool *results* are not fed back for a second pass, so
   `getUpcomingSchedule` currently returns a count rather than data the model can

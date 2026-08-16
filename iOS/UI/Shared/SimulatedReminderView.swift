@@ -146,6 +146,7 @@ struct SimulatedReminderView: View {
             title: "Time to start getting ready",
             body: "Work starts at 4:00 PM.",
             subject: .event(.init()),
+            stageID: .init(),
             stageKind: .preparation,
             escalation: .standard,
             requiresConfirmation: true

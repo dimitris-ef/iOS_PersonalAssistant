@@ -22,19 +22,34 @@ public protocol ToolExecutor: Sendable {
 public struct DefaultToolExecutor: ToolExecutor {
     private let services: PlatformServices
     private let repositories: AssistantRepositories
-    private let statusMachine: TaskStatusMachine
     private let authorizer: any ToolAuthorizing
+    /// The same lifecycle the UI uses. "I finished it", said to the assistant,
+    /// has to end support exactly as tapping Mark complete does — one path, or
+    /// one of them eventually forgets to cancel the pending reminders.
+    private let followUp: FollowUpService
 
     public init(
         services: PlatformServices,
         repositories: AssistantRepositories,
+        // The status machine is no longer reached from here: task lifecycle
+        // changes go through `followUp`, which owns it. Kept as a parameter so
+        // existing call sites still compile, and so a caller with its own rules
+        // can pass one down.
         statusMachine: TaskStatusMachine = TaskStatusMachine(),
-        authorizer: any ToolAuthorizing = SettingsToolAuthorizer()
+        authorizer: any ToolAuthorizing = SettingsToolAuthorizer(),
+        followUp: FollowUpService? = nil,
+        dateProvider: any DateProvider = SystemDateProvider()
     ) {
         self.services = services
         self.repositories = repositories
-        self.statusMachine = statusMachine
         self.authorizer = authorizer
+        self.followUp = followUp
+            ?? FollowUpService(
+                repositories: repositories,
+                services: services,
+                dateProvider: dateProvider,
+                coordinator: FollowUpCoordinator(statusMachine: statusMachine)
+            )
     }
 
     public func execute(
@@ -224,14 +239,13 @@ public struct DefaultToolExecutor: ToolExecutor {
                     context
                 )
             }
-            var plan: ReminderPlan?
-            if let planID = task.reminderPlanID {
-                plan = try await repositories.reminderPlans.plan(id: planID)
-            }
-            let transition = statusMachine.apply(.confirmedComplete(at: context.now), to: task, plan: plan)
-            let updated = statusMachine.updated(task, with: transition, at: context.now)
-            try await repositories.tasks.save(updated)
-            return result(action, .executed, "Completed: \(updated.title)", context)
+            // Through the shared lifecycle, so completing a task from a
+            // conversation also cancels the reminders that were still waiting
+            // for it. Doing the status change here directly would leave those
+            // pending, and the user would be reminded about something they had
+            // just told the assistant they had done.
+            let outcome = try await followUp.handle(outcome: .completed, forTask: task.id)
+            return result(action, .executed, "Completed: \(outcome.task.title)", context)
 
         case .createFollowUp(let input):
             guard let task = try await repositories.tasks.task(id: input.taskID) else {

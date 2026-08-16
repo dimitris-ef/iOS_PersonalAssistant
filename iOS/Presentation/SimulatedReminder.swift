@@ -18,6 +18,12 @@ struct SimulatedReminder: Identifiable, Equatable {
     let title: String
     let body: String
     let subject: Subject
+    /// The plan stage this simulates.
+    ///
+    /// Carried through so the user's answer lands on the reminder it was about.
+    /// Without it every response would be a bare "something happened to this
+    /// task", and the plan could not record which intervention worked.
+    let stageID: ReminderStage.ID
     let stageKind: ReminderStageKind
     let escalation: EscalationLevel
     /// When true, dismissing must not be read as completion.
@@ -45,6 +51,7 @@ struct SimulatedReminder: Identifiable, Equatable {
             title: stage.message,
             body: formatter.anchorSentence(for: plan.subject.title, at: anchor),
             subject: subject,
+            stageID: stage.id,
             stageKind: stage.kind,
             escalation: stage.escalation,
             requiresConfirmation: stage.requiresConfirmation

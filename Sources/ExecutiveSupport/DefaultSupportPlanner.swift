@@ -14,7 +14,13 @@ import Foundation
 public struct DefaultSupportPlanner: SupportPlanner {
     public let identifier = "default-support-planner.v1"
 
-    public init() {}
+    /// Every timing decision this planner makes. Injected so tests can pin it
+    /// and so nothing here reaches for a magic number.
+    public let timing: FollowUpTiming
+
+    public init(timing: FollowUpTiming = .default) {
+        self.timing = timing
+    }
 
     public func makePlan(
         for subject: ReminderSubject,
@@ -41,6 +47,163 @@ public struct DefaultSupportPlanner: SupportPlanner {
             createdAt: context.now,
             generatedBy: identifier
         )
+    }
+
+    // MARK: Follow-up
+
+    /// Decides whether the assistant takes another turn, and what it looks like.
+    ///
+    /// The order of the guards is the policy in miniature: resolved tasks end
+    /// support, outcomes that already have a next step do not get a second one,
+    /// and everything else gets exactly one new stage.
+    public func nextIntervention(
+        for task: TaskItem,
+        plan: ReminderPlan,
+        outcome: ReminderOutcome,
+        context: SupportPlanningContext
+    ) -> SupportIntervention? {
+        // Resolved is resolved. This is the only clause that stops support
+        // permanently, and it reads the task's own status rather than any
+        // separate flag, so there is one answer to "are we done here".
+        guard !task.status.isTerminal else { return nil }
+        guard !outcome.resolvesTask else { return nil }
+
+        switch outcome {
+        case .completed, .cancelled:
+            return nil
+
+        case .delivered:
+            // Delivery is not an outcome yet — the user has not had a chance to
+            // respond. Scheduling a follow-up here would double every reminder.
+            return nil
+
+        case .snoozed(let until):
+            let target = until ?? context.now.addingTimeInterval(plan.snooze.defaultDuration)
+            return intervention(
+                for: task,
+                plan: plan,
+                kind: .nudge,
+                at: target,
+                context: context,
+                // Snoozing is a reasonable request, honoured at face value. It
+                // does not escalate on its own — the status machine raises the
+                // level once someone has snoozed repeatedly.
+                escalation: plan.subject.importance >= .high
+                    ? context.preferences.defaultEscalation
+                    : .gentle,
+                message: "Still to do: \(plan.subject.title).",
+                rationale: "You asked to be reminded again."
+            )
+
+        case .dismissed:
+            let attempt = task.followUpCount
+            let delay = timing.delay(
+                importance: plan.subject.importance,
+                attempt: attempt,
+                deadline: deadline(for: task, plan: plan),
+                now: context.now
+            )
+            return intervention(
+                for: task,
+                plan: plan,
+                kind: .followUp,
+                at: context.now.addingTimeInterval(delay),
+                context: context,
+                escalation: timing.escalation(
+                    importance: plan.subject.importance,
+                    attempt: attempt,
+                    base: context.preferences.defaultEscalation
+                ),
+                message: "Still open: \(plan.subject.title).",
+                rationale: "You dismissed the last reminder without finishing this."
+            )
+
+        case .missed:
+            // Silence is treated slightly more seriously than a dismissal: the
+            // user did not even see it, so the same approach is unlikely to
+            // work twice.
+            let attempt = max(task.followUpCount, 1)
+            let delay = timing.delay(
+                importance: plan.subject.importance,
+                attempt: attempt,
+                deadline: deadline(for: task, plan: plan),
+                now: context.now
+            )
+            return intervention(
+                for: task,
+                plan: plan,
+                kind: .followUp,
+                at: context.now.addingTimeInterval(delay),
+                context: context,
+                escalation: timing.escalation(
+                    importance: plan.subject.importance,
+                    attempt: attempt,
+                    base: context.preferences.defaultEscalation
+                ),
+                message: "Still open: \(plan.subject.title).",
+                rationale: "The last reminder went unanswered."
+            )
+
+        case .acknowledged:
+            // "I'm doing it." Back off, but do not disappear — the whole point
+            // is that intending to do something is not doing it.
+            return intervention(
+                for: task,
+                plan: plan,
+                kind: .followUp,
+                at: context.now.addingTimeInterval(timing.inProgressCheckIn),
+                context: context,
+                escalation: .gentle,
+                message: "Did you finish \(plan.subject.title)?",
+                rationale: "Checking in on something you started."
+            )
+        }
+    }
+
+    /// Builds one stage, or nothing when an equivalent is already waiting.
+    ///
+    /// The duplicate check lives here rather than at each call site so no
+    /// outcome can route around it.
+    private func intervention(
+        for task: TaskItem,
+        plan: ReminderPlan,
+        kind: ReminderStageKind,
+        at date: Date,
+        context: SupportPlanningContext,
+        escalation: EscalationLevel,
+        message: String,
+        rationale: String
+    ) -> SupportIntervention? {
+        guard plan.followUp.isEnabled else { return nil }
+        guard !plan.hasPendingStage(kind: kind, at: date) else { return nil }
+
+        let stage = ReminderStage(
+            kind: kind,
+            // Absolute, because a follow-up is tied to when the last one failed
+            // rather than to the task's anchor — which a flexible task may not
+            // even have.
+            offset: .absolute(date),
+            channel: escalation >= .alarm ? .alarm : .notification,
+            escalation: escalation,
+            message: message,
+            requiresConfirmation: timing.requiresConfirmation(
+                attempt: task.followUpCount,
+                importance: plan.subject.importance
+            ),
+            state: .pending,
+            stateChangedAt: context.now,
+            scheduledFor: date
+        )
+        return SupportIntervention(stage: stage, rationale: rationale)
+    }
+
+    /// The moment this task is actually due, if it has one.
+    ///
+    /// Checked against both the task and the plan's anchor, because a task can
+    /// carry a deadline the plan's subject does not repeat.
+    private func deadline(for task: TaskItem, plan: ReminderPlan) -> Date? {
+        let candidates = [task.deadline, task.timing.anchorDate, plan.subject.anchor.date]
+        return candidates.compactMap { $0 }.min()
     }
 
     // MARK: Fixed appointments

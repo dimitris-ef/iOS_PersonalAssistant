@@ -49,9 +49,23 @@ struct ReminderTimelineView: View {
             )
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(stage.whenLabel)
-                    .font(.subheadline.weight(.medium))
-                    .foregroundStyle(stage.hasPassed ? .secondary : .primary)
+                HStack(spacing: Theme.Spacing.sm) {
+                    Text(stage.whenLabel)
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(stage.hasPassed ? .secondary : .primary)
+
+                    // "6:00 PM — Dismissed" then "7:00 PM — Follow-up" is the
+                    // whole story of an intervention, told without the user
+                    // having to guess why they are hearing about this again.
+                    if let label = stage.stateLabel {
+                        Text(label)
+                            .font(.caption2.weight(.medium))
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, Theme.Spacing.sm)
+                            .padding(.vertical, 1)
+                            .background(Capsule().fill(Color.secondary.opacity(0.14)))
+                    }
+                }
 
                 if !isCompact {
                     Text(stage.title)
@@ -77,7 +91,11 @@ struct ReminderTimelineView: View {
             }
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(stage.title), \(stage.whenLabel)")
+        .accessibilityLabel(
+            [stage.title, stage.whenLabel, stage.stateLabel]
+                .compactMap { $0 }
+                .joined(separator: ", ")
+        )
     }
 
     /// The commitment itself, closing the timeline.

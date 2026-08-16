@@ -7,6 +7,7 @@ import SwiftUI
 /// fifth tab: it is somewhere you visit occasionally, not somewhere you work.
 struct RootView: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.scenePhase) private var scenePhase
     @State private var selectedTab: AppTab = .assistant
     @State private var showsSettings = false
 
@@ -40,6 +41,19 @@ struct RootView: View {
             SimulatedReminderView(reminder: reminder)
                 .presentationDetents([.medium])
                 .presentationDragIndicator(.visible)
+        }
+        // Reminders that came due while the app was closed are caught up here.
+        //
+        // Deliberately driven by the app becoming active — a domain event —
+        // rather than by any screen appearing. Scheduling that happens because
+        // a view rendered is scheduling that happens several times.
+        //
+        // This is a stand-in for real delivery, not a substitute for it: it can
+        // only notice a missed reminder once the user opens the app. Catching it
+        // at the moment it happens needs UserNotifications. TODO-XCODE.
+        .onChange(of: scenePhase) { _, phase in
+            guard phase == .active else { return }
+            Task { await model.reconcileFollowUps() }
         }
         .bannerHost()
     }

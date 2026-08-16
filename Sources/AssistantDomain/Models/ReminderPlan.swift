@@ -92,6 +92,53 @@ public enum ReminderChannel: String, Hashable, Codable, Sendable, CaseIterable {
     case reminderList
 }
 
+/// Where one reminder stands in its own life.
+///
+/// A stage used to be a pure template — "fire 20 minutes before" — with no
+/// record of what became of it. That made the interesting question
+/// unanswerable: *was this reminder delivered, and did the user do anything
+/// about it?* Without that, support ended the moment a notification was posted.
+///
+/// The states are about the **reminder**, not the task. A dismissed reminder
+/// and a completed task are different facts, and this enum exists partly to
+/// keep them from being conflated.
+public enum ReminderStageState: String, Hashable, Codable, Sendable, CaseIterable {
+    /// Scheduled, not yet fired.
+    case pending
+    /// Fired. Nothing has come back from the user.
+    case delivered
+    /// The user engaged with it — "I'm on it" — without saying it is done.
+    case acknowledged
+    /// The user asked for it again later.
+    case snoozed
+    /// Swiped away. **Not** completion.
+    case dismissed
+    /// Its moment passed with no response at all.
+    case missed
+    /// The task was resolved, so this reminder will never fire.
+    case cancelled
+
+    /// True when this stage is still expected to fire.
+    ///
+    /// Only `pending` counts. Everything else has either happened or been
+    /// called off, which is what makes "is there already a follow-up waiting?"
+    /// a question with one answer.
+    public var isPending: Bool { self == .pending }
+
+    /// True once nothing further will come of this stage.
+    ///
+    /// A resolved stage cannot take another outcome — the basis of idempotent
+    /// outcome processing.
+    public var isResolved: Bool {
+        switch self {
+        case .pending, .delivered:
+            return false
+        case .acknowledged, .snoozed, .dismissed, .missed, .cancelled:
+            return true
+        }
+    }
+}
+
 public struct ReminderStage: Identifiable, Hashable, Codable, Sendable {
     public typealias ID = Identifier<ReminderStage>
 
@@ -104,6 +151,19 @@ public struct ReminderStage: Identifiable, Hashable, Codable, Sendable {
     /// When true, the user must actively confirm; dismissing is not enough.
     public var requiresConfirmation: Bool
 
+    /// What has become of this reminder.
+    public var state: ReminderStageState
+    /// When `state` last changed. The audit trail for a plan's history.
+    public var stateChangedAt: Date?
+    /// The concrete moment this stage is expected to fire.
+    ///
+    /// Template stages carry a relative `offset` and get their date from
+    /// `ReminderScheduleResolver` against the plan's anchor. Follow-ups have no
+    /// anchor to hang off — a task with no fixed time can still need chasing —
+    /// so the date is recorded here. It is also what reconciliation reads to
+    /// decide that a pending reminder is now overdue.
+    public var scheduledFor: Date?
+
     public init(
         id: ID = ID(),
         kind: ReminderStageKind,
@@ -111,7 +171,10 @@ public struct ReminderStage: Identifiable, Hashable, Codable, Sendable {
         channel: ReminderChannel = .notification,
         escalation: EscalationLevel = .standard,
         message: String,
-        requiresConfirmation: Bool = false
+        requiresConfirmation: Bool = false,
+        state: ReminderStageState = .pending,
+        stateChangedAt: Date? = nil,
+        scheduledFor: Date? = nil
     ) {
         self.id = id
         self.kind = kind
@@ -120,6 +183,15 @@ public struct ReminderStage: Identifiable, Hashable, Codable, Sendable {
         self.escalation = escalation
         self.message = message
         self.requiresConfirmation = requiresConfirmation
+        self.state = state
+        self.stateChangedAt = stateChangedAt
+        self.scheduledFor = scheduledFor
+    }
+
+    /// Records an outcome, stamped with when it happened.
+    public mutating func transition(to state: ReminderStageState, at date: Date) {
+        self.state = state
+        self.stateChangedAt = date
     }
 }
 
@@ -216,6 +288,71 @@ public struct ReminderPlan: Identifiable, Hashable, Codable, Sendable {
         self.createdAt = createdAt
         self.generatedBy = generatedBy
     }
+
+    // MARK: Lifecycle
+
+    public var pendingStages: [ReminderStage] {
+        stages.filter { $0.state.isPending }
+    }
+
+    public func stage(id: ReminderStage.ID) -> ReminderStage? {
+        stages.first { $0.id == id }
+    }
+
+    /// The next reminder still expected to fire, earliest first.
+    ///
+    /// Stages without a concrete date sort last: a template stage that has not
+    /// been resolved against an anchor has no claim to being "next".
+    public var nextPendingStage: ReminderStage? {
+        pendingStages
+            .filter { $0.scheduledFor != nil }
+            .min { ($0.scheduledFor ?? .distantFuture) < ($1.scheduledFor ?? .distantFuture) }
+    }
+
+    /// Whether an equivalent follow-up is already waiting.
+    ///
+    /// The duplicate check, in one place. Two follow-ups of the same kind
+    /// pending at the same moment are the same intervention, however many times
+    /// the outcome that produced them was processed. The date comparison is
+    /// deliberately coarse — to the minute — because a re-run a few hundred
+    /// milliseconds later is the same plan, not a new one.
+    public func hasPendingStage(kind: ReminderStageKind, at date: Date) -> Bool {
+        pendingStages.contains { stage in
+            guard stage.kind == kind, let scheduled = stage.scheduledFor else { return false }
+            return abs(scheduled.timeIntervalSince(date)) < 60
+        }
+    }
+
+    /// Applies an outcome to one stage, returning whether anything changed.
+    ///
+    /// Returns `false` when the stage is already resolved, which is what makes
+    /// processing the same notification callback twice a no-op rather than a
+    /// second follow-up.
+    @discardableResult
+    public mutating func recordOutcome(
+        _ state: ReminderStageState,
+        forStage id: ReminderStage.ID,
+        at date: Date
+    ) -> Bool {
+        guard let index = stages.firstIndex(where: { $0.id == id }) else { return false }
+        guard !stages[index].state.isResolved else { return false }
+        stages[index].transition(to: state, at: date)
+        return true
+    }
+
+    /// Calls off every reminder still waiting. Used when a task is resolved.
+    ///
+    /// Returns the stages that were actually cancelled, so the caller knows
+    /// which platform requests to withdraw.
+    @discardableResult
+    public mutating func cancelPendingStages(at date: Date) -> [ReminderStage] {
+        var cancelled: [ReminderStage] = []
+        for index in stages.indices where !stages[index].state.isResolved {
+            stages[index].transition(to: .cancelled, at: date)
+            cancelled.append(stages[index])
+        }
+        return cancelled
+    }
 }
 
 /// A stage resolved to a concrete moment, ready to hand to a platform service.
@@ -263,6 +400,13 @@ public enum EngagementEvent: Hashable, Codable, Sendable {
     case reminderDelivered(at: Date)
     /// The user swiped it away. Deliberately *not* completion.
     case reminderDismissed(at: Date)
+    /// A reminder's moment passed with no response at all.
+    ///
+    /// Distinct from ``anchorPassed``: that one means the *task's* moment
+    /// arrived unconfirmed, which is a worse fact. This one means an
+    /// intervention went unanswered, which is a normal thing to happen several
+    /// times before a deadline and should escalate rather than declare failure.
+    case reminderMissed(at: Date)
     case snoozed(until: Date)
     case startedWorking(at: Date)
     case confirmedComplete(at: Date)

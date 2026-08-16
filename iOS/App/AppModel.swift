@@ -301,17 +301,28 @@ final class AppModel {
 
     // MARK: Tasks
 
-    func completeTask(_ id: TaskItem.ID) async {
-        await record(.confirmedComplete(at: now), for: id, banner: "Marked as done.")
+    func completeTask(_ id: TaskItem.ID, stageID: ReminderStage.ID? = nil) async {
+        await handle(.completed, for: id, stageID: stageID, fallback: "Marked as done.")
     }
 
-    func startTask(_ id: TaskItem.ID) async {
-        await record(.startedWorking(at: now), for: id, banner: "Marked as in progress.")
+    /// "I'm doing it."
+    ///
+    /// Explicitly not completion. It buys quiet — the planner moves the next
+    /// check-in out rather than cancelling it — because intending to do
+    /// something is not doing it, and that gap is the entire problem this app
+    /// exists for.
+    func startTask(_ id: TaskItem.ID, stageID: ReminderStage.ID? = nil) async {
+        await handle(.acknowledged, for: id, stageID: stageID, fallback: "Marked as in progress.")
     }
 
-    func snoozeTask(_ id: TaskItem.ID, minutes: Int = 10) async {
+    func snoozeTask(_ id: TaskItem.ID, minutes: Int = 10, stageID: ReminderStage.ID? = nil) async {
         let until = now.addingTimeInterval(TimeSpan.minutes(Double(minutes)))
-        await record(.snoozed(until: until), for: id, banner: "Snoozed for \(minutes) minutes.")
+        await handle(
+            .snoozed(until: until),
+            for: id,
+            stageID: stageID,
+            fallback: "Snoozed for \(minutes) minutes."
+        )
     }
 
     /// Records that a reminder was dismissed.
@@ -319,14 +330,42 @@ final class AppModel {
     /// The core decides what that means, and it never means "done". This is the
     /// single most important behaviour in the product, so the UI deliberately
     /// has no path that turns a dismissal into a completion.
-    func dismissReminder(for id: TaskItem.ID) async {
-        guard let updated = await applyEvent(.reminderDismissed(at: now), to: id) else { return }
-        banner = BannerMessage(
-            text: updated.status == .needsFollowUp
-                ? "Dismissed — it's still not done, so I'll come back to it."
-                : "Dismissed. Still on your list.",
-            style: .neutral
+    func dismissReminder(for id: TaskItem.ID, stageID: ReminderStage.ID? = nil) async {
+        await handle(
+            .dismissed,
+            for: id,
+            stageID: stageID,
+            fallback: "Dismissed. Still on your list."
         )
+    }
+
+    /// Brings pending reminders up to date with the clock.
+    ///
+    /// Called when the app becomes active. A reminder whose moment passed while
+    /// the app was closed is missed, and missed means the assistant tries
+    /// again — without this, closing the app would be a way to make support
+    /// stop.
+    func reconcileFollowUps() async {
+        do {
+            let results = try await environment.engine.followUp.reconcile()
+            guard !results.isEmpty else { return }
+            await reload()
+
+            // Said out loud rather than silently rescheduling. Repeated
+            // interventions the user cannot see or explain are how an assistant
+            // becomes something to switch off.
+            let titles = results.map(\.task.title)
+            banner = BannerMessage(
+                text: titles.count == 1
+                    ? "You missed a reminder for \(titles[0]) — I've scheduled another."
+                    : "You missed \(titles.count) reminders — I've scheduled follow-ups.",
+                style: .neutral
+            )
+        } catch {
+            // Reconciliation is a background correction, not something the user
+            // asked for. Failing it quietly is better than an alarming banner
+            // about an operation they did not initiate.
+        }
     }
 
     func reopenTask(_ id: TaskItem.ID) async {
@@ -353,25 +392,43 @@ final class AppModel {
         }
     }
 
-    private func record(
-        _ event: EngagementEvent,
+    /// The one route from a button to the support lifecycle.
+    ///
+    /// Every task action in the UI goes through here, which is what stops a new
+    /// screen from quietly inventing its own idea of what "dismiss" means. The
+    /// banner prefers the planner's own rationale — "You dismissed the last
+    /// reminder without finishing this" — over a generic confirmation, so the
+    /// user can see why another reminder exists.
+    private func handle(
+        _ outcome: ReminderOutcome,
         for id: TaskItem.ID,
-        banner text: String
+        stageID: ReminderStage.ID?,
+        fallback: String
     ) async {
-        guard await applyEvent(event, to: id) != nil else { return }
-        banner = BannerMessage(text: text, style: .success)
-    }
-
-    @discardableResult
-    private func applyEvent(_ event: EngagementEvent, to id: TaskItem.ID) async -> TaskItem? {
         do {
-            let updated = try await environment.engine.record(event, for: id)
+            let result = try await environment.engine.followUp.handle(
+                outcome: outcome,
+                forTask: id,
+                stageID: stageID
+            )
             await reload()
-            return updated
+
+            guard result.didChange else { return }
+            banner = BannerMessage(
+                text: message(for: result, fallback: fallback),
+                style: outcome.resolvesTask ? .success : .neutral
+            )
         } catch {
             banner = BannerMessage(text: "Couldn't update that task.", style: .warning)
-            return nil
         }
+    }
+
+    private func message(for result: FollowUpResult, fallback: String) -> String {
+        guard let next = result.nextReminder else {
+            return result.rationale ?? fallback
+        }
+        let when = AppFormatters.shared.relativeDayAndTime(next.fireDate, now: now)
+        return "\(fallback.hasSuffix(".") ? fallback : fallback + ".") I'll check back \(when)."
     }
 
     private func save(_ task: TaskItem, banner text: String?) async {
@@ -480,21 +537,25 @@ final class AppModel {
         guard let reminder = simulatedReminder else { return }
         simulatedReminder = nil
 
+        // The stage id travels with the answer, so the outcome lands on the
+        // reminder that prompted it rather than on the task in general.
+        let stageID = reminder.stageID
+
         switch (response, reminder.subject) {
         case (.doingIt, .task(let id)):
-            await startTask(id)
+            await startTask(id, stageID: stageID)
         case (.doingIt, .event):
             banner = BannerMessage(text: "Good — I'll stop nudging.", style: .success)
         case (.completed, .task(let id)):
-            await completeTask(id)
+            await completeTask(id, stageID: stageID)
         case (.completed, .event):
             banner = BannerMessage(text: "Marked as handled.", style: .success)
         case (.snooze, .task(let id)):
-            await snoozeTask(id)
+            await snoozeTask(id, stageID: stageID)
         case (.snooze, .event):
             banner = BannerMessage(text: "I'll remind you again shortly.", style: .neutral)
         case (.dismiss, .task(let id)):
-            await dismissReminder(for: id)
+            await dismissReminder(for: id, stageID: stageID)
         case (.dismiss, .event):
             banner = BannerMessage(
                 text: "Dismissed. The event is still on your calendar.",

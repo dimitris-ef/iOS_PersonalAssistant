@@ -75,6 +75,15 @@ struct TaskDetailView: View {
                 if task.followUpCount > 0 {
                     LabeledContent("Followed up", value: "\(task.followUpCount) times")
                 }
+                if let next = nextFollowUp(for: task) {
+                    // The answer to "why am I being reminded about this again?",
+                    // stated before the user has to ask it. Support the user
+                    // cannot see is indistinguishable from nagging.
+                    LabeledContent(
+                        "Next check-in",
+                        value: AppFormatters.shared.relativeDayAndTime(next, now: model.now)
+                    )
+                }
             }
 
             if let plan = model.reminderPlan(forTask: task.id) {
@@ -144,6 +153,12 @@ struct TaskDetailView: View {
         } message: {
             Text("This can't be undone.")
         }
+    }
+
+    /// When the assistant next intends to come back, if it does.
+    private func nextFollowUp(for task: TaskItem) -> Date? {
+        guard !task.status.isTerminal else { return nil }
+        return model.reminderPlan(forTask: task.id)?.nextPendingStage?.scheduledFor
     }
 
     @ViewBuilder

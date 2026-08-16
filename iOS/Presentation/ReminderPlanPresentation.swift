@@ -21,6 +21,27 @@ struct ReminderPlanPresentation: Identifiable, Equatable {
         let requiresConfirmation: Bool
         /// True once its moment has passed, so the timeline can dim it.
         let hasPassed: Bool
+        /// What became of this reminder.
+        ///
+        /// Shown rather than inferred: "6:00 PM — dismissed, 7:00 PM —
+        /// follow-up" is the difference between a user who understands why they
+        /// are being reminded again and one who thinks the app is broken.
+        let state: ReminderStageState
+
+        /// The badge, or nil when there is nothing worth saying.
+        ///
+        /// A pending reminder needs no label — its time already says it.
+        var stateLabel: String? {
+            switch state {
+            case .pending: return nil
+            case .delivered: return "Delivered"
+            case .acknowledged: return "You said you were on it"
+            case .snoozed: return "Snoozed"
+            case .dismissed: return "Dismissed"
+            case .missed: return "Missed"
+            case .cancelled: return "Cancelled"
+            }
+        }
     }
 
     let id: ReminderPlan.ID
@@ -45,6 +66,11 @@ struct ReminderPlanPresentation: Identifiable, Equatable {
         // still shown — the timeline is a record as well as a forecast.
         let resolved = resolver.resolve(plan: plan, now: .distantPast)
 
+        let stateByStage = Dictionary(
+            plan.stages.map { ($0.id, $0.state) },
+            uniquingKeysWith: { first, _ in first }
+        )
+
         let stages = resolved.map { reminder in
             Stage(
                 id: reminder.stageID,
@@ -60,7 +86,8 @@ struct ReminderPlanPresentation: Identifiable, Equatable {
                 title: title(for: reminder.kind),
                 escalation: reminder.escalation,
                 requiresConfirmation: reminder.requiresConfirmation,
-                hasPassed: reminder.fireDate < now
+                hasPassed: reminder.fireDate < now,
+                state: stateByStage[reminder.stageID] ?? .pending
             )
         }
 

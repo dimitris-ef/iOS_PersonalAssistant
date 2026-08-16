@@ -137,6 +137,7 @@ let package = Package(
                 "AssistantPersistence",
                 "AssistantDomain",
                 "AssistantTools",
+                "ExecutiveSupport",
             ]
         ),
         .testTarget(

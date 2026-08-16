@@ -484,6 +484,21 @@ public final class SDReminderStage {
     public var offsetMinute: Int?
     public var offsetDate: Date?
 
+    // MARK: Schema V2 — lifecycle
+    //
+    // All three are optional so the V1 → V2 migration is inferrable. A row
+    // written before this feature reads back with `stateRaw == nil`, which the
+    // mapper resolves to `.pending`: an old reminder is one still waiting, never
+    // one already dealt with.
+
+    /// `ReminderStageState`. Nil on rows predating schema V2.
+    public var stateRaw: String?
+    public var stateChangedAt: Date?
+    /// The concrete moment this stage is due, for follow-ups and for
+    /// reconciliation. Nil on template stages that resolve against the plan's
+    /// anchor, and on rows predating schema V2.
+    public var scheduledFor: Date?
+
     public var plan: SDReminderPlan?
 
     public init(
@@ -499,7 +514,10 @@ public final class SDReminderStage {
         offsetDays: Int?,
         offsetHour: Int?,
         offsetMinute: Int?,
-        offsetDate: Date?
+        offsetDate: Date?,
+        stateRaw: String? = nil,
+        stateChangedAt: Date? = nil,
+        scheduledFor: Date? = nil
     ) {
         self.id = id
         self.kindRaw = kindRaw
@@ -514,6 +532,9 @@ public final class SDReminderStage {
         self.offsetHour = offsetHour
         self.offsetMinute = offsetMinute
         self.offsetDate = offsetDate
+        self.stateRaw = stateRaw
+        self.stateChangedAt = stateChangedAt
+        self.scheduledFor = scheduledFor
     }
 }
 

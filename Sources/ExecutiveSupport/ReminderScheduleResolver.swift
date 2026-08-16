@@ -18,10 +18,14 @@ public struct ReminderScheduleResolver: Sendable {
         now: Date,
         quietHours: DayWindow? = nil
     ) -> [ScheduledReminder] {
-        guard let anchor = plan.subject.anchor.date else { return [] }
+        let anchor = plan.subject.anchor.date
 
         var resolved: [ScheduledReminder] = []
         for stage in plan.stages {
+            // A follow-up carries its own absolute date and needs no anchor —
+            // which matters because the tasks most in need of chasing are often
+            // the ones with no fixed time at all. Only relative stages require
+            // something to be relative to.
             guard let rawDate = fireDate(for: stage, anchor: anchor) else { continue }
             let resolvedDate = adjustedForQuietHours(rawDate, quietHours: quietHours, stage: stage)
             // Silently dropping past stages is intended: a plan generated for an
@@ -48,7 +52,19 @@ public struct ReminderScheduleResolver: Sendable {
         return resolved.sorted { $0.fireDate < $1.fireDate }
     }
 
-    public func fireDate(for stage: ReminderStage, anchor: Date) -> Date? {
+    /// The concrete moment a stage fires.
+    ///
+    /// `anchor` is optional because an absolute stage — every follow-up — does
+    /// not have one. Relative stages without an anchor return nil rather than
+    /// guessing a base date.
+    public func fireDate(for stage: ReminderStage, anchor: Date?) -> Date? {
+        // A recorded schedule wins: a stage that was rescheduled says so
+        // directly, and recomputing from the offset would undo that.
+        if case .absolute(let date) = stage.offset { return date }
+        if let scheduled = stage.scheduledFor { return scheduled }
+
+        guard let anchor else { return nil }
+
         switch stage.offset {
         case .beforeAnchor(let interval):
             return anchor.addingTimeInterval(-interval)

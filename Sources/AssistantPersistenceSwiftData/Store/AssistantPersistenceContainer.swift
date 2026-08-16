@@ -28,8 +28,11 @@ public enum PersistenceLocation: Sendable {
 public enum AssistantPersistenceContainer {
     /// The current schema. Kept as one value so the container, the migration
     /// plan and the tests cannot drift apart.
+    ///
+    /// This is always the *newest* version. The migration plan is what knows
+    /// how to get an older store here.
     public static var schema: Schema {
-        Schema(PersonalAssistantSchemaV1.models, version: PersonalAssistantSchemaV1.versionIdentifier)
+        Schema(PersonalAssistantSchemaV2.models, version: PersonalAssistantSchemaV2.versionIdentifier)
     }
 
     /// Opens the store.

@@ -84,6 +84,31 @@ public struct TaskStatusMachine: Sendable {
                 followUpAt: date.addingTimeInterval(followUp.interval)
             )
 
+        case .reminderMissed(let date):
+            guard !task.status.isTerminal else { return unchanged(task) }
+            // An unanswered reminder is not a failed task — the deadline may
+            // still be days away. It *is* evidence that this intervention did
+            // not work, so the assistant takes another turn rather than
+            // quietly dropping it.
+            guard followUp.isEnabled, followUpCount < followUp.maximumFollowUps else {
+                // Out of follow-ups. The task stays outstanding rather than
+                // moving to a terminal state: the app has stopped chasing, it
+                // has not decided the work is done.
+                return StatusTransition(
+                    status: .needsFollowUp,
+                    snoozeCount: snoozeCount,
+                    followUpCount: followUpCount
+                )
+            }
+            followUpCount += 1
+            return StatusTransition(
+                status: .needsFollowUp,
+                snoozeCount: snoozeCount,
+                followUpCount: followUpCount,
+                nextEscalation: escalated(task, plan: plan),
+                followUpAt: date.addingTimeInterval(followUp.interval)
+            )
+
         case .snoozed(let until):
             guard !task.status.isTerminal else { return unchanged(task) }
             guard snooze.isAllowed, snoozeCount < snooze.maximumSnoozes else {

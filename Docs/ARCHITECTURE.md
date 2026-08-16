@@ -198,6 +198,14 @@ composition time rather than a rewrite.
 No credentials go through either. API keys come from a `CredentialProvider`,
 Keychain-backed on iOS, and never enter the database.
 
+## Follow-up
+
+`TaskStatusMachine` decides what an engagement event means; `SupportPlanner`
+decides what to do about it; `FollowUpCoordinator` runs the two in the right
+order and `FollowUpService` persists the result and calls the platform layer.
+A reminder being dismissed, snoozed or ignored never ends support — only a
+terminal task status does. See [`FOLLOW-UP.md`](FOLLOW-UP.md).
+
 ## Extension points
 
 Each of these is an implementation task, not a redesign:
