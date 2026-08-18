@@ -1,0 +1,107 @@
+name: Swift Tests
+
+# Compiles and runs the package's test targets.
+#
+# Until this existed, nothing in CI built `Tests/` at all: both other workflows
+# build only the app target. Every test in this repository had been written and
+# reviewed but never compiled, let alone executed — which makes a test suite a
+# document rather than a check. Expect this to find real problems; that is the
+# point of adding it.
+#
+# Runs on macos-26 rather than the older image so the tests guarded by
+# `#if canImport(FoundationModels)` are compiled and executed too. Those need
+# the framework in the SDK, but *not* Apple Intelligence: building a
+# GenerationSchema and converting GeneratedContent to JSON are local
+# operations, and the tool adapter deliberately never reaches the model. So the
+# one part of the Apple provider that can be tested without eligible hardware
+# actually is.
+
+on:
+  push:
+    paths:
+      - "Sources/**"
+      - "Tests/**"
+      - "Package.swift"
+      - ".github/workflows/swift-tests.yml"
+  pull_request:
+    paths:
+      - "Sources/**"
+      - "Tests/**"
+      - "Package.swift"
+      - ".github/workflows/swift-tests.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: swift-tests-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Build and run the test targets
+    runs-on: macos-26
+    timeout-minutes: 40
+
+    env:
+      BUILD_LOG: ${{ github.workspace }}/artifacts/swift-build.log
+      TEST_LOG: ${{ github.workspace }}/artifacts/swift-test.log
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Show toolchain
+        run: |
+          set -euo pipefail
+          mkdir -p "$(dirname "$BUILD_LOG")"
+          sw_vers
+          xcodebuild -version
+          swift --version
+
+      - name: Compile the tests
+        # Separate from running them so a compile error is reported as a
+        # compile error rather than buried in test output. This step is the
+        # one most likely to fail first, since none of this has ever been
+        # through a compiler.
+        run: |
+          set -euo pipefail
+          swift build --build-tests 2>&1 | tee "$BUILD_LOG"
+
+      - name: Run the tests
+        run: |
+          set -euo pipefail
+          swift test --skip-build 2>&1 | tee "$TEST_LOG"
+
+      - name: Summarise failures
+        # Last, and deliberately verbose about *what* failed: this log is read
+        # from a machine with no Swift toolchain, so the failure has to be
+        # legible here rather than reproducible locally.
+        if: failure()
+        run: |
+          set -uo pipefail
+
+          if [ -f "$BUILD_LOG" ]; then
+            echo "===== compile errors ====="
+            grep -E "error:" "$BUILD_LOG" | sort -u | head -n 80 \
+              || echo "(none — the failure was not a compile error)"
+            echo "===== end ====="
+          fi
+
+          if [ -f "$TEST_LOG" ]; then
+            echo "===== failing tests ====="
+            grep -E "error:|XCTAssert|failed \(|: failure" "$TEST_LOG" \
+              | sort -u | head -n 80 \
+              || echo "(nothing matched)"
+            echo "===== end ====="
+          fi
+
+      - name: Upload logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: swift-test-logs
+          path: artifacts/*.log
+          retention-days: 7
+          if-no-files-found: ignore
