@@ -37,14 +37,21 @@ the existing architecture, and it calls the same protocols the Apple
 implementations will. What is mocked is the layer *beneath* it — the platform
 services and the model — never the UI itself.
 
-What does not exist yet, deliberately: every Apple framework integration. Those
-need Xcode. See [TODO-XCODE](#todo-xcode) below.
+One Apple framework integration now exists: the on-device model, over
+Foundation Models. The rest — EventKit, AlarmKit, UserNotifications, App
+Intents — does not. See [TODO-XCODE](#todo-xcode) below.
 
-> **Not verified by a compiler.** All of this was written on a machine with no
-> Swift toolchain and no Apple SDK, so nothing has been built or run — the core
-> or the UI. Expect to fix compile errors on the first build. The architecture
-> and the interface are the deliverable; treat the first build as part of
-> adopting them.
+> **What has and has not been compiled.** This is written on a machine with no
+> Swift toolchain, so CI is the only compiler. Two GitHub Actions jobs build the
+> **app target**: one on Xcode 16.4, which runs it in a Simulator and takes a
+> screenshot, and one on Xcode 26.6, which compiles the Foundation Models code
+> against an SDK that actually contains the framework. Both are green.
+>
+> Two things follow. **The test targets have never been compiled or
+> run** — neither job builds them, and there is no `swift test` anywhere in CI.
+> Every test in `Tests/` is unverified. And **nothing has ever run on a device**:
+> the Apple provider compiles and links, but no generation has happened, because
+> Apple Intelligence inference needs eligible hardware no runner has.
 
 ---
 
@@ -73,7 +80,7 @@ work, not to avoid it.
 | Works today | Needs Xcode |
 | --- | --- |
 | Domain models, task/reminder state | SwiftUI screens |
-| Assistant turn pipeline | Apple Foundation Models inference |
+| Assistant turn pipeline | EventKit / AlarmKit / notifications |
 | Tool definitions, validation, authorization | EventKit calendar & reminders |
 | Reminder planning and scheduling | AlarmKit alarms |
 | Task status machine | UserNotifications delivery |
@@ -98,7 +105,7 @@ PhonePersonalAI/
 │   ├── ExecutiveSupport/       Reminder planning and task status rules.
 │   ├── AssistantCore/          The turn pipeline that ties it together.
 │   ├── MockPlatform/           In-memory platform services.
-│   ├── AIProviderApple/        Apple Foundation Models  (stub, TODO-XCODE)
+│   ├── AIProviderApple/        Apple Foundation Models  (real; TODO-DEVICE)
 │   ├── AIProviderLocal/        Downloaded local model    (runtime not chosen)
 │   ├── AIProviderRemote/       Remote API, vendor-neutral
 │   ├── DevSupport/             Scripted provider for development only
@@ -140,8 +147,10 @@ public protocol AIProvider: Sendable {
 
 Three categories are supported:
 
-- **`AIProviderApple`** — Apple's on-device Foundation Models. Interface and
-  metadata exist; `respond(to:)` throws. `TODO-XCODE`.
+- **`AIProviderApple`** — Apple's on-device Foundation Models, over
+  `SystemLanguageModel` and `LanguageModelSession`. Real, and compiled in CI
+  against the iOS 26 SDK, but never run: inference needs an Apple
+  Intelligence device. `TODO-DEVICE`. See [`Docs/APPLE-ON-DEVICE.md`](Docs/APPLE-ON-DEVICE.md).
 - **`AIProviderLocal`** — a model the user downloaded. Fully built except
   inference, which is delegated to a `LocalModelRuntime`. **No runtime is
   chosen** — not llama.cpp, MLX, Core ML or ExecuTorch. That decision is
@@ -330,7 +339,6 @@ Current list:
 | Where | What |
 | --- | --- |
 | `Package.swift` | Raise the iOS deployment target for Foundation Models / AlarmKit |
-| `Sources/AIProviderApple/AppleFoundationModelsProvider.swift` | Implement `respond(to:)` and real availability against `FoundationModels` |
 | `Sources/AssistantPlatform/PlatformService.swift` | Real permission flow |
 | `iOS/App/AppEnvironment.swift` | Swap the mock platform services for the real Apple ones |
 | `iOS/UI/Assistant/AssistantComposerView.swift` | Microphone capture and speech recognition |
@@ -350,15 +358,21 @@ Current list:
 
 ## Known limitations
 
-- **Unverified build.** No Swift toolchain was available; see Status above.
+- **Tests are never compiled or run.** CI builds the app target only, on two
+  Xcode versions. Nothing builds `Tests/`, so every test in the repository is
+  unverified. See Status above.
+- **The on-device model has never actually answered.** The Apple provider
+  compiles against the iOS 26 SDK and links correctly, but Apple Intelligence
+  inference needs eligible hardware, so the generation path is `TODO-DEVICE`.
+  See `Docs/APPLE-ON-DEVICE.md`.
 - **Missed reminders are only noticed when the app opens.** The follow-up
   engine is complete and tested, but nothing delivers a notification yet, so
   "this reminder went unanswered" is discovered at the next launch rather than
   when it happens. See `Docs/FOLLOW-UP.md`.
-- **Single-pass turns.** A turn asks the provider once and executes what comes
-  back. Tool *results* are not fed back for a second pass, so
-  `getUpcomingSchedule` currently returns a count rather than data the model can
-  reason over. The seam for a multi-pass loop is in `AssistantEngine.send`.
+- **Two rounds, not a full loop.** A turn asks the provider, executes what it
+  proposed, shows it the results and asks for a closing reply — but only for
+  providers that declare `supportsToolResultContinuation`, and only twice.
+  A model that needs three steps to answer cannot have them.
 - **Reminder scheduling is one-shot.** Plans are generated and resolved at
   creation time. Re-planning after a snooze or a follow-up is modelled by
   `TaskStatusMachine` but not yet driven by anything.

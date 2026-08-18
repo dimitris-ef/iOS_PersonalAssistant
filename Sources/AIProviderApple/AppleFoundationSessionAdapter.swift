@@ -176,6 +176,12 @@ struct AppleFoundationSessionAdapter {
                 // the work was only simulated. The engine writes that text; it
                 // is passed through unedited so the model cannot be told the
                 // phone did something it did not.
+                //
+                // TODO-DEVICE: the output carries the same id as the call it
+                // answers, on the assumption that is how the framework pairs
+                // them. Entry order preserves the pairing either way, but
+                // whether the model reads them as connected has not been
+                // observed on a real device.
                 guard let callID = message.toolCallID else { continue }
                 entries.append(
                     .toolOutput(

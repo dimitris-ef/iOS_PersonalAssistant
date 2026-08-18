@@ -25,6 +25,15 @@ import FoundationModels
 ///   framework will call into `AppleFoundationToolAdapter`, but that adapter
 ///   only records the request. Validation, authorization, confirmation and
 ///   execution stay in `AssistantEngine`, where they are for every provider.
+///
+/// TODO-DEVICE: none of the generation path below has ever executed. It
+/// compiles against the iOS 26 SDK in CI, which is as far as a runner can go —
+/// Apple Intelligence inference needs eligible hardware with the model
+/// downloaded. What needs a real device: that a generation returns text at all,
+/// which availability case a given phone reports, whether a guardrail refusal
+/// arrives as `.refusal` or `.guardrailViolation`, and whether the framework
+/// pairs a `Transcript.ToolCall` with its `ToolOutput` by the shared id this
+/// code gives them. See `Docs/APPLE-ON-DEVICE.md`.
 public struct AppleFoundationModelsProvider: AIProvider {
     /// Unchanged from when this was a stub. It is written into settings when
     /// the user picks this provider, so changing it would silently reset the

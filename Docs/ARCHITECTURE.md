@@ -41,7 +41,15 @@ Two properties are load-bearing:
   settings can reference a tool without the domain depending on the tool system.
 - **Providers depend on `AssistantAI` only.** A provider cannot reach the
   repositories, the platform services or the tool implementations even by
-  accident, because those modules are not in its dependency list.
+  accident, because those modules are not in its dependency list. This is what
+  makes the Apple provider's tool adapter safe by construction: it *cannot*
+  create a calendar event, because EventKit is not reachable from where it
+  lives.
+
+Apple's Foundation Models is now a real implementation behind that boundary —
+`import FoundationModels` appears only in `AIProviderApple`, always behind
+`#if canImport`, so the package still builds where the framework does not
+exist. See [`APPLE-ON-DEVICE.md`](APPLE-ON-DEVICE.md).
 
 ## The turn pipeline
 
@@ -217,7 +225,6 @@ Each of these is an implementation task, not a redesign:
 
 | To add | Implement | Nothing else changes |
 | --- | --- | --- |
-| Apple Foundation Models | `respond(to:)` in the existing provider | Registry, routing, tools |
 | A downloaded local model | `LocalModelRuntime` | Provider, catalog, settings |
 | Another API vendor | `RemoteAPIAdapter` | Provider, transport, engine |
 | EventKit / AlarmKit / notifications | The four platform protocols | Executor, planner, engine |
