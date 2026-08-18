@@ -78,7 +78,7 @@ struct AppleFoundationSessionAdapter {
         // The trailing user message is the prompt; everything before it is
         // history the session should already be holding.
         var history = request.messages
-        var prompt: Prompt
+        let prompt: Prompt
         if let last = history.last, last.role == .user {
             history.removeLast()
             prompt = Prompt(last.content)

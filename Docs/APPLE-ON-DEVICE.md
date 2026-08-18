@@ -191,6 +191,20 @@ many words, that the work was simulated — and asks for a closing reply. The
 engine's text from round two replaces round one's, so what the user reads
 describes what actually happened.
 
+**This costs a second generation, and that is the point.** Apple's tool calling
+is a callback *during* generation, so round one already ends with the model
+writing a final sentence — but it writes it believing only that the request was
+passed on, because at that moment that is all that is true. The app does not
+yet know whether the action will be authorized, whether the user will be asked
+to confirm, or that the platform services are mocks.
+
+Accepting round one's text would be faster and would be a lie. Declaring
+`supportsToolResultContinuation: false` is the tempting shortcut here and it is
+the wrong one: the reply would be composed before the outcome existed. The
+second generation is what buys "I've set that reminder" being true — or, right
+now, being correctly replaced by something that admits the reminder was
+simulated.
+
 ### Unknown tools
 
 The model is offered adapters built from `AIRequest.tools` and nothing else.
