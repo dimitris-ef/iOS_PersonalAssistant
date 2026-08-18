@@ -41,17 +41,20 @@ One Apple framework integration now exists: the on-device model, over
 Foundation Models. The rest — EventKit, AlarmKit, UserNotifications, App
 Intents — does not. See [TODO-XCODE](#todo-xcode) below.
 
-> **What has and has not been compiled.** This is written on a machine with no
-> Swift toolchain, so CI is the only compiler. Two GitHub Actions jobs build the
-> **app target**: one on Xcode 16.4, which runs it in a Simulator and takes a
-> screenshot, and one on Xcode 26.6, which compiles the Foundation Models code
-> against an SDK that actually contains the framework. Both are green.
+> **What has and has not been verified.** This is written on a machine with no
+> Swift toolchain, so CI is the only compiler. Three GitHub Actions workflows,
+> all green:
 >
-> Two things follow. **The test targets have never been compiled or
-> run** — neither job builds them, and there is no `swift test` anywhere in CI.
-> Every test in `Tests/` is unverified. And **nothing has ever run on a device**:
-> the Apple provider compiles and links, but no generation has happened, because
-> Apple Intelligence inference needs eligible hardware no runner has.
+> | Workflow | Runner | What it proves |
+> | --- | --- | --- |
+> | iOS Simulator Preview | macos-15, Xcode 16.4 | The app builds, launches and renders |
+> | Apple SDK Check | macos-26, Xcode 26.6 | Foundation Models compiles and is weakly linked |
+> | Swift Tests | macos-26, Xcode 26.6 | 298 tests across 36 suites |
+>
+> What remains unverified is narrower now: **nothing has run on a device.** The
+> Apple provider compiles, links and has its tool-mapping tested against the
+> real framework types, but no generation has happened — Apple Intelligence
+> inference needs eligible hardware no runner has. See `TODO-DEVICE`.
 
 ---
 
@@ -358,9 +361,6 @@ Current list:
 
 ## Known limitations
 
-- **Tests are never compiled or run.** CI builds the app target only, on two
-  Xcode versions. Nothing builds `Tests/`, so every test in the repository is
-  unverified. See Status above.
 - **The on-device model has never actually answered.** The Apple provider
   compiles against the iOS 26 SDK and links correctly, but Apple Intelligence
   inference needs eligible hardware, so the generation path is `TODO-DEVICE`.

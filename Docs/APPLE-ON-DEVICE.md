@@ -251,6 +251,7 @@ Two workflows, and the split matters:
 | --- | --- | --- |
 | iOS Simulator Preview | macos-15, Xcode 16.4 | The app builds, launches and renders |
 | Apple SDK Check | macos-26, Xcode 26.6 | The Foundation Models code compiles and is weakly linked |
+| Swift Tests | macos-26, Xcode 26.6 | The suite runs — including the guarded Apple tests |
 
 The preview runner's SDK has no FoundationModels, so `canImport` is false there
 and every line of this provider compiles out — that job would stay green
@@ -258,9 +259,17 @@ whatever this code contained. Hence the second one, which asserts the framework
 is in the SDK *before* building and that the binary really references it
 afterwards. A green check that verified nothing is worse than a red one.
 
-Neither runs the model. Apple Intelligence inference needs eligible hardware
-with the model downloaded, which no CI runner has, and no amount of wanting
-changes that.
+The test job runs on macos-26 specifically so `AppleToolAdapterTests` is
+compiled *and executed*. Those tests need the framework in the SDK but not
+Apple Intelligence: building a `GenerationSchema` from the tool catalogue and
+reading `GeneratedContent` back as JSON are local operations, and the adapter
+deliberately never reaches the model. So the schema bridge, the argument
+conversion, the tool-safety property and the "nothing has happened yet" wording
+are all checked against the real framework types.
+
+None of the three runs the model. Apple Intelligence inference needs eligible
+hardware with the model downloaded, which no CI runner has, and no amount of
+wanting changes that.
 
 ## What still needs a real device
 
