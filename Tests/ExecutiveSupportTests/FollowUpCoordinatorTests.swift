@@ -326,7 +326,17 @@ final class FollowUpCoordinatorTests: XCTestCase {
         }
 
         XCTAssertLessThan(level(for: .low), level(for: .critical))
-        XCTAssertEqual(level(for: .low), .gentle)
+
+        // The fixture's delivered stage is `.standard`, and an unanswered
+        // low-importance reminder steps up exactly one level from whatever the
+        // plan has reached — it does not restart at the bottom. `.gentle`,
+        // which this previously expected, is where a plan *starts*, not where
+        // it goes after being ignored.
+        XCTAssertEqual(level(for: .low), .insistent)
+
+        // Importance short-circuits the ladder: anything at or above `.high`
+        // goes straight to an alarm rather than climbing a step at a time.
+        XCTAssertEqual(level(for: .critical), .alarm)
     }
 
     /// Repeated silence tightens the loop rather than repeating the same

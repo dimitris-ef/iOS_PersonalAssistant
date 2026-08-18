@@ -38,7 +38,21 @@ final class MemoryDeduplicatorTests: XCTestCase {
         }
 
         XCTAssertEqual(matched.id, existing.id)
-        XCTAssertGreaterThanOrEqual(similarity, 0.62)
+
+        // And it was *not* word overlap that caught it. These two share one
+        // content word; the lexical score is around 0.27, well under the 0.62
+        // duplicate threshold. What connected them is the documented fallback:
+        // same category, same subject, same normalised duration ("half an
+        // hour" is 1800 seconds, and so is "30 minutes").
+        //
+        // Asserting the similarity were high would contradict the thing this
+        // rule exists to work around, and would quietly start passing for the
+        // wrong reason if the threshold were ever lowered.
+        XCTAssertLessThan(
+            similarity,
+            MemoryDeduplicator().nearDuplicateThreshold,
+            "if overlap alone now clears the threshold, the duration rule is no longer what is being tested"
+        )
     }
 
     // MARK: The distinctions that must survive

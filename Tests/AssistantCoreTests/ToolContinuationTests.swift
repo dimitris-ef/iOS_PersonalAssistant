@@ -112,12 +112,21 @@ final class ToolContinuationTests: XCTestCase {
         )
         let (engine, repositories, conversationID) = try await makeEngine(provider: provider)
 
-        _ = try await engine.send("Remember that", in: conversationID)
+        let result = try await engine.send("Remember that", in: conversationID)
 
         // The default maximumToolRounds is 2.
         XCTAssertEqual(provider.requestCount, 2)
+        // Both rounds really executed — this is the evidence the loop ran
+        // twice, and it is what the memory count used to stand in for.
+        XCTAssertEqual(result.plan.actions.count, 2)
+
+        // But only one memory exists. Both rounds proposed the *same* content,
+        // and since `storeMemory` began going through `MemoryService` an
+        // identical write is recognised as a duplicate and folded into the
+        // existing record rather than added beside it. Two stored memories
+        // here would now be the bug.
         let memories = try await repositories.memories.all()
-        XCTAssertEqual(memories.count, 2)
+        XCTAssertEqual(memories.count, 1)
     }
 
     func testKeepsCompletedActionsWhenTheClosingRequestFails() async throws {

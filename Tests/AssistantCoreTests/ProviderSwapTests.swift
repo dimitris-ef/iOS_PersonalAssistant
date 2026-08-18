@@ -73,7 +73,13 @@ final class ProviderSwapTests: XCTestCase {
         switched.preferredProviderID = remote.metadata.id
         try await repositories.settings.update(switched)
 
-        let second = try await engine.send("Anything else?", in: conversation.id)
+        // Asked so that the stored memory is genuinely relevant to it. The
+        // previous wording was "Anything else?", which shares no content word
+        // with anything remembered — and since the memory milestone that
+        // correctly means no memory reaches the prompt at all. Keeping it
+        // would have made the assertion below test the relevance gate rather
+        // than the provider swap.
+        let second = try await engine.send("How long do I need to get ready?", in: conversation.id)
         XCTAssertEqual(second.providerID, "test.remote")
 
         // Conversation history carried over, including both turns.

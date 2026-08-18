@@ -17,11 +17,29 @@ final class SchemaVersioningTests: XCTestCase {
         XCTAssertEqual(PersonalAssistantSchemaV1.versionIdentifier, Schema.Version(1, 0, 0))
     }
 
-    func testTheMigrationPlanKnowsAboutV1() {
-        XCTAssertEqual(PersonalAssistantMigrationPlan.schemas.count, 1)
-        // No stages yet, and that is correct for a first version — the plan is
-        // in place so the next one has somewhere to go.
-        XCTAssertTrue(PersonalAssistantMigrationPlan.stages.isEmpty)
+    /// Every version is listed, and there is a stage between each consecutive
+    /// pair.
+    ///
+    /// Stated as a relationship rather than as counts. This test previously
+    /// asserted "one schema, no stages", which was true when it was written and
+    /// silently wrong for two milestones afterwards — a gap that only appeared
+    /// once anything compiled the suite. A missing stage means a store from the
+    /// previous version cannot be opened at all.
+    func testTheMigrationPlanCoversEveryVersion() {
+        let schemas = PersonalAssistantMigrationPlan.schemas
+        let stages = PersonalAssistantMigrationPlan.stages
+
+        XCTAssertFalse(schemas.isEmpty)
+        XCTAssertEqual(
+            stages.count,
+            schemas.count - 1,
+            "each consecutive pair of schema versions needs exactly one migration stage"
+        )
+
+        // In ascending order, so the plan describes a path rather than a set.
+        let versions = schemas.map { $0.versionIdentifier }
+        XCTAssertEqual(versions, versions.sorted())
+        XCTAssertEqual(versions.first, PersonalAssistantSchemaV1.versionIdentifier)
     }
 
     /// Every model has to be listed, or its table is simply absent and the
@@ -46,9 +64,17 @@ final class SchemaVersioningTests: XCTestCase {
         )
     }
 
-    func testTheContainerUsesTheVersionedSchema() throws {
+    /// The container opens at the newest version the plan knows about.
+    ///
+    /// Compared against the migration plan rather than a version literal: a
+    /// hardcoded number here is a test that has to be edited every time the
+    /// schema moves, and therefore one that eventually says something false.
+    func testTheContainerUsesTheNewestVersionedSchema() throws {
         let container = try AssistantPersistenceContainer.make(location: .inMemory)
-        XCTAssertEqual(container.schema.version, Schema.Version(1, 0, 0))
+        let newest = PersonalAssistantMigrationPlan.schemas.last
+
+        XCTAssertNotNil(newest)
+        XCTAssertEqual(container.schema.version, newest?.versionIdentifier)
     }
 
     /// Reopening a store must not migrate, reset or otherwise disturb it.

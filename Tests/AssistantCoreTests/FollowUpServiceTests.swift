@@ -49,10 +49,15 @@ final class FollowUpServiceTests: XCTestCase {
         XCTAssertEqual(storedTask?.status, .needsFollowUp)
         XCTAssertEqual(storedPlan?.pendingStages.count, 1)
 
-        // And the platform layer was actually asked.
-        let pending = try await services.notifications.pendingNotifications()
-        XCTAssertEqual(pending.count, 1)
-        XCTAssertEqual(pending.first?.relatedTaskID, task.id)
+        // And the platform layer was actually asked — through whichever
+        // service the escalation chose. This task is `.high`, and
+        // `TaskStatusMachine.escalated(_:plan:)` takes a dismissed
+        // high-importance task straight to `.alarm`, so the follow-up arrives
+        // as an alarm rather than a notification. Asserting on notifications
+        // specifically was this test assuming the gentler path.
+        let scheduled = try XCTUnwrap(result.nextReminder)
+        XCTAssertEqual(scheduled.channel, .alarm)
+        try await assertOnePlatformRequest(for: scheduled, task: task, in: services)
     }
 
     /// Callbacks get retried. Two deliveries must not become two reminders — at
@@ -78,9 +83,12 @@ final class FollowUpServiceTests: XCTestCase {
         XCTAssertNil(second.nextReminder)
 
         let storedPlan = try await repositories.reminderPlans.plan(id: plan.id)
-        let pending = try await services.notifications.pendingNotifications()
         XCTAssertEqual(storedPlan?.pendingStages.count, 1)
-        XCTAssertEqual(pending.count, 1)
+
+        // One OS-level request, not two — the point of the test. Counted
+        // across both services, because a high-importance dismissal escalates
+        // to an alarm.
+        XCTAssertEqual(try await platformRequestCount(in: services), 1)
     }
 
     // MARK: Snooze
@@ -148,31 +156,30 @@ final class FollowUpServiceTests: XCTestCase {
 
     // MARK: Resolution
 
-    func testCompletionCancelsTheScheduledNotification() async throws {
+    func testCompletionWithdrawsTheWaitingReminder() async throws {
         let repositories = AssistantRepositories.ephemeral()
         let services = PlatformServices.mock()
         let service = makeService(repositories: repositories, services: services)
         let (task, plan) = try await seed(into: repositories)
 
-        // Dismiss first, so there is a real pending notification to cancel.
+        // Dismiss first, so there is a real pending request to withdraw.
         _ = try await service.handle(
             outcome: .dismissed,
             forTask: task.id,
             stageID: plan.stages[0].id
         )
-        let beforeCompletion = try await services.notifications.pendingNotifications()
-        XCTAssertEqual(beforeCompletion.count, 1)
+        XCTAssertEqual(try await platformRequestCount(in: services), 1)
 
         _ = try await service.handle(outcome: .completed, forTask: task.id)
 
         let storedTask = try await repositories.tasks.task(id: task.id)
         let storedPlan = try await repositories.reminderPlans.plan(id: plan.id)
-        let afterCompletion = try await services.notifications.pendingNotifications()
 
         XCTAssertEqual(storedTask?.status, .completed)
         XCTAssertTrue(storedPlan?.pendingStages.isEmpty ?? false)
-        XCTAssertTrue(
-            afterCompletion.isEmpty,
+        XCTAssertEqual(
+            try await platformRequestCount(in: services),
+            0,
             "finishing a task must withdraw the reminders that were still waiting"
         )
     }
@@ -214,6 +221,49 @@ final class FollowUpServiceTests: XCTestCase {
     }
 
     // MARK: Fixtures
+
+    /// Outstanding OS-level requests across every channel.
+    ///
+    /// Counted across both services on purpose. Which one a follow-up lands in
+    /// is an escalation decision — a `.high` task goes straight to an alarm —
+    /// and a test that counted only notifications would silently pass while
+    /// the assistant scheduled nothing, or fail while it did the right thing.
+    private func platformRequestCount(in services: PlatformServices) async throws -> Int {
+        let notifications = try await services.notifications.pendingNotifications()
+        let alarms = try await services.alarms.scheduledAlarms()
+        return notifications.count + alarms.count
+    }
+
+    /// Exactly one request, in the channel the service said it used, for this
+    /// task — and carrying the stage id, which is what makes it cancellable.
+    private func assertOnePlatformRequest(
+        for reminder: ScheduledReminder,
+        task: TaskItem,
+        in services: PlatformServices,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async throws {
+        XCTAssertEqual(try await platformRequestCount(in: services), 1, file: file, line: line)
+
+        switch reminder.channel {
+        case .alarm:
+            let alarms = try await services.alarms.scheduledAlarms()
+            XCTAssertEqual(alarms.first?.relatedTaskID, task.id, file: file, line: line)
+            XCTAssertEqual(
+                alarms.first?.id.rawValue, reminder.stageID.rawValue,
+                "the stage id is the request id — cancelling depends on it",
+                file: file, line: line
+            )
+        case .notification, .reminderList:
+            let pending = try await services.notifications.pendingNotifications()
+            XCTAssertEqual(pending.first?.relatedTaskID, task.id, file: file, line: line)
+            XCTAssertEqual(
+                pending.first?.id.rawValue, reminder.stageID.rawValue,
+                "the stage id is the request id — cancelling depends on it",
+                file: file, line: line
+            )
+        }
+    }
 
     private func seed(
         into repositories: AssistantRepositories
