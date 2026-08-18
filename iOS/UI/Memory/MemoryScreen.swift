@@ -62,7 +62,8 @@ struct MemoryScreen: View {
                         MemoryRowView(
                             memory: memory,
                             symbol: viewModel.symbol(for: memory.kind),
-                            sourceLabel: viewModel.sourceLabel(for: memory)
+                            sourceLabel: viewModel.sourceLabel(for: memory),
+                            confidenceLabel: viewModel.confidenceLabel(for: memory)
                         ) {
                             viewModel.editor = .existing(memory)
                         }

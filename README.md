@@ -363,8 +363,12 @@ Current list:
 - **Reminder scheduling is one-shot.** Plans are generated and resolved at
   creation time. Re-planning after a snooze or a follow-up is modelled by
   `TaskStatusMachine` but not yet driven by anything.
-- **Memory retrieval is keyword overlap.** Good enough to prove the seam, not
-  good enough to ship.
+- **Memory retrieval is lexical, not semantic.** Relevance, salience,
+  confidence, category and recency are combined and bounded properly, but the
+  relevance signal itself is term overlap — it cannot see that "my commute is
+  half an hour" restates "it takes 30 minutes to drive to work" except through a
+  narrow duration rule. `MemorySemanticMatcher` is the seam for on-device
+  embeddings; see `Docs/MEMORY.md`.
 - **The JSON snapshot repositories rewrite the whole file on every save.** Fine
   for the dev harness and fixtures, which is all they are used for now; the app
   runs on SwiftData.

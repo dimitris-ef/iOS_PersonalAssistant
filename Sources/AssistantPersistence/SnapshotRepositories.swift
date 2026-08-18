@@ -1,5 +1,6 @@
 import AssistantDomain
 import Foundation
+import PersonalMemory
 
 // Repository implementations that keep their working set in memory and write a
 // JSON snapshot through a `SnapshotStore` after every change.
@@ -87,11 +88,11 @@ public actor SnapshotMemoryRepository: MemoryRepository {
         return items.values.sorted { $0.createdAt < $1.createdAt }
     }
 
-    /// Ranking lives in `MemoryQuery.rank(_:)` so every backend answers this
-    /// question identically. See the note there.
+    /// Ranking lives in `MemoryRanker` so every backend answers this question
+    /// identically — and so improving retrieval improves it everywhere at once.
     public func search(_ query: MemoryQuery) async throws -> [MemoryItem] {
         try await loadIfNeeded()
-        return query.rank(Array(items.values))
+        return MemoryRanker().rank(Array(items.values), query: query)
     }
 
     public func delete(id: MemoryItem.ID) async throws {

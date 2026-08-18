@@ -10,6 +10,9 @@ struct MemoryRowView: View {
     let memory: MemoryItem
     let symbol: String
     let sourceLabel: String
+    /// "Likely" / "Inferred", or nil when the app is confident. Nil is the
+    /// common case, so most rows carry no badge and the list stays quiet.
+    let confidenceLabel: String?
     let onOpen: () -> Void
 
     var body: some View {
@@ -28,9 +31,20 @@ struct MemoryRowView: View {
                         .multilineTextAlignment(.leading)
                         .fixedSize(horizontal: false, vertical: true)
 
-                    Text(sourceLabel)
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
+                    HStack(spacing: Theme.Spacing.sm) {
+                        Text(sourceLabel)
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+
+                        if let confidenceLabel {
+                            Text(confidenceLabel)
+                                .font(.caption2.weight(.medium))
+                                .foregroundStyle(.secondary)
+                                .padding(.horizontal, Theme.Spacing.sm)
+                                .padding(.vertical, 1)
+                                .background(Capsule().fill(Color.secondary.opacity(0.14)))
+                        }
+                    }
                 }
 
                 Spacer(minLength: 0)

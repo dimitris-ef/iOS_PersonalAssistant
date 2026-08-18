@@ -4,6 +4,7 @@ import AssistantPlatform
 import AssistantTools
 import ExecutiveSupport
 import Foundation
+import PersonalMemory
 
 /// Runs an approved action plan.
 public protocol ToolExecutor: Sendable {
@@ -27,6 +28,8 @@ public struct DefaultToolExecutor: ToolExecutor {
     /// has to end support exactly as tapping Mark complete does — one path, or
     /// one of them eventually forgets to cancel the pending reminders.
     private let followUp: FollowUpService
+    /// Duplicate and conflict handling for anything the assistant remembers.
+    private let memory: MemoryService
 
     public init(
         services: PlatformServices,
@@ -43,6 +46,10 @@ public struct DefaultToolExecutor: ToolExecutor {
         self.services = services
         self.repositories = repositories
         self.authorizer = authorizer
+        self.memory = MemoryService(
+            repository: repositories.memories,
+            dateProvider: dateProvider
+        )
         self.followUp = followUp
             ?? FollowUpService(
                 repositories: repositories,
@@ -188,16 +195,23 @@ public struct DefaultToolExecutor: ToolExecutor {
             return result(action, outcome(receipt), receipt.description, context)
 
         case .storeMemory(let input):
-            let item = MemoryItem(
-                kind: input.kind,
-                content: input.content,
-                salience: input.salience ?? 0.5,
-                tags: input.tags ?? [],
-                createdAt: context.now,
-                source: .assistant
+            // Through the memory service, so what the assistant proposes goes
+            // through the same duplicate and conflict handling as anything the
+            // user types. A tool that wrote straight to the repository would
+            // fill the Memory screen with three phrasings of the same commute.
+            let write = try await memory.remember(
+                MemoryItem(
+                    kind: input.kind,
+                    content: input.content,
+                    salience: input.salience ?? 0.5,
+                    tags: input.tags ?? [],
+                    createdAt: context.now,
+                    // The model inferring something is weaker evidence than the
+                    // user saying it, and confidence follows from that.
+                    source: .assistant
+                )
             )
-            try await repositories.memories.store(item)
-            return result(action, .executed, "Remembered: \(item.content)", context)
+            return result(action, .executed, write.summary, context)
 
         case .updateMemory(let input):
             guard var existing = try await repositories.memories.item(id: input.memoryID) else {
@@ -210,6 +224,7 @@ public struct DefaultToolExecutor: ToolExecutor {
             existing.updatedAt = context.now
             try await repositories.memories.store(existing)
             return result(action, .executed, "Updated memory: \(existing.content)", context)
+
 
         case .createTask(let input):
             let task = TaskItem(

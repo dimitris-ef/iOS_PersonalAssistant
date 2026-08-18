@@ -64,6 +64,9 @@ targets:
         product: AssistantPersistenceSwiftData
       - package: PhonePersonalAI
         product: ExecutiveSupport
+      # Memory relevance: ranking, deduplication, prompt formatting.
+      - package: PhonePersonalAI
+        product: PersonalMemory
       - package: PhonePersonalAI
         product: MockPlatform
       - package: PhonePersonalAI

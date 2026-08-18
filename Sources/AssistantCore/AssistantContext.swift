@@ -1,6 +1,7 @@
 import AssistantDomain
 import AssistantPersistence
 import Foundation
+import PersonalMemory
 
 /// The application state a turn is reasoned about with.
 ///
@@ -39,19 +40,29 @@ public struct AssistantContext: Sendable {
 }
 
 /// Gathers the context for a turn from the repositories and the calendar.
+///
+/// Orchestration only. Deciding *which* memories matter is a judgement about
+/// relevance and belongs to ``MemoryRetrievalService``; this decides what kinds
+/// of thing a turn needs at all.
 public struct ContextAssembler: Sendable {
     private let repositories: AssistantRepositories
     private let dateProvider: any DateProvider
     private let upcomingWindow: TimeInterval
+    private let memories: MemoryRetrievalService
 
     public init(
         repositories: AssistantRepositories,
         dateProvider: any DateProvider,
-        upcomingWindow: TimeInterval = TimeSpan.days(14)
+        upcomingWindow: TimeInterval = TimeSpan.days(14),
+        memoryPolicy: MemoryRelevancePolicy = .default
     ) {
         self.repositories = repositories
         self.dateProvider = dateProvider
         self.upcomingWindow = upcomingWindow
+        self.memories = MemoryRetrievalService(
+            repository: repositories.memories,
+            policy: memoryPolicy
+        )
     }
 
     public func assemble(
@@ -63,8 +74,20 @@ public struct ContextAssembler: Sendable {
         let settings = try await repositories.settings.settings()
         let profile = try await repositories.profile.profile()
 
-        let memories = try await repositories.memories.search(
-            MemoryQuery(text: query, limit: settings.memoryContextLimit)
+        // Ranked against this request, then cut to what is actually relevant.
+        // Not every memory the user has: a question about a bill has no
+        // business carrying their camera preference, and a prompt that grows
+        // with the length of someone's history gets worse the longer they use
+        // the app.
+        //
+        // The retrieval service applies its own maximum and relevance
+        // threshold; `memoryContextLimit` is the user's ceiling on top of that,
+        // so lowering it in settings tightens the selection and raising it can
+        // never loosen the threshold.
+        let relevantMemories = try await memories.relevantMemories(
+            for: query,
+            now: now,
+            limit: settings.memoryContextLimit
         )
         let tasks = try await repositories.tasks.tasks(
             matching: TaskFilter(
@@ -77,7 +100,7 @@ public struct ContextAssembler: Sendable {
             conversation: conversation,
             profile: profile,
             settings: settings,
-            relevantMemories: memories,
+            relevantMemories: relevantMemories,
             outstandingTasks: tasks,
             upcomingEvents: calendarEvents,
             now: now,

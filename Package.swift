@@ -38,6 +38,7 @@ let package = Package(
         // Windows, it just contains nothing there.
         .library(name: "AssistantPersistenceSwiftData", targets: ["AssistantPersistenceSwiftData"]),
         .library(name: "ExecutiveSupport", targets: ["ExecutiveSupport"]),
+        .library(name: "PersonalMemory", targets: ["PersonalMemory"]),
         .library(name: "AssistantCore", targets: ["AssistantCore"]),
         .library(name: "MockPlatform", targets: ["MockPlatform"]),
         .library(name: "AIProviderRemote", targets: ["AIProviderRemote"]),
@@ -64,16 +65,30 @@ let package = Package(
         // assistant did is part of a stored conversation, not a separate
         // concept. The dependency is one-way — the tool layer knows nothing
         // about storage.
-        .target(name: "AssistantPersistence", dependencies: ["AssistantDomain", "AssistantTools"]),
+        .target(
+            name: "AssistantPersistence",
+            dependencies: ["AssistantDomain", "AssistantTools", "PersonalMemory"]
+        ),
 
         // SwiftData lives here and nowhere else. No core target depends on it,
         // which is what keeps the package buildable where SwiftData is not.
         .target(
             name: "AssistantPersistenceSwiftData",
-            dependencies: ["AssistantDomain", "AssistantPersistence", "AssistantTools"]
+            dependencies: [
+                "AssistantDomain",
+                "AssistantPersistence",
+                "AssistantTools",
+                "PersonalMemory",
+            ]
         ),
 
         .target(name: "ExecutiveSupport", dependencies: ["AssistantDomain"]),
+
+        // Memory relevance: ranking, deduplication and prompt formatting.
+        // Pure and domain-only, like ExecutiveSupport — no repositories, no
+        // providers, no network. That is what lets retrieval be exhaustively
+        // tested and lets it run offline before every turn.
+        .target(name: "PersonalMemory", dependencies: ["AssistantDomain"]),
 
         .target(
             name: "AssistantCore",
@@ -84,6 +99,7 @@ let package = Package(
                 "AssistantPlatform",
                 "AssistantPersistence",
                 "ExecutiveSupport",
+                "PersonalMemory",
             ]
         ),
 
@@ -127,6 +143,10 @@ let package = Package(
         .testTarget(name: "AssistantToolsTests", dependencies: ["AssistantTools"]),
         .testTarget(name: "ExecutiveSupportTests", dependencies: ["ExecutiveSupport"]),
         .testTarget(
+            name: "PersonalMemoryTests",
+            dependencies: ["PersonalMemory", "AssistantDomain"]
+        ),
+        .testTarget(
             name: "AssistantPersistenceTests",
             dependencies: ["AssistantPersistence", "AssistantDomain", "AssistantTools"]
         ),
@@ -151,6 +171,7 @@ let package = Package(
                 "AssistantCore",
                 "MockPlatform",
                 "AssistantPersistence",
+                "PersonalMemory",
                 "DevSupport",
             ]
         ),

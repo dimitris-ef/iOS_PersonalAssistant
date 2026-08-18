@@ -2,6 +2,7 @@ import AssistantAI
 import AssistantDomain
 import AssistantTools
 import Foundation
+import PersonalMemory
 
 /// Renders application state into the text a provider sees.
 ///
@@ -9,7 +10,11 @@ import Foundation
 /// provider-specific: a local model and a remote API get the same brief, so
 /// switching between them does not change the assistant's character.
 public struct SystemPromptBuilder: Sendable {
-    public init() {}
+    private let memoryFormatter: MemoryContextFormatter
+
+    public init(memoryFormatter: MemoryContextFormatter = MemoryContextFormatter()) {
+        self.memoryFormatter = memoryFormatter
+    }
 
     public func systemPrompt(for context: AssistantContext) -> String {
         var sections: [String] = []
@@ -32,9 +37,11 @@ public struct SystemPromptBuilder: Sendable {
 
         sections.append(profileSection(context))
 
-        if !context.relevantMemories.isEmpty {
-            let lines = context.relevantMemories.map { "- (\($0.kind.rawValue)) \($0.content)" }
-            sections.append("# What you remember about this person\n" + lines.joined(separator: "\n"))
+        // Rendered by the formatter so the wording is provider-neutral and in
+        // one place — and so confidence, salience and identifiers stay out of
+        // the prompt. Those decide what gets selected; the model gets facts.
+        if let section = memoryFormatter.section(for: context.relevantMemories) {
+            sections.append(section)
         }
 
         if !context.outstandingTasks.isEmpty {

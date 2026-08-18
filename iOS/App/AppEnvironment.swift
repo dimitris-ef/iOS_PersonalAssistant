@@ -29,6 +29,10 @@ final class AppEnvironment: Sendable {
     let remoteConfiguration: RemoteAIConfigurationStore
     /// What this launch is: production, or a seeded preview/CI run.
     let launch: AppLaunchConfiguration
+    /// Writing memories: defaults, duplicate detection, conflict resolution.
+    /// The same service the assistant's `storeMemory` tool uses, so a memory
+    /// the user types and one the assistant saves cannot diverge.
+    let memory: MemoryService
 
     /// The provider the remote configuration belongs to.
     static let remoteProviderID: AIProviderIdentifier = "remote.openai-compatible"
@@ -41,7 +45,8 @@ final class AppEnvironment: Sendable {
         dateProvider: any DateProvider,
         credentialStore: any CredentialStore,
         remoteConfiguration: RemoteAIConfigurationStore,
-        launch: AppLaunchConfiguration
+        launch: AppLaunchConfiguration,
+        memory: MemoryService
     ) {
         self.engine = engine
         self.repositories = repositories
@@ -51,6 +56,7 @@ final class AppEnvironment: Sendable {
         self.credentialStore = credentialStore
         self.remoteConfiguration = remoteConfiguration
         self.launch = launch
+        self.memory = memory
     }
 
     /// The environment the app actually launches with.
@@ -163,7 +169,11 @@ final class AppEnvironment: Sendable {
             dateProvider: dateProvider,
             credentialStore: credentialStore,
             remoteConfiguration: remoteConfiguration,
-            launch: launch
+            launch: launch,
+            memory: MemoryService(
+                repository: repositories.memories,
+                dateProvider: dateProvider
+            )
         )
     }
 

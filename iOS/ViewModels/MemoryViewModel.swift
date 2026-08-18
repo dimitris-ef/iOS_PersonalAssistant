@@ -36,6 +36,10 @@ final class MemoryViewModel {
         presenter.sourceLabel(for: memory)
     }
 
+    func confidenceLabel(for memory: MemoryItem) -> String? {
+        presenter.confidenceLabel(for: memory)
+    }
+
     func symbol(for kind: MemoryKind) -> String {
         presenter.symbol(for: kind)
     }

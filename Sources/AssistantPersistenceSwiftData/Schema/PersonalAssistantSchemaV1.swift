@@ -245,6 +245,16 @@ public final class SDMemory {
     public var lastUsedAt: Date?
     public var sourceRaw: String
 
+    // MARK: Schema V3 — trust
+    //
+    // Optional so the V2 → V3 migration is inferrable. A row written before
+    // this feature has no recorded confidence; the mapper derives one from the
+    // source it *did* record, which is better evidence than a blanket default.
+
+    /// How sure the application is that this memory is true. Nil on rows
+    /// predating schema V3.
+    public var confidenceValue: Double?
+
     public init(
         id: UUID,
         kindRaw: String,
@@ -254,7 +264,8 @@ public final class SDMemory {
         createdAt: Date,
         updatedAt: Date,
         lastUsedAt: Date?,
-        sourceRaw: String
+        sourceRaw: String,
+        confidenceValue: Double? = nil
     ) {
         self.id = id
         self.kindRaw = kindRaw
@@ -265,6 +276,7 @@ public final class SDMemory {
         self.updatedAt = updatedAt
         self.lastUsedAt = lastUsedAt
         self.sourceRaw = sourceRaw
+        self.confidenceValue = confidenceValue
     }
 }
 

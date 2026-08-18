@@ -171,6 +171,11 @@ Four distinct stores, deliberately not merged:
 A provider is given a selection from these as rendered context. It never holds
 them, which is the mechanism behind the provider-swap guarantee.
 
+Which memories make it into that selection is decided locally by `MemoryRanker`
+— relevance, salience, confidence, category and recency, bounded by a count and
+a character budget. No model is asked what to recall. See
+[`MEMORY.md`](MEMORY.md).
+
 `UserProfile` is separate from `MemoryItem` because a few facts — preparation
 time, wake time, quiet hours — are read directly by planning code and need to be
 structured, while memory is open-ended text.

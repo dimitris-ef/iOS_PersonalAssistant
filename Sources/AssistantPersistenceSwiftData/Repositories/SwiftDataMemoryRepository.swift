@@ -3,6 +3,7 @@
 import AssistantDomain
 import AssistantPersistence
 import Foundation
+import PersonalMemory
 import SwiftData
 
 /// `MemoryRepository`, backed by SwiftData.
@@ -61,12 +62,12 @@ public struct SwiftDataMemoryRepository: MemoryRepository {
 
     public func search(_ query: MemoryQuery) async throws -> [MemoryItem] {
         let items = try await all()
-        // The same ranking every other backend uses. Keyword overlap and
-        // salience are not expressible as a `#Predicate`, and an approximation
-        // in SQL that ranked memories differently from the in-memory backend
-        // would change what the assistant recalls depending on where it is
-        // running.
-        return query.rank(items)
+        // The same ranking every other backend uses. Relevance, salience and
+        // confidence are not expressible as a `#Predicate`, and an
+        // approximation in SQL that ranked memories differently from the
+        // in-memory backend would change what the assistant recalls depending
+        // on where it is running.
+        return MemoryRanker().rank(items, query: query)
     }
 
     public func delete(id: MemoryItem.ID) async throws {

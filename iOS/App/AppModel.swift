@@ -445,30 +445,44 @@ final class AppModel {
 
     // MARK: Memory
 
+    /// Something the user typed into the Memory screen.
+    ///
+    /// Goes through `MemoryService` like everything else, so writing down what
+    /// the assistant already knew updates that record rather than adding a
+    /// second row saying the same thing. Source and confidence come from
+    /// `.manual`, not from numbers chosen here.
     func addMemory(content: String, kind: MemoryKind) async {
-        let item = MemoryItem(
-            kind: kind,
-            content: content.trimmingCharacters(in: .whitespacesAndNewlines),
-            salience: 0.6,
-            createdAt: now,
-            source: .user
-        )
         do {
-            try await environment.repositories.memories.store(item)
+            let result = try await environment.memory.remember(
+                MemoryItem(
+                    kind: kind,
+                    content: content,
+                    salience: 0.6,
+                    createdAt: now,
+                    source: .manual
+                )
+            )
             await reload()
-            banner = BannerMessage(text: "I'll remember that.", style: .success)
+            banner = BannerMessage(
+                text: result.effect == .stored ? "I'll remember that." : result.summary,
+                style: .success
+            )
         } catch {
             banner = BannerMessage(text: "Couldn't save that memory.", style: .warning)
         }
     }
 
+    /// An edit to a memory the user is looking at.
+    ///
+    /// Authoritative and never deduplicated — they are changing this exact
+    /// record. Folding their edit into a similar memory would look, from their
+    /// side, like the app refusing to save.
     func updateMemory(_ memory: MemoryItem, content: String, kind: MemoryKind) async {
         var updated = memory
-        updated.content = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        updated.content = content
         updated.kind = kind
-        updated.updatedAt = now
         do {
-            try await environment.repositories.memories.store(updated)
+            _ = try await environment.memory.update(updated)
             await reload()
         } catch {
             banner = BannerMessage(text: "Couldn't update that memory.", style: .warning)
@@ -477,7 +491,7 @@ final class AppModel {
 
     func deleteMemory(_ id: MemoryItem.ID) async {
         do {
-            try await environment.repositories.memories.delete(id: id)
+            try await environment.memory.forget(id: id)
             await reload()
             banner = BannerMessage(text: "Forgotten.", style: .neutral)
         } catch {

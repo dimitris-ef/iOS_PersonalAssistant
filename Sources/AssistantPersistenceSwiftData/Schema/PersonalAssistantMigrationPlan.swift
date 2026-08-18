@@ -21,14 +21,28 @@ import SwiftData
 /// reconciliation rather than being treated as overdue the moment the app
 /// opens. Nothing is deleted and no task's status is touched.
 ///
-/// ## Adding V3
+/// ## V2 → V3
 ///
-/// 1. Copy the models into a new `PersonalAssistantSchemaV3` enum and change
+/// Memories gained `confidenceValue`, one nullable column, so this is inferred
+/// too.
+///
+/// **What existing rows become.** A memory written before V3 has no recorded
+/// confidence, so the mapper derives one from the `source` it *did* record —
+/// an explicitly stated memory stays trusted, an inferred one stays less so.
+/// That is better evidence than a blanket default, and it keeps the
+/// distinction the application had already made. A memory whose source is not
+/// recognised falls back to `.legacy`, which is trusted enough not to drop out
+/// of ranking: treating everything from before this feature as doubtful would
+/// quietly discard what the assistant already knew about someone.
+///
+/// ## Adding V4
+///
+/// 1. Copy the models into a new `PersonalAssistantSchemaV4` enum and change
 ///    them there. Never edit an older version — it describes what is already on
 ///    disk, and rewriting history makes the migration a lie. See the note in
 ///    `PersonalAssistantSchemaV2` about nesting the models per version, which
 ///    is a prerequisite for any change that is not purely additive.
-/// 2. Add `PersonalAssistantSchemaV3.self` to `schemas`, after V2.
+/// 2. Add `PersonalAssistantSchemaV4.self` to `schemas`, after V3.
 /// 3. Add a stage to `stages`:
 ///    - `.lightweight` when SwiftData can infer the change: adding an optional
 ///      property, adding a model, deleting a property, renaming via
@@ -47,17 +61,29 @@ import SwiftData
 @available(iOS 17, macOS 14, tvOS 17, watchOS 10, *)
 public enum PersonalAssistantMigrationPlan: SchemaMigrationPlan {
     public static var schemas: [any VersionedSchema.Type] {
-        [PersonalAssistantSchemaV1.self, PersonalAssistantSchemaV2.self]
+        [
+            PersonalAssistantSchemaV1.self,
+            PersonalAssistantSchemaV2.self,
+            PersonalAssistantSchemaV3.self,
+        ]
     }
 
     public static var stages: [MigrationStage] {
-        [migrateV1toV2]
+        [migrateV1toV2, migrateV2toV3]
     }
 
     /// Purely additive, all-nullable. Nothing to compute, nothing to lose.
     static let migrateV1toV2 = MigrationStage.lightweight(
         fromVersion: PersonalAssistantSchemaV1.self,
         toVersion: PersonalAssistantSchemaV2.self
+    )
+
+    /// One nullable column on memories. Confidence for existing rows is derived
+    /// at read time from their recorded source, so there is nothing to compute
+    /// here either.
+    static let migrateV2toV3 = MigrationStage.lightweight(
+        fromVersion: PersonalAssistantSchemaV2.self,
+        toVersion: PersonalAssistantSchemaV3.self
     )
 }
 
