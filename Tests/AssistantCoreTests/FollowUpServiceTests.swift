@@ -88,7 +88,8 @@ final class FollowUpServiceTests: XCTestCase {
         // One OS-level request, not two — the point of the test. Counted
         // across both services, because a high-importance dismissal escalates
         // to an alarm.
-        XCTAssertEqual(try await platformRequestCount(in: services), 1)
+        let requests = try await platformRequestCount(in: services)
+        XCTAssertEqual(requests, 1)
     }
 
     // MARK: Snooze
@@ -168,7 +169,8 @@ final class FollowUpServiceTests: XCTestCase {
             forTask: task.id,
             stageID: plan.stages[0].id
         )
-        XCTAssertEqual(try await platformRequestCount(in: services), 1)
+        let beforeCompletion = try await platformRequestCount(in: services)
+        XCTAssertEqual(beforeCompletion, 1)
 
         _ = try await service.handle(outcome: .completed, forTask: task.id)
 
@@ -177,8 +179,9 @@ final class FollowUpServiceTests: XCTestCase {
 
         XCTAssertEqual(storedTask?.status, .completed)
         XCTAssertTrue(storedPlan?.pendingStages.isEmpty ?? false)
+        let afterCompletion = try await platformRequestCount(in: services)
         XCTAssertEqual(
-            try await platformRequestCount(in: services),
+            afterCompletion,
             0,
             "finishing a task must withdraw the reminders that were still waiting"
         )
@@ -243,7 +246,8 @@ final class FollowUpServiceTests: XCTestCase {
         file: StaticString = #filePath,
         line: UInt = #line
     ) async throws {
-        XCTAssertEqual(try await platformRequestCount(in: services), 1, file: file, line: line)
+        let total = try await platformRequestCount(in: services)
+        XCTAssertEqual(total, 1, file: file, line: line)
 
         switch reminder.channel {
         case .alarm:
