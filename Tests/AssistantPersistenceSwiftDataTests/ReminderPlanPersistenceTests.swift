@@ -14,8 +14,8 @@ final class ReminderPlanPersistenceTests: PersistenceTestCase {
 
         try relaunch()
 
-        let loaded = try await repositories.reminderPlans.plan(id: plan.id)
-        let loaded = try XCTUnwrap(loaded)
+        let stored = try await repositories.reminderPlans.plan(id: plan.id)
+        let loaded = try XCTUnwrap(stored)
         // The whole plan, compared whole: the multi-stage shape is the support
         // strategy, and a plan that came back as one date would be a different
         // product.
@@ -33,8 +33,8 @@ final class ReminderPlanPersistenceTests: PersistenceTestCase {
 
         try relaunch()
 
-        let loaded = try await repositories.reminderPlans.plan(id: plan.id)
-        let loaded = try XCTUnwrap(loaded)
+        let stored = try await repositories.reminderPlans.plan(id: plan.id)
+        let loaded = try XCTUnwrap(stored)
         XCTAssertEqual(loaded.stages.map(\.id), plan.stages.map(\.id))
     }
 
@@ -52,8 +52,8 @@ final class ReminderPlanPersistenceTests: PersistenceTestCase {
                 ReminderStage(kind: .nudge, offset: offset, message: "m")
             ])
             try await repositories.reminderPlans.save(plan)
-            let loaded = try await repositories.reminderPlans.plan(id: plan.id)
-            let loaded = try XCTUnwrap(loaded)
+            let stored = try await repositories.reminderPlans.plan(id: plan.id)
+            let loaded = try XCTUnwrap(stored)
             XCTAssertEqual(loaded.stages.first?.offset, offset)
         }
     }
@@ -73,8 +73,8 @@ final class ReminderPlanPersistenceTests: PersistenceTestCase {
         for anchor in anchors {
             let plan = makePlan(anchor: anchor)
             try await repositories.reminderPlans.save(plan)
-            let loaded = try await repositories.reminderPlans.plan(id: plan.id)
-            let loaded = try XCTUnwrap(loaded)
+            let stored = try await repositories.reminderPlans.plan(id: plan.id)
+            let loaded = try XCTUnwrap(stored)
             XCTAssertEqual(loaded.subject.anchor, anchor)
         }
     }
@@ -102,8 +102,8 @@ final class ReminderPlanPersistenceTests: PersistenceTestCase {
 
         try relaunch()
 
-        let loaded = try await repositories.reminderPlans.plan(id: plan.id)
-        let loaded = try XCTUnwrap(loaded)
+        let stored = try await repositories.reminderPlans.plan(id: plan.id)
+        let loaded = try XCTUnwrap(stored)
         XCTAssertEqual(loaded.followUp.maximumFollowUps, 5)
         XCTAssertFalse(loaded.snooze.isAllowed)
         // The rule the whole reminder architecture rests on.
@@ -144,8 +144,8 @@ final class ReminderPlanPersistenceTests: PersistenceTestCase {
 
         try relaunch()
 
-        let loaded = try await repositories.reminderPlans.plan(id: plan.id)
-        let loaded = try XCTUnwrap(loaded)
+        let stored = try await repositories.reminderPlans.plan(id: plan.id)
+        let loaded = try XCTUnwrap(stored)
         XCTAssertEqual(loaded.stages.count, 4)
         XCTAssertEqual(loaded.stages.first?.message, "Rewritten")
     }

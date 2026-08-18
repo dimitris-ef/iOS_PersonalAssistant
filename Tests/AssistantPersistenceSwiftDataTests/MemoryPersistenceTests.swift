@@ -23,8 +23,8 @@ final class MemoryPersistenceTests: PersistenceTestCase {
 
         try relaunch()
 
-        let loaded = try await repositories.memories.item(id: memory.id)
-        let loaded = try XCTUnwrap(loaded)
+        let stored = try await repositories.memories.item(id: memory.id)
+        let loaded = try XCTUnwrap(stored)
         XCTAssertEqual(loaded, memory)
     }
 
@@ -35,8 +35,8 @@ final class MemoryPersistenceTests: PersistenceTestCase {
         for kind in MemoryKind.allCases {
             let memory = MemoryItem(kind: kind, content: "c", createdAt: Self.referenceDate)
             try await repositories.memories.store(memory)
-            let loaded = try await repositories.memories.item(id: memory.id)
-            let loaded = try XCTUnwrap(loaded)
+            let stored = try await repositories.memories.item(id: memory.id)
+            let loaded = try XCTUnwrap(stored)
             XCTAssertEqual(loaded.kind, kind)
         }
     }

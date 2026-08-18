@@ -33,8 +33,8 @@ final class TaskPersistenceTests: PersistenceTestCase {
 
         try relaunch()
 
-        let loaded = try await repositories.tasks.task(id: task.id)
-        let loaded = try XCTUnwrap(loaded)
+        let stored = try await repositories.tasks.task(id: task.id)
+        let loaded = try XCTUnwrap(stored)
         // Compared whole rather than field by field: a new domain field that
         // the mapper forgets should fail this test, and a hand-written list of
         // assertions is exactly what would not notice.
@@ -56,8 +56,8 @@ final class TaskPersistenceTests: PersistenceTestCase {
         for timing in cases {
             let task = TaskItem(title: "t", timing: timing, createdAt: Self.referenceDate)
             try await repositories.tasks.save(task)
-            let loaded = try await repositories.tasks.task(id: task.id)
-            let loaded = try XCTUnwrap(loaded)
+            let stored = try await repositories.tasks.task(id: task.id)
+            let loaded = try XCTUnwrap(stored)
             XCTAssertEqual(loaded.timing, timing)
         }
     }
@@ -74,8 +74,8 @@ final class TaskPersistenceTests: PersistenceTestCase {
         for rule in cases {
             let task = TaskItem(title: "t", recurrence: rule, createdAt: Self.referenceDate)
             try await repositories.tasks.save(task)
-            let loaded = try await repositories.tasks.task(id: task.id)
-            let loaded = try XCTUnwrap(loaded)
+            let stored = try await repositories.tasks.task(id: task.id)
+            let loaded = try XCTUnwrap(stored)
             XCTAssertEqual(loaded.recurrence, rule)
         }
     }
@@ -122,8 +122,8 @@ final class TaskPersistenceTests: PersistenceTestCase {
         for status in TaskStatus.allCases {
             let task = TaskItem(title: "t", status: status, createdAt: Self.referenceDate)
             try await repositories.tasks.save(task)
-            let loaded = try await repositories.tasks.task(id: task.id)
-            let loaded = try XCTUnwrap(loaded)
+            let stored = try await repositories.tasks.task(id: task.id)
+            let loaded = try XCTUnwrap(stored)
             XCTAssertEqual(loaded.status, status)
         }
     }

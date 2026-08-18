@@ -43,8 +43,8 @@ final class ConversationPersistenceTests: PersistenceTestCase {
 
         try relaunch()
 
-        let loaded = try await repositories.conversations.conversation(id: conversation.id)
-        let loaded = try XCTUnwrap(loaded)
+        let stored = try await repositories.conversations.conversation(id: conversation.id)
+        let loaded = try XCTUnwrap(stored)
         XCTAssertEqual(loaded.messages.map(\.text), (0..<8).map { "m\($0)" })
         XCTAssertEqual(loaded.messages.map(\.id), messages.map(\.id))
     }
@@ -101,8 +101,8 @@ final class ConversationPersistenceTests: PersistenceTestCase {
 
         try relaunch()
 
-        let loaded = try await repositories.conversations.conversation(id: conversation.id)
-        let loaded = try XCTUnwrap(loaded)
+        let stored = try await repositories.conversations.conversation(id: conversation.id)
+        let loaded = try XCTUnwrap(stored)
         XCTAssertEqual(loaded.messages.count, 3)
         XCTAssertEqual(loaded.messages[1].text, "Second, corrected")
     }
@@ -116,8 +116,8 @@ final class ConversationPersistenceTests: PersistenceTestCase {
 
         try relaunch()
 
-        let loaded = try await repositories.conversations.conversation(id: conversation.id)
-        let loaded = try XCTUnwrap(loaded)
+        let stored = try await repositories.conversations.conversation(id: conversation.id)
+        let loaded = try XCTUnwrap(stored)
         XCTAssertEqual(loaded.messages.map(\.text), ["First", "Third"])
     }
 
