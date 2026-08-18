@@ -115,9 +115,14 @@ jobs:
             2>&1 | tee "$BUILD_LOG"
 
       - name: Prove the Apple provider was really compiled
-        # The whole point. If the guarded code had been skipped, this symbol
-        # would not be in the binary and the job would be reporting success on
-        # having compiled nothing.
+        # The whole point. If the guarded code had been skipped, nothing in the
+        # bundle would reference the framework and the job would be reporting
+        # success on having compiled nothing.
+        #
+        # Every Mach-O in the bundle is searched, not just the executable: a
+        # Debug build puts the app's own code in PersonalAssistant.debug.dylib
+        # and leaves a thin stub behind, so checking only the stub finds
+        # nothing however much FoundationModels code was compiled.
         run: |
           set -euo pipefail
           APP="$(find "$DERIVED_DATA/Build/Products" -name "$SCHEME.app" -type d | head -n 1)"
@@ -125,14 +130,47 @@ jobs:
             echo "::error::No app bundle produced."
             exit 1
           fi
-          BINARY="$APP/$SCHEME"
-          if nm -u "$BINARY" 2>/dev/null | grep -qi foundationmodels \
-             || otool -L "$BINARY" 2>/dev/null | grep -qi FoundationModels; then
-            echo "The binary links FoundationModels — the guarded code was compiled."
-          else
-            echo "::error::The built binary does not reference FoundationModels."
+
+          MATCHES="$(
+            find "$APP" -type f \( -name "*.dylib" -o -name "$SCHEME" -o -perm -u+x \) 2>/dev/null \
+            | while IFS= read -r f; do
+                if otool -L "$f" 2>/dev/null | grep -qi FoundationModels; then echo "$f"; fi
+              done
+          )"
+
+          if [ -z "$MATCHES" ]; then
+            echo "::error::Nothing in the app bundle references FoundationModels."
             echo "The #if canImport branch was compiled out; this job verified nothing."
-            otool -L "$BINARY" || true
+            find "$APP" -type f -name "*.dylib" -o -name "$SCHEME" | while IFS= read -r f; do
+              echo "--- $f"; otool -L "$f" 2>/dev/null | head -n 20
+            done
+            exit 1
+          fi
+
+          echo "FoundationModels is linked by:"
+          echo "$MATCHES"
+
+          # The app deploys to iOS 17; FoundationModels needs iOS 26. The
+          # framework must therefore be *weakly* linked, or dyld will refuse to
+          # start the app on every OS older than 26 — a crash on launch for
+          # most of the devices this app supports, which no amount of
+          # `if #available` in Swift would prevent.
+          # A here-string, not a pipe: a `while` on the right of a pipe runs in
+          # a subshell, where `exit 1` would end the subshell and leave the
+          # step green.
+          STRONGLY_LINKED=0
+          while IFS= read -r f; do
+            [ -n "$f" ] || continue
+            if otool -l "$f" | grep -B2 -A4 'LC_LOAD_WEAK_DYLIB' | grep -qi FoundationModels; then
+              echo "Weakly linked in $f — safe to run on iOS 17."
+            else
+              echo "::error::FoundationModels is strongly linked in $f."
+              echo "The app would fail to launch on any iOS older than 26."
+              STRONGLY_LINKED=1
+            fi
+          done <<< "$MATCHES"
+
+          if [ "$STRONGLY_LINKED" -ne 0 ]; then
             exit 1
           fi
 

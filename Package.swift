@@ -173,6 +173,11 @@ let package = Package(
                 "AssistantPersistence",
                 "PersonalMemory",
                 "DevSupport",
+                // For the provider-switch tests: the guarantee that selecting
+                // the on-device model moves none of the user's data is a
+                // property of the whole app, so it is asserted here rather
+                // than inside the Apple provider's own tests.
+                "AIProviderApple",
             ]
         ),
         .testTarget(
@@ -184,6 +189,11 @@ let package = Package(
                 "AIProviderRemote",
                 "AIProviderApple",
                 "AIProviderLocal",
+                // For the Apple tool-safety tests: they assert that invoking a
+                // Foundation Models tool adapter leaves the platform services
+                // untouched, which needs something whose calls can be counted.
+                "AssistantPlatform",
+                "MockPlatform",
             ]
         ),
     ]

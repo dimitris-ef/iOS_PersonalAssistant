@@ -6,23 +6,44 @@ import XCTest
 @testable import AIProviderRemote
 
 final class ProviderStubTests: XCTestCase {
-    func testAppleProviderReportsUnavailableAndRefusesToFabricateOutput() async throws {
+    /// The Apple provider is no longer a stub, so this no longer asserts that
+    /// it refuses to run. What still has to hold is its identity: the
+    /// identifier is written into the user's settings, and changing it would
+    /// silently reset the choice of anyone who had selected it.
+    func testAppleProviderKeepsItsIdentityAndNeedsNothingFromTheNetwork() async throws {
         let provider = AppleFoundationModelsProvider()
 
+        XCTAssertEqual(provider.metadata.id, "apple.foundation-models")
         XCTAssertEqual(provider.metadata.kind, .appleFoundationModels)
         XCTAssertFalse(provider.metadata.requiresNetwork)
+        XCTAssertFalse(provider.metadata.requiresCredentials)
+        XCTAssertTrue(provider.metadata.supportsToolResultContinuation)
+    }
 
+    /// Whatever this machine is, the provider must not claim to be ready
+    /// without having asked, and must not fabricate an answer.
+    ///
+    /// On CI and on Linux the framework is absent, so this exercises the
+    /// unavailable path. On an Apple Intelligence device it would exercise the
+    /// ready path — and then the assertion below still holds, because a
+    /// provider reporting itself ready is allowed to answer.
+    func testAppleProviderNeverFabricatesAnAnswerWhenItIsNotReady() async throws {
+        let provider = AppleFoundationModelsProvider()
         let availability = await provider.availability()
-        XCTAssertFalse(availability.isAvailable)
 
+        guard !availability.isAvailable else {
+            throw XCTSkip("This machine has Apple Intelligence; the unavailable path cannot run here.")
+        }
+
+        XCTAssertNotNil(availability.reason, "an unavailable provider has to say why")
         do {
             _ = try await provider.respond(
                 to: AIRequest(systemPrompt: "", messages: [AIMessage(role: .user, content: "hi")])
             )
-            XCTFail("The unimplemented Apple provider must throw, never return a fake answer")
+            XCTFail("An unavailable Apple provider must throw, never return a fake answer")
         } catch let error as AIProviderError {
-            guard case .notImplemented = error else {
-                return XCTFail("Expected .notImplemented, got \(error)")
+            guard case .unavailable = error else {
+                return XCTFail("Expected .unavailable, got \(error)")
             }
         }
     }
