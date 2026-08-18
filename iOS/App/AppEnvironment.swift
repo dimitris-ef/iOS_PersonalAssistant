@@ -242,7 +242,10 @@ struct ProviderOption: Identifiable, Sendable {
         case .available: return "Ready"
         case .configurationRequired: return "Setup needed"
         case .temporarilyUnavailable: return "Unavailable"
-        case .unsupported: return "Not available yet"
+        // Not "not available yet": a device that cannot run Apple
+        // Intelligence is not waiting for anything. The reason line underneath
+        // says which kind of unavailable this is.
+        case .unsupported: return "Not available"
         }
     }
 }

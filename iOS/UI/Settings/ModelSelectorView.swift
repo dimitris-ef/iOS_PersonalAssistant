@@ -136,7 +136,11 @@ private struct ModelOptionRow: View {
     private var tagline: String {
         switch option.metadata.kind {
         case .appleFoundationModels:
-            return "Private · Fast · Works offline"
+            // Not "works offline" flatly: it needs a device that supports
+            // Apple Intelligence, with it switched on and the model
+            // downloaded. The status pill and reason line say whether this
+            // particular phone qualifies.
+            return "Private · Runs on this device · No API key"
         case .downloadedLocalModel:
             return "Runs on this device · Downloaded separately"
         case .remoteAPI:
