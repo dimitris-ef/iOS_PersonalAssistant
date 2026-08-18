@@ -136,7 +136,7 @@ final class AppleProviderSwitchTests: XCTestCase {
                 ),
             ]),
             repositories: repositories,
-            services: MockPermissionService.mock(),
+            services: PlatformServices.mock(),
             dateProvider: FixedDateProvider(now: now)
         )
 

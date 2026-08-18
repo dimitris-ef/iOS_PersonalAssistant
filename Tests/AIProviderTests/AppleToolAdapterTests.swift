@@ -115,7 +115,7 @@ final class AppleToolAdapterTests: XCTestCase {
         let log = PlatformEventLog()
         // Real mock services, wired to a log that records anything they are
         // asked to do. If the adapter reached the platform, this would notice.
-        _ = MockPermissionService.mock(log: log)
+        _ = PlatformServices.mock(log: log)
 
         let collector = AppleFoundationToolCollector()
         let tool = try adapter(for: .createReminder, collector: collector)
@@ -174,8 +174,11 @@ final class AppleToolAdapterTests: XCTestCase {
         let tool = try adapter(for: .createTask, collector: collector)
 
         _ = try await tool.call(arguments: GeneratedContent(json: #"{"title":"Only once"}"#))
-        XCTAssertEqual(await collector.drain().count, 1)
-        XCTAssertTrue(await collector.drain().isEmpty)
+
+        let first = await collector.drain()
+        XCTAssertEqual(first.count, 1)
+        let second = await collector.drain()
+        XCTAssertTrue(second.isEmpty)
     }
 
     // MARK: Only registered tools exist
@@ -228,10 +231,8 @@ final class AppleToolAdapterTests: XCTestCase {
             // Expected.
         }
 
-        XCTAssertTrue(
-            await collector.drain().isEmpty,
-            "a failed conversion still proposed an action"
-        )
+        let proposed = await collector.drain()
+        XCTAssertTrue(proposed.isEmpty, "a failed conversion still proposed an action")
     }
 
     /// Missing optional fields are the model's normal behaviour, not an error.
