@@ -263,7 +263,7 @@ final class FollowUpCoordinatorTests: XCTestCase {
         plan2.stages.append(other)
 
         var task2 = first.task
-        task2.followUpCount = task.followUpCount
+        task2.followUpCount = f.task.followUpCount
 
         let second = coordinator.apply(
             outcome: .dismissed,
