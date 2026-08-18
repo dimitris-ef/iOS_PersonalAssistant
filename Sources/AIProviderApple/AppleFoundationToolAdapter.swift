@@ -129,14 +129,22 @@ extension AppleFoundationToolAdapter {
         collector: AppleFoundationToolCollector
     ) -> [any FoundationModels.Tool] {
         tools.compactMap { tool in
-            guard let parameters = try? AppleGenerationSchemaBridge.generationSchema(for: tool)
-            else { return nil }
-            return AppleFoundationToolAdapter(
-                name: tool.name,
-                description: tool.description,
-                parameters: parameters,
-                collector: collector
-            )
+            do {
+                return AppleFoundationToolAdapter(
+                    name: tool.name,
+                    description: tool.description,
+                    parameters: try AppleGenerationSchemaBridge.generationSchema(for: tool),
+                    collector: collector
+                )
+            } catch {
+                // Logged rather than swallowed. Dropping a tool silently would
+                // remove a capability with no symptom except the assistant
+                // quietly never doing that thing again — the hardest kind of
+                // bug to notice. The tool name comes from `ToolKind`, so it is
+                // safe to log; nothing about the user is involved.
+                AppleProviderLog.error("tool schema could not be translated, tool dropped: " + tool.name)
+                return nil
+            }
         }
     }
 }

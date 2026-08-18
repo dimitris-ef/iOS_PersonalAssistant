@@ -148,10 +148,24 @@ final class AppleToolAdapterTests: XCTestCase {
             arguments: GeneratedContent(json: #"{"title":"Call the dentist"}"#)
         ).lowercased()
 
-        for claim in ["done", "created", "scheduled", "succeeded", "added"] {
+        // The explicit denial has to be there — it is the sentence stopping the
+        // model from reporting a reminder that does not exist.
+        XCTAssertTrue(output.contains("nothing has happened yet"), output)
+        XCTAssertTrue(output.contains("do not tell"), output)
+
+        // And no claim of completion. Deliberately not a bare search for
+        // "done": the text says "do not tell the person it is done", so
+        // matching the word alone would fail on its own negation. These are
+        // phrasings that can only be assertions of success.
+        for claim in [
+            "successfully",
+            "has been created",
+            "has been scheduled",
+            "i have created",
+            "is now set",
+        ] {
             XCTAssertFalse(output.contains(claim), "the output claims success: \(output)")
         }
-        XCTAssertTrue(output.contains("nothing has happened yet"))
     }
 
     /// Draining is what stops one round's proposals being executed twice.
