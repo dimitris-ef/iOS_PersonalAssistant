@@ -142,6 +142,52 @@ final class MemoryRankerTests: XCTestCase {
         XCTAssertEqual(selected.map(\.memory.id), [quiet.id])
     }
 
+    /// A disagreement the write path could not settle must not reach a model.
+    ///
+    /// `MemoryService` deliberately keeps both when a guess contradicts
+    /// something the user said, so the user can see it and delete the wrong
+    /// one. Sending a model both halves of that would just move the decision
+    /// somewhere nobody can inspect it.
+    func testTwoContradictoryMemoriesAreNotInjectedTogether() {
+        let stated = MemoryItem(
+            kind: .place,
+            content: "My commute takes 30 minutes",
+            salience: 0.7,
+            createdAt: now,
+            source: .user
+        )
+        let guessed = MemoryItem(
+            kind: .place,
+            content: "My commute takes 50 minutes",
+            salience: 0.7,
+            createdAt: now,
+            source: .assistant
+        )
+
+        let selected = MemoryRanker().select(
+            from: [guessed, stated],
+            query: query("how long is my commute")
+        )
+
+        XCTAssertEqual(selected.count, 1)
+        // The one the user actually said: explicit sources carry more
+        // confidence, confidence feeds the score, and the score decides.
+        XCTAssertEqual(selected.first?.memory.id, stated.id)
+    }
+
+    /// Suppression is for contradictions only.
+    func testTwoMemoriesThatMerelyAgreeAreBothKept() {
+        let selected = MemoryRanker().select(
+            from: [
+                memory("I leave for work at eight", kind: .routine),
+                memory("I cycle to work", kind: .routine),
+            ],
+            query: query("when do I leave for work")
+        )
+
+        XCTAssertEqual(selected.count, 2)
+    }
+
     func testSelectionNeverExceedsTheConfiguredMaximum() {
         let policy = MemoryRelevancePolicy(maximumMemories: 3)
         // Eight memories that all genuinely mention work.

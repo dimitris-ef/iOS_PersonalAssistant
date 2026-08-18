@@ -46,13 +46,17 @@ public struct MemoryScoreBreakdown: Hashable, Sendable {
 public struct MemoryRanker: Sendable {
     private let policy: MemoryRelevancePolicy
     private let matcher: any MemorySemanticMatcher
+    /// Used at selection time only, to keep contradictions out of one prompt.
+    private let deduplicator: MemoryDeduplicator
 
     public init(
         policy: MemoryRelevancePolicy = .default,
-        matcher: any MemorySemanticMatcher = LexicalSemanticMatcher()
+        matcher: any MemorySemanticMatcher = LexicalSemanticMatcher(),
+        deduplicator: MemoryDeduplicator = MemoryDeduplicator()
     ) {
         self.policy = policy
         self.matcher = matcher
+        self.deduplicator = deduplicator
     }
 
     /// Scores every candidate, best first.
@@ -156,6 +160,29 @@ public struct MemoryRanker: Sendable {
             // Then strength. Never pad to the limit — injecting a marginal
             // memory costs context and invites the model to use it.
             guard candidate.finalScore >= policy.minimumScore else { break }
+
+            // Never hand a model two memories that contradict each other. The
+            // write path keeps a disagreement it could not settle — a guess
+            // that clashes with something the user said stays visible in the
+            // Memory screen rather than being silently overwritten — but a
+            // prompt containing both is just an invitation to pick one at
+            // random, and the whole point of ranking locally is that the
+            // application decides.
+            //
+            // The higher-scoring one wins because it is already first: newer,
+            // more confident and more explicitly sourced memories score higher,
+            // so the order encodes the preference and there is no second rule
+            // to keep consistent with the first.
+            //
+            // Only outright contradictions are dropped. Two memories that merely
+            // say similar things are both allowed through — spotting redundancy
+            // is the write path's job, and being aggressive here would silently
+            // thin out a prompt on a judgement the user never sees.
+            let contradictsSelection = deduplicator.classify(
+                candidate.memory,
+                against: selected.map(\.memory)
+            )
+            if case .conflicting = contradictsSelection { continue }
 
             let cost = candidate.memory.content.count
             guard cost <= budget else {

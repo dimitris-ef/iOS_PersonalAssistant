@@ -53,6 +53,13 @@ topic; none can carry an unrelated memory into the prompt on its own.
 time learned a year ago must still beat yesterday's note about shampoo, or the
 assistant gets worse the longer it knows someone.
 
+**`lastUsedAt` is recorded but deliberately not ranked on.** Recency measures
+when the *user* last touched a memory (`max(updatedAt, createdAt)`), not when
+the ranker last picked it. Feeding usage back into the score makes a memory rank
+highly because it ranked highly before, and the loop closes on whatever happened
+to win the first time. The field stays for the Memory screen and for future
+work; it earns a place in the score only if it can be shown to help.
+
 **Category is a thumb on the scale, not a gate.** A scheduling question prefers
 routines and places; a reminder question prefers preferences. A memory of the
 "wrong" category that genuinely matches the words still ranks, because people do
@@ -173,6 +180,18 @@ One rule, on the only evidence available: a newer *explicit* statement replaces
 an older one in place, keeping the identifier. Anything weaker is stored
 alongside, where the user can see the disagreement and delete the wrong one.
 Not a truth-maintenance system, and not trying to be.
+
+A disagreement that survives writing must not survive *retrieval*. Selection
+drops a candidate that contradicts one already selected, so no prompt carries
+both halves of a contradiction — sending a model two commute times just moves
+the decision somewhere nobody can inspect it. The higher-scoring memory wins by
+already being first: newer, more confident and more explicitly sourced memories
+score higher, so the ordering encodes the preference and there is no second rule
+to keep in step with the first.
+
+Only outright contradictions are dropped. Two memories that merely say similar
+things both go through — spotting redundancy is the write path's job, and being
+aggressive here would thin out a prompt on a judgement the user never sees.
 
 ### Edits and deletes
 
