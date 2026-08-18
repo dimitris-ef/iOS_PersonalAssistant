@@ -1,0 +1,162 @@
+name: Apple SDK Check
+
+# Compiles the app against an Xcode/iOS SDK that actually contains
+# FoundationModels.
+#
+# Why this exists as a second workflow rather than a change to the preview
+# build: the preview runs on macos-15 / Xcode 16.4, whose iOS SDK has no
+# FoundationModels at all. `#if canImport(FoundationModels)` is therefore false
+# there, and every line of the Apple provider compiles out. That build stays
+# green whatever is written inside the guard — which makes it worthless as a
+# check on this milestone's actual code.
+#
+# This job is build-only. It never runs a simulator, never launches the app and
+# never asks the model for anything: Apple Intelligence inference needs eligible
+# hardware with the model downloaded, which no CI runner has. What it proves is
+# narrower and worth exactly what it says — that the Foundation Models
+# integration compiles against a real Apple SDK.
+
+on:
+  push:
+    paths:
+      - "iOS/**"
+      - "Sources/**"
+      - "Package.swift"
+      - "project.yml"
+      - ".github/workflows/apple-sdk-check.yml"
+  pull_request:
+    paths:
+      - "iOS/**"
+      - "Sources/**"
+      - "Package.swift"
+      - "project.yml"
+      - ".github/workflows/apple-sdk-check.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: apple-sdk-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  compile:
+    name: Compile against the Apple Intelligence SDK
+    runs-on: macos-26
+    timeout-minutes: 30
+
+    env:
+      SCHEME: PersonalAssistant
+      PROJECT: PersonalAssistant.xcodeproj
+      DERIVED_DATA: ${{ github.workspace }}/.ci-deriveddata
+      BUILD_LOG: ${{ github.workspace }}/artifacts/apple-sdk-build.log
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Show Xcode environment
+        run: |
+          set -euo pipefail
+          mkdir -p "$(dirname "$BUILD_LOG")"
+          sw_vers
+          echo "--- available Xcode versions ---"
+          ls /Applications | grep -i '^Xcode' || true
+          echo "--- selected ---"
+          xcodebuild -version
+          swift --version
+          echo "--- iOS SDKs ---"
+          xcodebuild -showsdks | grep -i ios || true
+
+      - name: Confirm the SDK actually has FoundationModels
+        # Fails loudly and early if the runner image does not carry the
+        # framework. Without this the build below would simply compile the
+        # `#if canImport` branch out and go green, which is the exact false
+        # negative this workflow exists to prevent.
+        run: |
+          set -euo pipefail
+          SDK_PATH="$(xcrun --sdk iphonesimulator --show-sdk-path)"
+          echo "Simulator SDK: $SDK_PATH"
+          if [ -d "$SDK_PATH/System/Library/Frameworks/FoundationModels.framework" ]; then
+            echo "FoundationModels.framework is present."
+          else
+            echo "::error::FoundationModels.framework is missing from $SDK_PATH."
+            echo "This runner image cannot verify the Apple provider. Check the Xcode version above."
+            exit 1
+          fi
+
+      - name: Install XcodeGen
+        run: |
+          set -euo pipefail
+          brew install xcodegen
+          xcodegen --version
+
+      - name: Generate Xcode project
+        run: |
+          set -euo pipefail
+          xcodegen generate --spec project.yml
+          test -d "$PROJECT" || { echo "::error::$PROJECT was not generated"; exit 1; }
+
+      - name: Build for the simulator
+        run: |
+          set -euo pipefail
+          # Build only — no boot, no install, no launch. `generic/platform`
+          # avoids pinning to a device that may not exist on a new image.
+          xcodebuild build \
+            -project "$PROJECT" \
+            -scheme "$SCHEME" \
+            -configuration Debug \
+            -destination "generic/platform=iOS Simulator" \
+            -derivedDataPath "$DERIVED_DATA" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            2>&1 | tee "$BUILD_LOG"
+
+      - name: Prove the Apple provider was really compiled
+        # The whole point. If the guarded code had been skipped, this symbol
+        # would not be in the binary and the job would be reporting success on
+        # having compiled nothing.
+        run: |
+          set -euo pipefail
+          APP="$(find "$DERIVED_DATA/Build/Products" -name "$SCHEME.app" -type d | head -n 1)"
+          if [ -z "$APP" ]; then
+            echo "::error::No app bundle produced."
+            exit 1
+          fi
+          BINARY="$APP/$SCHEME"
+          if nm -u "$BINARY" 2>/dev/null | grep -qi foundationmodels \
+             || otool -L "$BINARY" 2>/dev/null | grep -qi FoundationModels; then
+            echo "The binary links FoundationModels — the guarded code was compiled."
+          else
+            echo "::error::The built binary does not reference FoundationModels."
+            echo "The #if canImport branch was compiled out; this job verified nothing."
+            otool -L "$BINARY" || true
+            exit 1
+          fi
+
+      - name: Report compiler errors
+        if: failure()
+        run: |
+          set -uo pipefail
+          if [ ! -f "$BUILD_LOG" ]; then
+            echo "No build log — the failure was before xcodebuild ran."
+            exit 0
+          fi
+          echo "===== compiler errors ====="
+          grep -E "error:|\*\* BUILD FAILED|The following build commands failed" \
+            "$BUILD_LOG" \
+            | sort -u \
+            | head -n 60 \
+            || echo "(nothing matched)"
+          echo "===== end ====="
+
+      - name: Upload build log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: apple-sdk-build-log
+          path: artifacts/apple-sdk-build.log
+          retention-days: 7
+          if-no-files-found: ignore
