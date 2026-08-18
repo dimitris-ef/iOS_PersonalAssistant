@@ -29,6 +29,22 @@ public struct MemoryRelevancePolicy: Hashable, Sendable {
     /// relevant, one is what gets sent.
     public var minimumScore: Double
 
+    /// The relevance a memory must reach before anything else about it counts.
+    ///
+    /// A weighted sum alone does not give relevance the veto the design claims
+    /// for it. A memory with nothing to do with the request still collects
+    /// salience, confidence and category points, and enough of those clear any
+    /// score threshold on their own — which is exactly the failure this
+    /// milestone exists to fix, arriving by a different route. So relevance is
+    /// a gate as well as a weight: no lexical connection to the request, no
+    /// place in the prompt, however important or certain the memory is.
+    ///
+    /// Set just above zero on purpose. The matcher already returns zero when
+    /// two texts share no content word, so this asks only "is there any
+    /// connection at all?" — judging *how strong* that connection needs to be
+    /// is ``minimumScore``'s job, weighed against everything else.
+    public var minimumRelevance: Double
+
     /// The most memories injected into any one request.
     public var maximumMemories: Int
 
@@ -59,6 +75,7 @@ public struct MemoryRelevancePolicy: Hashable, Sendable {
         confidenceWeight: Double = 0.2,
         categoryWeight: Double = 0.2,
         minimumScore: Double = 0.18,
+        minimumRelevance: Double = 0.05,
         maximumMemories: Int = 5,
         characterBudget: Int = 600,
         recencyHalfLife: TimeInterval = TimeSpan.days(180),
@@ -70,6 +87,7 @@ public struct MemoryRelevancePolicy: Hashable, Sendable {
         self.confidenceWeight = confidenceWeight
         self.categoryWeight = categoryWeight
         self.minimumScore = minimumScore
+        self.minimumRelevance = minimumRelevance
         self.maximumMemories = maximumMemories
         self.characterBudget = characterBudget
         self.recencyHalfLife = recencyHalfLife

@@ -78,6 +78,70 @@ final class MemoryRankerTests: XCTestCase {
         )
     }
 
+    /// The regression behind `minimumRelevance`.
+    ///
+    /// A weighted sum lets the supporting factors stand in for relevance: a
+    /// memory the user typed themselves, marked important, in the category the
+    /// question is about, collects salience, confidence and affinity points
+    /// whether or not it has anything to do with what was asked — and that is
+    /// enough to clear a score threshold on its own. Relevance has to be able
+    /// to veto, or "the others only reorder things already on topic" is a
+    /// description of an intention rather than of the code.
+    func testAPerfectMemoryOnTheWrongSubjectIsStillNotSelected() throws {
+        // Maximum salience, maximum confidence, freshly written, and in the
+        // exact category a scheduling question prefers.
+        let irrelevant = MemoryItem(
+            kind: .routine,
+            content: "I always rinse the cafetière before bed",
+            salience: 1.0,
+            createdAt: now,
+            source: .manual
+        )
+        let request = query("when do I leave for work")
+
+        let scored = try XCTUnwrap(MemoryRanker().score([irrelevant], query: request).first)
+        XCTAssertEqual(scored.relevance, 0, "it shares no content word with the request")
+        // The weighted score is comfortably above the threshold on the strength
+        // of everything else — which is precisely why the threshold alone
+        // cannot be trusted with this.
+        XCTAssertGreaterThan(scored.finalScore, MemoryRelevancePolicy.default.minimumScore)
+
+        XCTAssertTrue(MemoryRanker().select(from: [irrelevant], query: request).isEmpty)
+    }
+
+    /// The gate must not take relevant memories down with it.
+    ///
+    /// Selection walks candidates in final-score order, and an irrelevant
+    /// memory can outrank a weakly relevant one. Stopping at the first rejected
+    /// candidate would silently drop the memory that actually answers the
+    /// question.
+    func testAnIrrelevantMemoryOutrankingARelevantOneDoesNotBlockIt() {
+        let loud = MemoryItem(
+            kind: .routine,
+            content: "I always rinse the cafetière before bed",
+            salience: 1.0,
+            createdAt: now,
+            source: .manual
+        )
+        // Weakly relevant on every other axis: unimportant, old, inferred, and
+        // in a category the request does not favour. It shares one word with
+        // the question, and that word is the whole point of asking.
+        let quiet = MemoryItem(
+            kind: .fact,
+            content: "Parking near the office costs four pounds an hour",
+            salience: 0.1,
+            createdAt: now.addingTimeInterval(-TimeSpan.days(400)),
+            source: .assistant
+        )
+        let request = query("should I book parking or find something on the street tomorrow")
+
+        let ranked = MemoryRanker().score([loud, quiet], query: request)
+        XCTAssertEqual(ranked.map(\.memory.id), [loud.id, quiet.id], "the premise: loud ranks first")
+
+        let selected = MemoryRanker().select(from: [loud, quiet], query: request)
+        XCTAssertEqual(selected.map(\.memory.id), [quiet.id])
+    }
+
     func testSelectionNeverExceedsTheConfiguredMaximum() {
         let policy = MemoryRelevancePolicy(maximumMemories: 3)
         // Eight memories that all genuinely mention work.

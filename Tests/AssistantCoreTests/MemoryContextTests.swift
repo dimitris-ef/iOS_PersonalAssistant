@@ -176,7 +176,7 @@ final class MemoryContextTests: XCTestCase {
         _ = try await seedLibrary(into: repositories)
 
         let selected = try await MemoryRetrievalService(repository: repositories.memories)
-            .relevantMemories(for: "how long is my commute", now: now)
+            .relevantMemories(for: "how long does it take to get to work", now: now)
 
         XCTAssertFalse(selected.isEmpty)
     }

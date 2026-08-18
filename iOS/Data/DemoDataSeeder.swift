@@ -70,8 +70,13 @@ struct DemoDataSeeder {
         for task in demo.tasks {
             try await environment.repositories.tasks.save(task)
         }
+        // Through the memory service like every other write. Seeded content is
+        // the one place it would be tempting to skip — the fixtures are known
+        // to be distinct — but a door only one caller is allowed to walk past
+        // is not a door, and this seeder exists precisely to exercise the paths
+        // the app really uses.
         for memory in demo.memories {
-            try await environment.repositories.memories.store(memory)
+            try await environment.memory.remember(memory)
         }
         for plan in demo.reminderPlans {
             try await environment.repositories.reminderPlans.save(plan)

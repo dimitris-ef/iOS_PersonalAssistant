@@ -142,8 +142,19 @@ public struct MemoryRanker: Sendable {
 
         for candidate in score(candidates, query: query) {
             guard selected.count < limit else { break }
-            // Never pad to the limit. Injecting an irrelevant memory costs
-            // context and invites the model to use it.
+
+            // Relevance first, and on its own. The weighted score alone would
+            // not keep an unrelated memory out: salience, confidence and
+            // category affinity are collected regardless of the request, and a
+            // salient, certain, well-categorised memory clears any sensible
+            // score threshold while having nothing to do with what was asked.
+            // A `continue` rather than a `break` because the ordering is by
+            // final score, so a zero-relevance memory can outrank a weakly
+            // relevant one and must not take it down with it.
+            guard candidate.relevance >= policy.minimumRelevance else { continue }
+
+            // Then strength. Never pad to the limit — injecting a marginal
+            // memory costs context and invites the model to use it.
             guard candidate.finalScore >= policy.minimumScore else { break }
 
             let cost = candidate.memory.content.count

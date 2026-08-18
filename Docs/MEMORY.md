@@ -40,7 +40,7 @@ retrieval means editing one file:
 
 | Factor | Weight | What it asks |
 | --- | --- | --- |
-| Relevance | 1.0 | Does this relate to the request? |
+| Relevance | 1.0 (and a veto) | Does this relate to the request? |
 | Salience | 0.25 | Does it matter generally? |
 | Confidence | 0.2 | Is it even true? |
 | Category | 0.2 | Is this kind of memory likely to help here? |
@@ -82,11 +82,23 @@ that behave identically everywhere, run offline, and can be read in one sitting.
 Ordering is not enough — what reaches the prompt is what matters.
 
 1. Score every candidate.
-2. Drop anything below `minimumScore` (0.18).
-3. Take at most `maximumMemories` (5), or the user's `memoryContextLimit` if
+2. Drop anything whose *relevance* is below `minimumRelevance` (0.05).
+3. Drop anything whose *final score* is below `minimumScore` (0.18).
+4. Take at most `maximumMemories` (5), or the user's `memoryContextLimit` if
    lower.
-4. Stop at `characterBudget` (600 characters), skipping any single memory too
+5. Stop at `characterBudget` (600 characters), skipping any single memory too
    long to fit rather than letting it block shorter ones.
+
+Steps 2 and 3 are separate on purpose, and step 2 is the one that matters.
+A weighted sum does not give relevance the veto the table above claims for it:
+salience, confidence and category affinity are collected whatever was asked, so
+a memory the user typed themselves, marked important, in the right category
+clears any sensible score threshold while having nothing to do with the
+question. Relevance is therefore a gate as well as a weight — **no lexical
+connection to the request, no place in the prompt.** The threshold sits just
+above zero, because the matcher already returns zero when two texts share no
+content word; how *strong* the connection needs to be is `minimumScore`'s job,
+weighed against everything else.
 
 **The quota is not a target.** If one memory is relevant, one is sent. If none
 is, the memory section is omitted entirely — not replaced with "no memories
