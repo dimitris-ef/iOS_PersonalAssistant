@@ -332,8 +332,7 @@ Current list:
 | `Package.swift` | Raise the iOS deployment target for Foundation Models / AlarmKit |
 | `Sources/AIProviderApple/AppleFoundationModelsProvider.swift` | Implement `respond(to:)` and real availability against `FoundationModels` |
 | `Sources/AssistantPlatform/PlatformService.swift` | Real permission flow |
-| `iOS/App/AppEnvironment.swift` | Swap `makeDemo()` for a live environment |
-| `iOS/Data/DemoDataSeeder.swift` | Seeding should move behind a debug flag |
+| `iOS/App/AppEnvironment.swift` | Swap the mock platform services for the real Apple ones |
 | `iOS/UI/Assistant/AssistantComposerView.swift` | Microphone capture and speech recognition |
 | `iOS/UI/Shared/SimulatedReminderView.swift` | Real notification categories and actions |
 | `iOS/Resources/Info.plist` | Verify usage descriptions |

@@ -12,8 +12,10 @@ import Foundation
 ///    `DefaultSupportPlanner` — rather than hand-written. What the UI shows is
 ///    genuinely what the core would produce for these commitments.
 ///
-/// TODO-XCODE: this seeds an in-memory store. Once real persistence exists,
-/// seeding should run only on first launch and behind a debug flag.
+/// None of this reaches a real user. Since persistence landed,
+/// `AppLaunchConfiguration` only asks for seeding in a `DEBUG` build that was
+/// launched with `-seed-demo-data`, and that launch runs against an in-memory
+/// store rather than the user's database.
 struct DemoData {
     let profile: UserProfile
     let settings: AssistantSettings

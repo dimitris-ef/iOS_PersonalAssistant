@@ -114,7 +114,8 @@ final class MemoryMetadataPersistenceTests: PersistenceTestCase {
 
         try relaunch()
 
-        let loaded = try XCTUnwrap(try await repositories.memories.item(id: MemoryItem.ID(id)))
+        let reloaded = try await repositories.memories.item(id: MemoryItem.ID(id))
+        let loaded = try XCTUnwrap(reloaded)
         XCTAssertEqual(loaded.source, .legacy)
         XCTAssertEqual(loaded.confidence, MemorySource.legacy.defaultConfidence)
     }
@@ -155,8 +156,10 @@ final class MemoryMetadataPersistenceTests: PersistenceTestCase {
 
         try relaunch()
 
-        XCTAssertNil(try await repositories.memories.item(id: memory.id))
-        XCTAssertTrue(try await repositories.memories.all().isEmpty)
+        let fetched = try await repositories.memories.item(id: memory.id)
+        XCTAssertNil(fetched)
+        let remaining = try await repositories.memories.all()
+        XCTAssertTrue(remaining.isEmpty)
 
         // And it does not come back through ranked retrieval either.
         let searched = try await repositories.memories.search(
