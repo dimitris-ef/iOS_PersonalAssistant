@@ -43,6 +43,11 @@ actor AlarmKitAlarmService: AlarmService {
 
     private var manager: AlarmManager { AlarmManager.shared }
 
+    /// TODO-DEVICE: nothing here has ever sounded. That the alert appears with
+    /// the label and the two buttons this builds, that Snooze runs the
+    /// `postAlert` countdown and produces exactly one replacement, and that the
+    /// alarm breaks through Focus and the silent switch, all need an iPhone on
+    /// iOS 26.
     func schedule(_ request: AlarmRequest) async throws -> PlatformReceipt {
         guard await ensureAuthorized() else {
             throw PlatformError.permissionDenied(capability: .alarms)

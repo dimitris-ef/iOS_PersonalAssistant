@@ -168,6 +168,12 @@ actor UserNotificationsService: NotificationService {
     /// generous and is not: provisional notifications are delivered silently to
     /// Notification Centre, so the app would be reminding someone who sees
     /// nothing. For this product, being asked is better than being ignored.
+    ///
+    /// TODO-DEVICE: iOS will only put this alert on screen while the app is in
+    /// the foreground. A reminder scheduled by the follow-up ladder while the
+    /// app is backgrounded may therefore find the permission still
+    /// undetermined and fail rather than prompt. Settings offers a deterministic
+    /// path, but which of the two happens first in practice has not been seen.
     func requestAuthorization() async -> AppleNotificationAuthorization {
         let options: UNAuthorizationOptions = [.alert, .sound, .badge]
 

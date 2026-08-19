@@ -70,6 +70,9 @@ actor AppleEventKitStore {
     /// The user can still answer "Add Events Only", and iOS will. That arrives
     /// as `.writeOnly`, becomes `PermissionStatus.limited`, and is reported as
     /// partial access rather than quietly treated as either yes or no.
+    /// TODO-DEVICE: that choosing "Add Events Only" really arrives here as
+    /// `.writeOnly` — rather than as a thrown error or a plain denial — has not
+    /// been observed on a device.
     func requestCalendarAccess() async -> AppleCalendarAuthorization {
         do {
             _ = try await store.requestFullAccessToEvents()
@@ -307,6 +310,11 @@ actor AppleEventKitStore {
     /// an event nobody has read yet misses; scanning a two-year window and
     /// re-deriving every id fills it in. EventKit refuses predicates spanning
     /// more than four years, and two is comfortably inside that.
+    /// TODO-DEVICE: a recurring event's occurrences may each report a
+    /// different `eventIdentifier`, in which case the derived domain id differs
+    /// per occurrence. Whether that is what EventKit does — and whether it
+    /// matters for the way this app links a task to an event — needs a device
+    /// with a real recurring appointment on it.
     private func eventObject(for id: CalendarItem.ID) throws -> EKEvent? {
         try requireCalendarRead()
         if let external = eventIdentifiers[id.rawValue],

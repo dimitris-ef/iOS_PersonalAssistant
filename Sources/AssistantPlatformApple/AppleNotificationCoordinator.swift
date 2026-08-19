@@ -56,6 +56,9 @@ public final class AppleNotificationCoordinator: NSObject, @unchecked Sendable {
     /// from a notification action lands inside it every time — and dropping
     /// the response would mean a dismissal that never escalated or a
     /// completion the user has to make twice.
+    ///
+    /// TODO-DEVICE: the replay path has never run for real. Reproducing it needs
+    /// a reminder answered from the lock screen with the app not running.
     public func setHandler(_ handler: @escaping Handler) {
         lock.lock()
         self.handler = handler
