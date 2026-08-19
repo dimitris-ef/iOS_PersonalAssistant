@@ -42,7 +42,7 @@ Four Apple framework integrations now exist: the on-device model over
 Foundation Models, and the calendar, reminders, notifications and alarms over
 EventKit, UserNotifications and AlarmKit. A shipped build changes the user's
 actual phone; tests, previews and CI keep the mocks. App Intents, Siri, widgets
-and Live Activities do not exist yet — see [TODO-XCODE](#todo-xcode) below.
+and Live Activities do not exist yet — see [Open items](Docs/OPEN-ITEMS.md).
 
 > **What has and has not been verified.** This is written on a machine with no
 > Swift toolchain, so CI is the only compiler. Three GitHub Actions workflows,
@@ -139,8 +139,15 @@ PhonePersonalAI/
 │   └── Resources/              Assets, Info.plist
 ├── project.yml                 XcodeGen spec for the app target
 └── Docs/
-    ├── ARCHITECTURE.md
-    └── UI-ARCHITECTURE.md
+    ├── ARCHITECTURE.md      Decisions and module boundaries
+    ├── UI-ARCHITECTURE.md   How the SwiftUI layer is organised
+    ├── OPEN-ITEMS.md        Everything incomplete, unverified or limited
+    ├── PLATFORM-APPLE.md    EventKit, UserNotifications, AlarmKit
+    ├── APPLE-ON-DEVICE.md   Foundation Models
+    ├── REMOTE-AI.md         The cloud provider and its credentials
+    ├── PERSISTENCE.md       SwiftData schema and migration
+    ├── FOLLOW-UP.md         The escalation ladder
+    └── MEMORY.md            Retrieval, ranking, deduplication
 ```
 
 Dependencies point one way: `AssistantDomain` ← everything else, and the engine
@@ -349,12 +356,23 @@ trips.
 
 ---
 
-## TODO-XCODE
+## Open items
+
+**[`Docs/OPEN-ITEMS.md`](Docs/OPEN-ITEMS.md) is the single register** of
+everything incomplete, unverified or deliberately limited — including the
+design trade-offs that no amount of device testing will discharge, which are
+the ones easiest to mistake later for oversights.
+
+The two markers below are indexed there, and both are grep-able:
 
 `TODO-XCODE` marks something that **genuinely cannot be implemented or tested
 without Xcode and an Apple SDK**. It is not a general-purpose "unfinished"
 marker. Where you see it, the feature does not work, and the code says so rather
 than faking it.
+
+`TODO-DEVICE` marks something that **compiles and is reasoned about but has
+never executed**, because no CI runner has a calendar database, a notification
+centre, an alarm daemon or Apple Intelligence.
 
 Find them all:
 
