@@ -83,13 +83,22 @@ public struct DefaultToolExecutor: ToolExecutor {
             break
         }
 
+        // Permission is asked for *here*, at the moment an action needs it,
+        // rather than in a queue of alerts at first launch. The user has just
+        // said "put that in my calendar", so the calendar prompt arrives with
+        // its reason already obvious — and someone who never mentions a
+        // calendar is never asked about one.
+        //
+        // `ensure` prompts only when the answer is still unknown. A capability
+        // the user already declined is not re-requested on every turn; it
+        // fails with the reason, which the assistant can then say out loud.
         if let capability = capability(for: action.kind) {
-            let status = await services.permissions.status(for: capability)
-            guard status == .granted else {
+            let status = await services.permissions.ensure(capability)
+            guard status.allowsAccess else {
                 return result(
                     action,
                     .denied(reason: "\(capability.rawValue) permission is \(status.rawValue)"),
-                    "Cannot \(action.kind.rawValue): \(capability.rawValue) access not granted",
+                    permissionMessage(capability, status),
                     context
                 )
             }
@@ -320,6 +329,35 @@ public struct DefaultToolExecutor: ToolExecutor {
         switch receipt.fidelity {
         case .live: return .executed
         case .simulated: return .simulated(platform: receipt.platformName)
+        }
+    }
+
+    /// Says what the user can do about it, which differs by status.
+    ///
+    /// "Not granted" is useless advice on its own: a denied capability is
+    /// fixed in Settings, a restricted one cannot be fixed by this person at
+    /// all, and an unsupported one is not a permission problem in the first
+    /// place. This text reaches the model as a tool result and then the user,
+    /// so getting it wrong sends someone hunting through Settings for a switch
+    /// that is not there.
+    private func permissionMessage(
+        _ capability: PlatformCapability,
+        _ status: PermissionStatus
+    ) -> String {
+        switch status {
+        case .denied:
+            return "Cannot \(capability.rawValue): access was declined. It can be turned back on in Settings."
+        case .restricted:
+            return "Cannot \(capability.rawValue): access is restricted on this device."
+        case .limited:
+            return "Cannot \(capability.rawValue): only partial access was granted. Full access can be turned on in Settings."
+        case .unsupported:
+            return "Cannot \(capability.rawValue): this device has no \(capability.rawValue) support."
+        case .notDetermined, .granted:
+            // `.granted` never reaches here, and `.notDetermined` only does
+            // when the prompt could not be shown — the app was in the
+            // background, or the request was cancelled.
+            return "Cannot \(capability.rawValue): access has not been granted yet."
         }
     }
 

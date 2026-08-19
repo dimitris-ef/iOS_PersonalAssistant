@@ -113,11 +113,23 @@ public final class AssistantEngine: Sendable {
         try await repositories.conversations.save(conversation)
 
         // 1. What is relevant right now.
-        let upcoming = try await services.calendar.events(in: contextAssembler.window)
+        //
+        // The calendar read is deliberately not `try`. Once these services
+        // became real Apple ones this line acquired a failure mode it never had
+        // against mocks: a user who has not granted calendar access, or granted
+        // add-only access, makes `events(in:)` throw — and propagating that
+        // would mean the assistant refused to answer *anything*, including the
+        // many questions that have nothing to do with a calendar. Losing the
+        // schedule degrades an answer; losing the turn ends the conversation.
+        //
+        // What is not done here is pretending the calendar was empty. The
+        // context records that it could not be read, and the prompt says so.
+        let calendar = await upcomingEvents()
         let context = try await contextAssembler.assemble(
             conversation: conversation,
             query: text,
-            calendarEvents: upcoming
+            calendarEvents: calendar.events,
+            calendarIsReadable: calendar.isReadable
         )
 
         // 2. Ask whichever provider settings point at.
@@ -173,6 +185,21 @@ public final class AssistantEngine: Sendable {
     /// `supportsToolResultContinuation` flag. A provider that cannot read tool
     /// results gets exactly one round, so it can never be re-asked the same
     /// question and duplicate the actions it already proposed.
+    /// The next fortnight, and whether it could be read at all.
+    ///
+    /// The distinction is the whole reason this returns a pair rather than an
+    /// array. "No events" and "no access" both produce an empty list, and only
+    /// one of them means the user is free.
+    private func upcomingEvents() async -> (events: [CalendarItem], isReadable: Bool) {
+        do {
+            return (try await services.calendar.events(in: contextAssembler.window), true)
+        } catch {
+            // Not logged with the error's description: a platform error can
+            // quote calendar or account state.
+            return ([], false)
+        }
+    }
+
     private func runTurn(
         with provider: any AIProvider,
         context: AssistantContext

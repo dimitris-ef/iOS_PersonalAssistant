@@ -69,20 +69,28 @@ jobs:
           echo "--- iOS SDKs ---"
           xcodebuild -showsdks | grep -i ios || true
 
-      - name: Confirm the SDK actually has FoundationModels
-        # Fails loudly and early if the runner image does not carry the
-        # framework. Without this the build below would simply compile the
-        # `#if canImport` branch out and go green, which is the exact false
+      - name: Confirm the SDK actually has the frameworks under test
+        # Fails loudly and early if the runner image does not carry them.
+        # Without this the build below would simply compile the
+        # `#if canImport` branches out and go green, which is the exact false
         # negative this workflow exists to prevent.
         run: |
           set -euo pipefail
           SDK_PATH="$(xcrun --sdk iphonesimulator --show-sdk-path)"
           echo "Simulator SDK: $SDK_PATH"
-          if [ -d "$SDK_PATH/System/Library/Frameworks/FoundationModels.framework" ]; then
-            echo "FoundationModels.framework is present."
-          else
-            echo "::error::FoundationModels.framework is missing from $SDK_PATH."
-            echo "This runner image cannot verify the Apple provider. Check the Xcode version above."
+
+          MISSING=0
+          for FRAMEWORK in FoundationModels AlarmKit EventKit UserNotifications; do
+            if [ -d "$SDK_PATH/System/Library/Frameworks/$FRAMEWORK.framework" ]; then
+              echo "$FRAMEWORK.framework is present."
+            else
+              echo "::error::$FRAMEWORK.framework is missing from $SDK_PATH."
+              MISSING=1
+            fi
+          done
+
+          if [ "$MISSING" -ne 0 ]; then
+            echo "This runner image cannot verify the guarded code. Check the Xcode version above."
             exit 1
           fi
 
@@ -114,7 +122,7 @@ jobs:
             CODE_SIGN_IDENTITY="" \
             2>&1 | tee "$BUILD_LOG"
 
-      - name: Prove the Apple provider was really compiled
+      - name: Prove the guarded Apple code was really compiled
         # The whole point. If the guarded code had been skipped, nothing in the
         # bundle would reference the framework and the job would be reporting
         # success on having compiled nothing.
@@ -122,7 +130,20 @@ jobs:
         # Every Mach-O in the bundle is searched, not just the executable: a
         # Debug build puts the app's own code in PersonalAssistant.debug.dylib
         # and leaves a thin stub behind, so checking only the stub finds
-        # nothing however much FoundationModels code was compiled.
+        # nothing however much guarded code was compiled.
+        #
+        # Two kinds of framework, checked differently:
+        #
+        #   REQUIRED_WEAK  — newer than the iOS 17 deployment target, so they
+        #                    must be *weakly* linked. dyld refuses to start an
+        #                    app that strongly links a framework the OS does
+        #                    not have, which is a launch crash on most of the
+        #                    devices this app supports and something no amount
+        #                    of `if #available` in Swift prevents.
+        #   REQUIRED       — available on iOS 17, so ordinary linking is right.
+        #                    Checked only for presence, which proves the
+        #                    platform layer is in the binary rather than
+        #                    compiled out.
         run: |
           set -euo pipefail
           APP="$(find "$DERIVED_DATA/Build/Products" -name "$SCHEME.app" -type d | head -n 1)"
@@ -131,46 +152,58 @@ jobs:
             exit 1
           fi
 
-          MATCHES="$(
-            find "$APP" -type f \( -name "*.dylib" -o -name "$SCHEME" -o -perm -u+x \) 2>/dev/null \
-            | while IFS= read -r f; do
-                if otool -L "$f" 2>/dev/null | grep -qi FoundationModels; then echo "$f"; fi
-              done
-          )"
+          REQUIRED_WEAK="FoundationModels AlarmKit"
+          REQUIRED="EventKit UserNotifications"
+          FAILED=0
 
-          if [ -z "$MATCHES" ]; then
-            echo "::error::Nothing in the app bundle references FoundationModels."
-            echo "The #if canImport branch was compiled out; this job verified nothing."
-            find "$APP" -type f -name "*.dylib" -o -name "$SCHEME" | while IFS= read -r f; do
-              echo "--- $f"; otool -L "$f" 2>/dev/null | head -n 20
-            done
-            exit 1
-          fi
+          BINARIES="$(find "$APP" -type f \( -name "*.dylib" -o -name "$SCHEME" -o -perm -u+x \) 2>/dev/null)"
 
-          echo "FoundationModels is linked by:"
-          echo "$MATCHES"
+          linked_by() {
+            local framework="$1"
+            while IFS= read -r f; do
+              [ -n "$f" ] || continue
+              if otool -L "$f" 2>/dev/null | grep -q "/$framework.framework/"; then echo "$f"; fi
+            done <<< "$BINARIES"
+          }
 
-          # The app deploys to iOS 17; FoundationModels needs iOS 26. The
-          # framework must therefore be *weakly* linked, or dyld will refuse to
-          # start the app on every OS older than 26 — a crash on launch for
-          # most of the devices this app supports, which no amount of
-          # `if #available` in Swift would prevent.
-          # A here-string, not a pipe: a `while` on the right of a pipe runs in
-          # a subshell, where `exit 1` would end the subshell and leave the
-          # step green.
-          STRONGLY_LINKED=0
-          while IFS= read -r f; do
-            [ -n "$f" ] || continue
-            if otool -l "$f" | grep -B2 -A4 'LC_LOAD_WEAK_DYLIB' | grep -qi FoundationModels; then
-              echo "Weakly linked in $f — safe to run on iOS 17."
-            else
-              echo "::error::FoundationModels is strongly linked in $f."
-              echo "The app would fail to launch on any iOS older than 26."
-              STRONGLY_LINKED=1
+          for FRAMEWORK in $REQUIRED_WEAK $REQUIRED; do
+            MATCHES="$(linked_by "$FRAMEWORK")"
+
+            if [ -z "$MATCHES" ]; then
+              echo "::error::Nothing in the app bundle references $FRAMEWORK."
+              echo "Its #if canImport branch was compiled out; this job verified nothing about it."
+              FAILED=1
+              continue
             fi
-          done <<< "$MATCHES"
 
-          if [ "$STRONGLY_LINKED" -ne 0 ]; then
+            echo "$FRAMEWORK is linked by:"
+            echo "$MATCHES"
+
+            case " $REQUIRED_WEAK " in
+              *" $FRAMEWORK "*) ;;
+              *) continue ;;
+            esac
+
+            # A here-string, not a pipe: a `while` on the right of a pipe runs
+            # in a subshell, where setting FAILED would be lost.
+            while IFS= read -r f; do
+              [ -n "$f" ] || continue
+              if otool -l "$f" | grep -A4 'LC_LOAD_WEAK_DYLIB' | grep -q "/$FRAMEWORK.framework/"; then
+                echo "  weakly linked in $f — safe to run on iOS 17."
+              else
+                echo "::error::$FRAMEWORK is strongly linked in $f."
+                echo "The app would fail to launch on every iOS older than the one that introduced it."
+                FAILED=1
+              fi
+            done <<< "$MATCHES"
+          done
+
+          if [ "$FAILED" -ne 0 ]; then
+            echo "--- what the bundle actually links ---"
+            while IFS= read -r f; do
+              [ -n "$f" ] || continue
+              echo "--- $f"; otool -L "$f" 2>/dev/null | head -n 30
+            done <<< "$BINARIES"
             exit 1
           fi
 

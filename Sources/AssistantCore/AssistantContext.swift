@@ -15,6 +15,17 @@ public struct AssistantContext: Sendable {
     public var relevantMemories: [MemoryItem]
     public var outstandingTasks: [TaskItem]
     public var upcomingEvents: [CalendarItem]
+    /// False when the calendar could not be read at all.
+    ///
+    /// Exists because an empty `upcomingEvents` has two very different causes
+    /// and only one of them is "your week is clear". If the user has not
+    /// granted calendar access — or has granted add-only access — the list is
+    /// also empty, and an assistant that cannot tell those apart will cheerfully
+    /// agree to a two o'clock meeting on top of an existing one.
+    ///
+    /// The prompt says which it is, so the model can hedge instead of inventing
+    /// confidence it has no basis for.
+    public var calendarIsReadable: Bool
     public var now: Date
     public var calendar: Calendar
 
@@ -25,6 +36,7 @@ public struct AssistantContext: Sendable {
         relevantMemories: [MemoryItem],
         outstandingTasks: [TaskItem],
         upcomingEvents: [CalendarItem],
+        calendarIsReadable: Bool = true,
         now: Date,
         calendar: Calendar
     ) {
@@ -34,6 +46,7 @@ public struct AssistantContext: Sendable {
         self.relevantMemories = relevantMemories
         self.outstandingTasks = outstandingTasks
         self.upcomingEvents = upcomingEvents
+        self.calendarIsReadable = calendarIsReadable
         self.now = now
         self.calendar = calendar
     }
@@ -68,7 +81,8 @@ public struct ContextAssembler: Sendable {
     public func assemble(
         conversation: Conversation,
         query: String,
-        calendarEvents: [CalendarItem]
+        calendarEvents: [CalendarItem],
+        calendarIsReadable: Bool = true
     ) async throws -> AssistantContext {
         let now = dateProvider.now
         let settings = try await repositories.settings.settings()
@@ -103,6 +117,7 @@ public struct ContextAssembler: Sendable {
             relevantMemories: relevantMemories,
             outstandingTasks: tasks,
             upcomingEvents: calendarEvents,
+            calendarIsReadable: calendarIsReadable,
             now: now,
             calendar: dateProvider.calendar
         )

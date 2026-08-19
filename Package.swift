@@ -41,6 +41,11 @@ let package = Package(
         .library(name: "PersonalMemory", targets: ["PersonalMemory"]),
         .library(name: "AssistantCore", targets: ["AssistantCore"]),
         .library(name: "MockPlatform", targets: ["MockPlatform"]),
+        // The real iPhone: EventKit, UserNotifications, AlarmKit. Apple-only
+        // in practice — every framework import is behind `#if canImport`, so
+        // the target still builds on Linux and Windows, where it contains only
+        // the mapping layer.
+        .library(name: "AssistantPlatformApple", targets: ["AssistantPlatformApple"]),
         .library(name: "AIProviderRemote", targets: ["AIProviderRemote"]),
         .library(name: "AIProviderApple", targets: ["AIProviderApple"]),
         .library(name: "AIProviderLocal", targets: ["AIProviderLocal"]),
@@ -106,6 +111,22 @@ let package = Package(
         // MARK: Platform implementations
 
         .target(name: "MockPlatform", dependencies: ["AssistantDomain", "AssistantPlatform"]),
+
+        // The Apple adapters. This lives in the package rather than in `iOS/`
+        // on purpose: `iOS/` has no test target, and the parts most worth
+        // testing here — which notification action means "done", which means
+        // "dismissed", how an identifier round-trips — are pure functions that
+        // need no simulator. Putting them in a package target is what makes
+        // them compiled and executed by CI instead of only read.
+        //
+        // It depends on ExecutiveSupport for `ReminderOutcome`: translating a
+        // notification response into a support outcome is this layer's job,
+        // and the alternative was to leave that translation in the untested
+        // app target.
+        .target(
+            name: "AssistantPlatformApple",
+            dependencies: ["AssistantDomain", "AssistantPlatform", "ExecutiveSupport"]
+        ),
 
         // MARK: AI providers
 
@@ -178,6 +199,15 @@ let package = Package(
                 // property of the whole app, so it is asserted here rather
                 // than inside the Apple provider's own tests.
                 "AIProviderApple",
+            ]
+        ),
+        .testTarget(
+            name: "AssistantPlatformAppleTests",
+            dependencies: [
+                "AssistantDomain",
+                "AssistantPlatform",
+                "AssistantPlatformApple",
+                "ExecutiveSupport",
             ]
         ),
         .testTarget(

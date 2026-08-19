@@ -42,15 +42,25 @@ struct RootView: View {
                 .presentationDetents([.medium])
                 .presentationDragIndicator(.visible)
         }
+        // Tapping a real notification opens the task it was about. Presented
+        // from the root for the same reason as the sheet above: the
+        // notification can arrive on any tab, including none, when it is what
+        // launched the app.
+        .sheet(item: $model.focusedTask) { focused in
+            NavigationStack {
+                TaskDetailView(taskID: focused.id)
+            }
+        }
         // Reminders that came due while the app was closed are caught up here.
         //
         // Deliberately driven by the app becoming active — a domain event —
         // rather than by any screen appearing. Scheduling that happens because
         // a view rendered is scheduling that happens several times.
         //
-        // This is a stand-in for real delivery, not a substitute for it: it can
-        // only notice a missed reminder once the user opens the app. Catching it
-        // at the moment it happens needs UserNotifications. TODO-XCODE.
+        // Still needed now that notifications are real. A delivered
+        // notification the user never touched produces no callback at all —
+        // iOS has nothing to report — so a reminder that was ignored rather
+        // than answered is only ever noticed by this sweep.
         .onChange(of: scenePhase) { _, phase in
             guard phase == .active else { return }
             Task { await model.reconcileFollowUps() }

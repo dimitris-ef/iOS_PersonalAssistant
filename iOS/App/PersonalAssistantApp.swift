@@ -21,10 +21,17 @@ struct PersonalAssistantApp: App {
     @AppStorage(AppearancePreference.storageKey) private var appearance: AppearancePreference = .system
 
     init() {
-        // TODO-XCODE: platform services are still mocks; storage is not. The
-        // remaining substitution is `PlatformServices.mock()` in AppEnvironment.
         do {
             let environment = try AppEnvironment.makePersistent()
+
+            // Installed here, in the initialiser, and not later in a `.task`.
+            // When someone taps "Done" on a reminder from the lock screen, iOS
+            // launches the app and delivers the response almost immediately —
+            // a delegate registered once the first view appears is registered
+            // too late, and that response is simply never seen. The handler can
+            // arrive afterwards; the delegate cannot.
+            environment.notificationCoordinator?.install()
+
             _startup = State(initialValue: .ready(AppModel(environment: environment)))
         } catch {
             // Deliberately not a fallback to in-memory storage. The user would

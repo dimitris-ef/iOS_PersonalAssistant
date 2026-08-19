@@ -52,7 +52,19 @@ public struct SystemPromptBuilder: Sendable {
             sections.append("# Open tasks\n" + lines.joined(separator: "\n"))
         }
 
-        if !context.upcomingEvents.isEmpty {
+        if !context.calendarIsReadable {
+            // Stated explicitly, because the alternative is a model that reads
+            // an absent calendar section as an empty diary and says "you're
+            // free then" to someone who is not.
+            sections.append(
+                """
+                # Upcoming calendar
+                Unavailable — this app cannot read the calendar right now. Do not assume any \
+                time is free, and say that you cannot see their schedule if it matters to \
+                the answer.
+                """
+            )
+        } else if !context.upcomingEvents.isEmpty {
             let lines = context.upcomingEvents.map { event in
                 "- \(event.title) — \(Self.isoFormatter.string(from: event.start)) (id: \(event.id))"
             }

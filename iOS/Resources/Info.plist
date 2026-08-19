@@ -53,16 +53,51 @@
 	</dict>
 
 	<!--
-	  Usage descriptions for the capabilities the assistant will request.
-	  They are declared now so the strings are reviewed as product copy rather
-	  than written in a hurry the day the integration lands. None of these
-	  permissions is requested by the current build.
-	  TODO-XCODE: verify each string once the matching integration exists.
+	  Usage descriptions. Each one is the sentence shown in the system
+	  permission alert, so each says what this app does with the access and
+	  why — not what the API is called.
+
+	  Every key below now backs a real request. iOS terminates the app, with no
+	  recoverable error, if a framework asks for access and the matching key is
+	  missing, so the list and the code have to agree exactly.
+
+	  There is deliberately no notification key: UserNotifications has none.
+	  Its permission alert is written by the system and cannot be customised,
+	  which is why the app asks for it at the moment it has a reminder to
+	  schedule rather than at launch — the context has to come from what the
+	  user just did, because it cannot come from the alert.
+	-->
+
+	<!--
+	  Full calendar access, not write-only. The assistant reads what is already
+	  on the day before it agrees to anything; with add-only access it would
+	  answer "you're free at three" to someone who is not. Write-only is
+	  requested nowhere, but the user can still choose "Add Events Only" at the
+	  prompt, and the app reports that as partial access rather than treating
+	  it as a yes.
 	-->
 	<key>NSCalendarsFullAccessUsageDescription</key>
 	<string>The assistant adds the appointments you tell it about and reads what is coming up so it can remind you in time.</string>
+	<!--
+	  Declared because iOS shows it when someone picks "Add Events Only" at the
+	  full-access prompt. Without it that path has no explanation on screen.
+	-->
+	<key>NSCalendarsWriteOnlyAccessUsageDescription</key>
+	<string>The assistant adds the appointments you tell it about to your calendar.</string>
 	<key>NSRemindersFullAccessUsageDescription</key>
 	<string>The assistant keeps your reminders in step with the tasks it is tracking for you.</string>
+	<!--
+	  AlarmKit, on iOS 26 and later. Asked for only when something actually
+	  needs an alarm rather than a notification — "make sure I wake up" — and
+	  on earlier iPhones the request never happens because the framework is not
+	  there.
+	-->
+	<key>NSAlarmKitUsageDescription</key>
+	<string>The assistant sets alarms for the things you told it you must not sleep through.</string>
+	<!--
+	  Not yet requested by any code. Declared so the strings are reviewed as
+	  product copy rather than written in a hurry the day the feature lands.
+	-->
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Speak to the assistant instead of typing.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>

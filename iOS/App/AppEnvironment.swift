@@ -7,6 +7,7 @@ import AssistantDomain
 import AssistantPersistence
 import AssistantPersistenceSwiftData
 import AssistantPlatform
+import AssistantPlatformApple
 import DevSupport
 import Foundation
 import MockPlatform
@@ -33,6 +34,14 @@ final class AppEnvironment: Sendable {
     /// The same service the assistant's `storeMemory` tool uses, so a memory
     /// the user types and one the assistant saves cannot diverge.
     let memory: MemoryService
+    /// The notification delegate, when this launch has real notifications.
+    ///
+    /// Held here because iOS's `delegate` property is weak: nothing else in the
+    /// app retains this object, and if it is released the user's "Done" button
+    /// stops reaching the task lifecycle — silently, with no error anywhere.
+    ///
+    /// `nil` on a demo launch, where notifications are mocks.
+    let notificationCoordinator: AppleNotificationCoordinator?
 
     /// The provider the remote configuration belongs to.
     static let remoteProviderID: AIProviderIdentifier = "remote.openai-compatible"
@@ -46,7 +55,8 @@ final class AppEnvironment: Sendable {
         credentialStore: any CredentialStore,
         remoteConfiguration: RemoteAIConfigurationStore,
         launch: AppLaunchConfiguration,
-        memory: MemoryService
+        memory: MemoryService,
+        notificationCoordinator: AppleNotificationCoordinator?
     ) {
         self.engine = engine
         self.repositories = repositories
@@ -57,6 +67,7 @@ final class AppEnvironment: Sendable {
         self.remoteConfiguration = remoteConfiguration
         self.launch = launch
         self.memory = memory
+        self.notificationCoordinator = notificationCoordinator
     }
 
     /// The environment the app actually launches with.
@@ -94,9 +105,6 @@ final class AppEnvironment: Sendable {
     ///   themselves unsupported. The remote one becomes usable as soon as it has
     ///   an endpoint, a key and a model. `ScriptedDevProvider` is the fallback
     ///   that keeps the app working — and CI green — with no credentials at all.
-    ///
-    /// TODO-XCODE: replace the platform services with the real Apple ones. The
-    /// UI does not change when that happens.
     @MainActor
     static func makeDemo() -> AppEnvironment {
         make(
@@ -118,7 +126,22 @@ final class AppEnvironment: Sendable {
         launch: AppLaunchConfiguration
     ) -> AppEnvironment {
         let dateProvider = SystemDateProvider()
-        let services = PlatformServices.mock()
+
+        // The one line that decides whether this app changes the user's phone.
+        //
+        // A seeded launch gets mocks — always, and not merely as a convenience.
+        // Demo seeding writes example appointments, and a seeder pointed at
+        // `EventKit` would put a fabricated haircut in someone's real calendar,
+        // where it would sync to their other devices and outlive the app. The
+        // only launches that seed are CI screenshots, SwiftUI previews and a
+        // developer's debug build, and none of them should be able to reach the
+        // operating system at all.
+        //
+        // Everything else gets the real thing: EventKit, UserNotifications and
+        // AlarmKit where the device has it. The UI above did not change to make
+        // this possible, which was the point of the platform protocols.
+        let platform: AppleLivePlatform? = launch.seedsDemoData ? nil : PlatformServices.live()
+        let services = platform?.services ?? PlatformServices.mock()
 
         // TODO-XCODE: `KeychainCredentialStore` has not been verified against a
         // real Keychain. If it misbehaves, the app still runs — a failed read
@@ -173,8 +196,53 @@ final class AppEnvironment: Sendable {
             memory: MemoryService(
                 repository: repositories.memories,
                 dateProvider: dateProvider
-            )
+            ),
+            notificationCoordinator: platform?.notifications
         )
+    }
+
+    /// Connects notification responses to the task lifecycle.
+    ///
+    /// Called once, after the repositories are open. Everything a notification
+    /// response can do goes through `FollowUpService` — the same door the UI's
+    /// own Done and Snooze buttons use — so the rule that a dismissal is not a
+    /// completion is enforced in one place and cannot be routed around by
+    /// adding a button to a notification.
+    ///
+    /// `onOpen` is called when the user taps the notification rather than
+    /// answering it. Nothing is recorded in that case: opening the app is not a
+    /// claim about the task.
+    func connectNotificationRouting(
+        onOpen: @escaping @Sendable (TaskItem.ID) async -> Void,
+        onChange: @escaping @Sendable () async -> Void
+    ) {
+        guard let notificationCoordinator else { return }
+
+        notificationCoordinator.setHandler { [engine] route in
+            switch route {
+            case .outcome(let outcome, let taskID, let stageID):
+                do {
+                    try await engine.followUp.handle(
+                        outcome: outcome,
+                        forTask: taskID,
+                        stageID: stageID
+                    )
+                    await onChange()
+                } catch {
+                    // Nothing is logged from the error itself: it can carry a
+                    // task title. A response that cannot be applied — the task
+                    // was deleted, the store is unavailable — leaves the
+                    // lifecycle untouched, which reconciliation corrects on the
+                    // next foreground.
+                }
+
+            case .open(let taskID, _):
+                await onOpen(taskID)
+
+            case .ignored:
+                break
+            }
+        }
     }
 
     /// The providers the model selector offers, in display order.

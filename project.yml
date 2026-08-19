@@ -43,8 +43,10 @@ targets:
       - path: iOS/ViewModels
       - path: iOS/UI
       - path: iOS/Resources
-      # Apple platform adapters. Every file here is a TODO-XCODE skeleton that
-      # throws rather than pretending to work, so the target still builds.
+      # What is left of the app-target platform code: the Keychain store. The
+      # calendar, reminder, notification and alarm adapters moved into the
+      # `AssistantPlatformApple` package target, because `iOS/` has no test
+      # target and the mapping decisions in them are worth testing.
       - path: iOS/Platform
     dependencies:
       - package: PhonePersonalAI
@@ -69,6 +71,11 @@ targets:
         product: PersonalMemory
       - package: PhonePersonalAI
         product: MockPlatform
+      # The real iPhone: EventKit, UserNotifications, AlarmKit. Adding this
+      # product is what makes the app's actions actually happen; removing it
+      # again would put the app back on mocks with no other change.
+      - package: PhonePersonalAI
+        product: AssistantPlatformApple
       - package: PhonePersonalAI
         product: AIProviderApple
       - package: PhonePersonalAI

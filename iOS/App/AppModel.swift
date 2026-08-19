@@ -54,6 +54,14 @@ final class AppModel {
     /// A reminder being simulated in-app. See `SimulatedReminder`.
     var simulatedReminder: SimulatedReminder?
 
+    /// The task to show because the user tapped its notification.
+    ///
+    /// Set from the notification router's `.open` route, which is the one
+    /// response that changes nothing: tapping a reminder means "let me look at
+    /// this", not "I've done it". Showing the task and letting them say which
+    /// is the whole point.
+    var focusedTask: FocusedTask?
+
     /// Transient confirmation text shown after an action.
     var banner: BannerMessage?
 
@@ -78,6 +86,12 @@ final class AppModel {
     /// developer's debug build — never in a shipped app. See
     /// `AppLaunchConfiguration`.
     func bootstrap() async {
+        // Connected first, before anything that can fail. A "Done" tapped on
+        // the lock screen is already queued inside the coordinator by the time
+        // this runs, and it should be applied even if loading the screens goes
+        // wrong afterwards.
+        connectNotifications()
+
         do {
             if environment.launch.seedsDemoData {
                 _ = try await DemoDataSeeder(environment: environment).seedIfNeeded()
@@ -88,6 +102,28 @@ final class AppModel {
         } catch {
             banner = BannerMessage(text: "Couldn't load your data.", style: .warning)
         }
+    }
+
+    /// Routes notification responses into the lifecycle and back into the UI.
+    ///
+    /// The closures are the only part of this that belongs to the presentation
+    /// layer. Deciding what a response *means* happened in
+    /// `AppleNotificationRouter`, and applying it happens in `FollowUpService`;
+    /// what is left here is showing the user the result.
+    private func connectNotifications() {
+        environment.connectNotificationRouting(
+            onOpen: { [weak self] taskID in
+                await self?.focus(taskID)
+            },
+            onChange: { [weak self] in
+                await self?.reload()
+            }
+        )
+    }
+
+    private func focus(_ taskID: TaskItem.ID) async {
+        await reload()
+        focusedTask = FocusedTask(id: taskID)
     }
 
     /// The conversation to show, and the action history beneath it.
@@ -139,15 +175,50 @@ final class AppModel {
             memories = try await environment.repositories.memories.all()
             settings = try await environment.repositories.settings.settings()
             profile = try await environment.repositories.profile.profile()
+            reminderPlans = try await loadReminderPlans()
+        } catch {
+            banner = BannerMessage(text: "Couldn't refresh.", style: .warning)
+        }
+
+        await reloadCalendar()
+    }
+
+    /// The calendar, separately, because it is the one source that can be
+    /// switched off.
+    ///
+    /// Everything above comes from this app's own store and fails only if the
+    /// database is broken. The calendar belongs to iOS and the user may have
+    /// declined it, granted add-only access, or turned it off since last
+    /// launch — none of which is a reason for the task list, the memories and
+    /// the settings to disappear from the screen.
+    ///
+    /// The banner names the calendar specifically. "Couldn't refresh" for a
+    /// permission the user themselves declined is a message that sends someone
+    /// looking for a bug.
+    private func reloadCalendar() async {
+        do {
             events = try await environment.services.calendar.events(
                 in: TimeWindow(
                     start: calendar.startOfDay(for: now),
                     end: now.addingTimeInterval(TimeSpan.days(60))
                 )
             )
-            reminderPlans = try await loadReminderPlans()
         } catch {
-            banner = BannerMessage(text: "Couldn't refresh.", style: .warning)
+            events = []
+            let status = await environment.services.permissions.status(for: .calendar)
+            switch status {
+            case .granted, .notDetermined:
+                banner = BannerMessage(text: "Couldn't read your calendar.", style: .warning)
+            case .denied, .limited:
+                banner = BannerMessage(
+                    text: "Calendar access is off, so your schedule isn't shown.",
+                    style: .warning
+                )
+            case .restricted, .unsupported:
+                // Nothing the user can do about it, so nothing is said. A
+                // banner they cannot act on is just noise on every launch.
+                break
+            }
         }
     }
 
@@ -613,6 +684,16 @@ final class AppModel {
             banner = BannerMessage(text: "Couldn't reset demo data.", style: .warning)
         }
     }
+}
+
+/// A task the app has been asked to show.
+///
+/// A wrapper rather than the bare id because `.sheet(item:)` needs something
+/// `Identifiable`, and `TaskItem.ID` is deliberately not — an identifier that
+/// identifies itself invites exactly the confusion between a thing and its name
+/// that the `Identifier` type exists to prevent.
+struct FocusedTask: Identifiable, Hashable {
+    let id: TaskItem.ID
 }
 
 /// A short confirmation shown after an action.
