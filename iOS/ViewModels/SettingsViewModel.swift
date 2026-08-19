@@ -102,12 +102,21 @@ enum PrivacyTopic: String, CaseIterable, Identifiable {
             """
         case .permissions:
             return """
-            The assistant will eventually need access to your calendar, reminders, notifications and \
-            alarms. It has none of those yet — every one of those services is a mock that records \
-            what was asked for and reports it as simulated.
+            The assistant uses your calendar, your reminders, notifications and — on iOS 26 and \
+            later — alarms. Each one is asked for the first time something actually needs it, not \
+            all at once when you open the app, so the reason for every request is whatever you \
+            just asked for.
 
-            When the real integrations arrive, each permission will be requested only when it is \
-            first needed, and the app will keep working without any of them.
+            The app keeps working without any of them. Anything it cannot do, it says it cannot do \
+            rather than failing quietly: an alarm on an iPhone without alarm support is refused \
+            instead of being downgraded to a notification you might sleep through.
+
+            Calendar access is asked for in full, because the assistant reads what is already on \
+            your day before it agrees to anything. If you allow adding events only, it says so and \
+            stops rather than pretending your calendar is empty.
+
+            Notifications carry only identifiers — enough to know which task you answered. Your \
+            task titles, notes and anything the assistant remembers about you stay in the app.
             """
         }
     }

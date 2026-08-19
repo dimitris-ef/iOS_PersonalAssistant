@@ -30,7 +30,9 @@ iOS/
 │   └── SimulatedReminder.swift
 ├── ViewModels/     Per-screen state
 ├── UI/             Views, grouped by screen, plus Components/ and Shared/
-├── Platform/       Apple framework adapters — all TODO-XCODE skeletons
+├── Platform/       KeychainCredentialStore. The calendar, reminder,
+│                  notification and alarm adapters live in the package as
+│                  AssistantPlatformApple, where they can be tested.
 ├── Integrations/   App Intents, widgets, background execution — notes only
 └── Resources/      Assets.xcassets, Info.plist
 ```
@@ -39,7 +41,8 @@ iOS/
 
 ```
 View  →  ViewModel (screen state)  →  AppModel  →  AssistantEngine / repositories
-                                                 →  PlatformServices (mocked)
+                                                 →  PlatformServices (real, or
+                                                    mocked on a seeded launch)
 ```
 
 `AppModel` is the only type that talks to the core. Views never construct a
@@ -65,8 +68,8 @@ add `iOS/` (minus this README) as sources, point `INFOPLIST_FILE` at
 `iOS/Resources/Info.plist`, add the package at the repository root as a local
 dependency, and link `AssistantCore`, `AssistantDomain`, `AssistantAI`,
 `AssistantTools`, `AssistantPlatform`, `AssistantPersistence`,
-`ExecutiveSupport`, `MockPlatform`, `AIProviderApple`, `AIProviderLocal`,
-`AIProviderRemote` and `DevSupport`. Point `configFiles` at `Config/App.xcconfig`
+`ExecutiveSupport`, `MockPlatform`, `AssistantPlatformApple`,
+`AIProviderApple`, `AIProviderLocal`, `AIProviderRemote` and `DevSupport`. Point `configFiles` at `Config/App.xcconfig`
 so development secrets are picked up when present.
 
 Expect to fix compile errors on the first build. None of this has been through a
@@ -79,11 +82,12 @@ Every one of these is stated in the UI itself, not just here:
 - The Assistant screen carries a notice when the selected model is unavailable,
   saying replies come from a scripted development stand-in. It disappears once a
   cloud model is configured.
-- Action cards produced by mock services show "Simulated · nothing was
-  scheduled on this device".
-- Event detail says the event is held by the app's mock calendar.
-- The reminder sheet is labelled a simulation and only appears in-app.
-- Settings → Notifications says delivery is not connected.
+- Action cards say "Simulated · nothing was scheduled on this device" only
+  when a mock service really produced them, which now means a seeded demo
+  launch. A shipped build's cards say the action was executed, because it was.
+- Event detail says which calendar holds the event.
+- The in-app reminder sheet is still labelled a simulation. It is a development
+  aid that predates real delivery, and it remains honest about being one.
 - Settings → Privacy describes the app as it is, including what is missing.
 
 ## Replacing the mocks
@@ -92,10 +96,10 @@ Each of these is an implementation task with no UI consequences:
 
 | To make real | Implement | Register in |
 | --- | --- | --- |
-| Calendar | `EventKitCalendarService` | `AppEnvironment` |
-| Reminders | An EventKit-backed `ReminderService` | `AppEnvironment` |
-| Notifications | `UserNotificationsService` + a delegate feeding `EngagementEvent`s | `AppEnvironment` |
-| Alarms | `AlarmKitAlarmService` | `AppEnvironment` |
+| Calendar | Done — see [`Docs/PLATFORM-APPLE.md`](../Docs/PLATFORM-APPLE.md) | `PlatformServices.live()` |
+| Reminders | Done — same | `PlatformServices.live()` |
+| Notifications | Done, with Done / I'm on it / Later actions | `PlatformServices.live()` |
+| Alarms | Done on iOS 26; fails honestly below it | `PlatformServices.live()` |
 | On-device model | `respond(to:)` in `AppleFoundationModelsProvider` | already registered |
 | Local model | A `LocalModelRuntime` | `LocalModelProvider` |
 | Cloud model | Done — see [`Docs/REMOTE-AI.md`](../Docs/REMOTE-AI.md) | Settings → AI Model |

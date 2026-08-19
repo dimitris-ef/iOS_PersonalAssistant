@@ -1,4 +1,5 @@
 import AssistantDomain
+import AssistantPlatform
 import SwiftUI
 
 /// Settings.
@@ -21,7 +22,7 @@ struct SettingsScreen: View {
                 assistantSection
                 modelSection
                 supportSection
-                notificationsSection
+                permissionsSection
                 appearanceSection
                 privacySection
                 developerSection
@@ -155,14 +156,22 @@ struct SettingsScreen: View {
         }
     }
 
-    private var notificationsSection: some View {
+    /// What the OS actually allows, read from the platform layer.
+    ///
+    /// This section used to say "Delivery: Not connected", which was true when
+    /// nothing was connected. Leaving a hard-coded string here after the
+    /// integration landed would have turned an honest disclosure into a lie, so
+    /// each row now reports the real permission status — including the ones
+    /// that are bad news.
+    private var permissionsSection: some View {
         Section {
-            LabeledContent("Delivery", value: "Not connected")
-            LabeledContent("Critical alerts", value: "Not available")
+            ForEach(PlatformCapability.allCases, id: \.self) { capability in
+                PermissionRow(capability: capability)
+            }
         } header: {
-            Text("Notifications")
+            Text("Access")
         } footer: {
-            Text("Reminders are simulated in-app for now. Real delivery, including the Done and Snooze actions, arrives with the notification integration.")
+            Text("The assistant asks for each of these the first time it needs one, not all at once when you open the app. Anything already answered is changed in the Settings app.")
         }
     }
 
@@ -258,6 +267,55 @@ enum ResponseLength: String, CaseIterable, Identifiable {
         case .brief: return "Brief"
         case .balanced: return "Balanced"
         case .detailed: return "Detailed"
+        }
+    }
+}
+
+/// One capability, its current answer, and a way to ask when asking helps.
+///
+/// The wording of each state is doing real work. "Denied" and "Restricted" look
+/// the same to a user and are not: one is undone in the Settings app and the
+/// other cannot be undone by the person holding the phone, so telling them to
+/// go to Settings would send them looking for a switch that is not there.
+private struct PermissionRow: View {
+    let capability: PlatformCapability
+
+    @Environment(AppModel.self) private var model
+
+    private var status: PermissionStatus {
+        model.permissions[capability] ?? .notDetermined
+    }
+
+    var body: some View {
+        LabeledContent(title) {
+            if status.isSettled {
+                Text(description)
+                    .foregroundStyle(status.allowsAccess ? .secondary : Color.orange)
+            } else {
+                Button("Allow") {
+                    Task { await model.requestPermission(capability) }
+                }
+            }
+        }
+    }
+
+    private var title: String {
+        switch capability {
+        case .calendar: return "Calendar"
+        case .reminders: return "Reminders"
+        case .notifications: return "Notifications"
+        case .alarms: return "Alarms"
+        }
+    }
+
+    private var description: String {
+        switch status {
+        case .granted: return "Allowed"
+        case .denied: return "Off — change in Settings"
+        case .restricted: return "Not permitted on this device"
+        case .limited: return "Partly allowed"
+        case .unsupported: return "Not available on this iPhone"
+        case .notDetermined: return "Not asked yet"
         }
     }
 }

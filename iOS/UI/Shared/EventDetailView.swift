@@ -95,9 +95,15 @@ struct EventDetailView: View {
                     Label("Cancel event", systemImage: "calendar.badge.minus")
                 }
             } footer: {
-                // Said outright: this event lives in a mock service, not in the
-                // user's real calendar.
-                Text("This event is held by the app's mock calendar. Nothing has been written to your device calendar yet.")
+                // Read from the service rather than hard-coded. This line used
+                // to say the event lived in a mock calendar, which was true
+                // then and would be a lie now — and the fidelity was always
+                // available to ask.
+                Text(
+                    model.calendarIsLive
+                        ? "Changes here are made in your calendar, on this device."
+                        : "This event is held by the app's demo calendar. Nothing has been written to your device calendar."
+                )
             }
         }
         .confirmationDialog(

@@ -51,6 +51,14 @@ final class AppModel {
     /// blocks the composer.
     private(set) var isAssistantResponding = false
 
+    /// What the OS currently allows, per capability.
+    ///
+    /// Read with `status(for:)`, which never prompts, so showing this screen
+    /// cannot put an alert in front of someone who only came to look. The
+    /// prompt happens when an action needs the permission, or when the user
+    /// taps the row here and asks for it.
+    private(set) var permissions: [PlatformCapability: PermissionStatus] = [:]
+
     /// A reminder being simulated in-app. See `SimulatedReminder`.
     var simulatedReminder: SimulatedReminder?
 
@@ -69,6 +77,14 @@ final class AppModel {
 
     var now: Date { environment.dateProvider.now }
     var calendar: Calendar { environment.dateProvider.calendar }
+
+    /// Whether calendar writes reach the device.
+    ///
+    /// Asked of the service rather than inferred from the launch
+    /// configuration, so a screen cannot describe the app's honesty wrongly by
+    /// consulting the wrong thing. `PlatformFidelity` travels with the service
+    /// exactly so this question has one answer.
+    var calendarIsLive: Bool { environment.services.calendar.fidelity == .live }
 
     init(environment: AppEnvironment) {
         self.environment = environment
@@ -181,6 +197,25 @@ final class AppModel {
         }
 
         await reloadCalendar()
+        await reloadPermissions()
+    }
+
+    private func reloadPermissions() async {
+        var statuses: [PlatformCapability: PermissionStatus] = [:]
+        for capability in PlatformCapability.allCases {
+            statuses[capability] = await environment.services.permissions.status(for: capability)
+        }
+        permissions = statuses
+    }
+
+    /// Asks for a capability because the user tapped a row asking for it.
+    ///
+    /// The one place a permission prompt is triggered by visiting a screen
+    /// rather than by an action needing it — and it is still the user's doing.
+    /// If the answer is already settled iOS shows nothing, so the row offers
+    /// this only while the question is genuinely open.
+    func requestPermission(_ capability: PlatformCapability) async {
+        permissions[capability] = await environment.services.permissions.request(capability)
     }
 
     /// The calendar, separately, because it is the one source that can be

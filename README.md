@@ -25,7 +25,9 @@ exists:
 - the structured tool system, with validation and authorization
 - the reminder-planning layer, including follow-up after a reminder is
   dismissed, snoozed or ignored
-- protocol-based platform services plus mock implementations
+- protocol-based platform services, with **real Apple implementations** —
+  EventKit, UserNotifications and AlarmKit — alongside the mocks that tests,
+  previews and CI still use
 - repository interfaces with two implementations: **SwiftData on disk for the
   app**, and in-memory/JSON for tests, previews and the dev harness
 - a command-line harness and unit tests
@@ -34,12 +36,13 @@ exists:
 
 The UI is the production interface, not a prototype: it is SwiftUI, it sits on
 the existing architecture, and it calls the same protocols the Apple
-implementations will. What is mocked is the layer *beneath* it — the platform
-services and the model — never the UI itself.
+implementations do.
 
-One Apple framework integration now exists: the on-device model, over
-Foundation Models. The rest — EventKit, AlarmKit, UserNotifications, App
-Intents — does not. See [TODO-XCODE](#todo-xcode) below.
+Four Apple framework integrations now exist: the on-device model over
+Foundation Models, and the calendar, reminders, notifications and alarms over
+EventKit, UserNotifications and AlarmKit. A shipped build changes the user's
+actual phone; tests, previews and CI keep the mocks. App Intents, Siri, widgets
+and Live Activities do not exist yet — see [TODO-XCODE](#todo-xcode) below.
 
 > **What has and has not been verified.** This is written on a machine with no
 > Swift toolchain, so CI is the only compiler. Three GitHub Actions workflows,
@@ -48,13 +51,16 @@ Intents — does not. See [TODO-XCODE](#todo-xcode) below.
 > | Workflow | Runner | What it proves |
 > | --- | --- | --- |
 > | iOS Simulator Preview | macos-15, Xcode 16.4 | The app builds, launches and renders |
-> | Apple SDK Check | macos-26, Xcode 26.6 | Foundation Models compiles and is weakly linked |
-> | Swift Tests | macos-26, Xcode 26.6 | 298 tests across 36 suites |
+> | Apple SDK Check | macos-26, Xcode 26.6 | Foundation Models, AlarmKit, EventKit and UserNotifications are really compiled in, and the two iOS 26 frameworks are weakly linked |
+> | Swift Tests | macos-26, Xcode 26.6 | 335 tests, 0 failures |
 >
 > What remains unverified is narrower now: **nothing has run on a device.** The
-> Apple provider compiles, links and has its tool-mapping tested against the
-> real framework types, but no generation has happened — Apple Intelligence
-> inference needs eligible hardware no runner has. See `TODO-DEVICE`.
+> Apple integrations compile, link, and have their decisions tested — which
+> notification action means "done", what partial calendar access may claim, how
+> an identifier round-trips — but no permission alert has appeared, no
+> notification has been delivered, no alarm has sounded and no generation has
+> happened. A CI runner has no calendar database, no notification centre, no
+> alarm daemon and no Apple Intelligence. See `TODO-DEVICE`.
 
 ---
 
@@ -71,8 +77,16 @@ interfaces. This is the "brain", and it is what you can develop and test today.
 
 **Layer B — the iOS layer.** SwiftUI, EventKit, AlarmKit, UserNotifications,
 App Intents, WidgetKit, ActivityKit. Everything here is an *implementation of an
-interface the core already defines*. It lives in [`iOS/`](iOS/README.md), is not
-part of the Swift package, and is not compiled during Windows development.
+interface the core already defines*.
+
+The SwiftUI app lives in [`iOS/`](iOS/README.md), which is not part of the Swift
+package and is not compiled during Windows development. The framework adapters
+moved into the package as `AssistantPlatformApple`, behind `#if canImport`
+guards: they still do not compile on Windows, but the decisions inside them —
+what each notification action means, what partial permission may claim — are
+pure functions that compile and are tested everywhere. `iOS/` has no test
+target, and code that decides whether a dismissal counts as completion should
+not live somewhere nothing can check it.
 
 This is still a native iOS app. There is no React Native, Flutter, Electron,
 Capacitor or webview anywhere in it, and the abstractions exist to defer Apple
@@ -82,15 +96,15 @@ work, not to avoid it.
 
 | Works today | Needs Xcode |
 | --- | --- |
-| Domain models, task/reminder state | SwiftUI screens |
-| Assistant turn pipeline | EventKit / AlarmKit / notifications |
-| Tool definitions, validation, authorization | EventKit calendar & reminders |
-| Reminder planning and scheduling | AlarmKit alarms |
-| Task status machine | UserNotifications delivery |
-| Repositories (JSON-backed) | App Intents / Siri |
-| Mock platform services | Widgets, Live Activities |
-| AI provider abstraction and routing | iOS permissions, background execution |
-| CLI harness, unit tests | Signing, provisioning, TestFlight |
+| Domain models, task/reminder state | Notification delivery on a device |
+| Assistant turn pipeline | Permission alerts actually appearing |
+| Tool definitions, validation, authorization | An alarm sounding through Focus |
+| Reminder planning and scheduling | App Intents / Siri |
+| Task status machine | Widgets, Live Activities |
+| Repositories (SwiftData and JSON-backed) | Background execution |
+| Mock **and** Apple platform services | Signing, provisioning, TestFlight |
+| AI provider abstraction and routing | |
+| CLI harness, unit tests | |
 
 ---
 
@@ -108,6 +122,7 @@ PhonePersonalAI/
 │   ├── ExecutiveSupport/       Reminder planning and task status rules.
 │   ├── AssistantCore/          The turn pipeline that ties it together.
 │   ├── MockPlatform/           In-memory platform services.
+│   ├── AssistantPlatformApple/ EventKit, UserNotifications, AlarmKit (real)
 │   ├── AIProviderApple/        Apple Foundation Models  (real; TODO-DEVICE)
 │   ├── AIProviderLocal/        Downloaded local model    (runtime not chosen)
 │   ├── AIProviderRemote/       Remote API, vendor-neutral
@@ -120,7 +135,7 @@ PhonePersonalAI/
 │   ├── Presentation/           Domain → display mapping
 │   ├── ViewModels/             Per-screen state
 │   ├── UI/                     Views and reusable components
-│   ├── Platform/               Apple adapters (TODO-XCODE skeletons)
+│   ├── Platform/               Keychain credential store
 │   └── Resources/              Assets, Info.plist
 ├── project.yml                 XcodeGen spec for the app target
 └── Docs/
@@ -212,21 +227,31 @@ The tools: `createCalendarEvent`, `updateCalendarEvent`, `deleteCalendarEvent`,
 
 ---
 
-## How mock platform services work
+## Real services, and the mocks beside them
 
-`MockCalendarService`, `MockReminderService`, `MockNotificationService` and
-`MockAlarmService` implement the real protocols and record what they were asked
-to do:
+There are two complete implementations of every platform protocol, and which
+one a launch gets is decided in one line of `AppEnvironment`.
+
+**The app gets the real ones.** `PlatformServices.live()` returns EventKit for
+the calendar and reminders, UserNotifications for reminders, and AlarmKit for
+alarms on iOS 26 and later. A shipped build changes the user's actual phone.
+See [Docs/PLATFORM-APPLE.md](Docs/PLATFORM-APPLE.md).
+
+**Tests, previews, CI and any seeded launch get the mocks.**
+`MockCalendarService` and friends implement the same protocols and record what
+they were asked to do:
 
 ```
 [simulated:MockCalendar] Calendar event created: Haircut — Sun 26 Nov 22:00
 [simulated:MockNotifications] Notification scheduled: Haircut — Fri 24 Nov 08:00 [gentle]
 ```
 
-Every service reports a `PlatformFidelity`, and the mocks report `.simulated`.
-That value travels all the way up into `ToolResult.outcome` as
-`.simulated(platform:)` rather than `.executed`. Nothing in this project claims
-an iPhone action happened when it did not.
+Every service reports a `PlatformFidelity`. The mocks report `.simulated` and
+the Apple services report `.live`, and that value travels all the way up into
+`ToolResult.outcome` as `.simulated(platform:)` or `.executed`. Nothing in this
+project claims an iPhone action happened when it did not — which is why the
+action cards in the UI changed the day the real services landed, without the UI
+being touched.
 
 ---
 
@@ -341,19 +366,19 @@ Current list:
 
 | Where | What |
 | --- | --- |
-| `Package.swift` | Raise the iOS deployment target for Foundation Models / AlarmKit |
-| `Sources/AssistantPlatform/PlatformService.swift` | Real permission flow |
-| `iOS/App/AppEnvironment.swift` | Swap the mock platform services for the real Apple ones |
 | `iOS/UI/Assistant/AssistantComposerView.swift` | Microphone capture and speech recognition |
-| `iOS/UI/Shared/SimulatedReminderView.swift` | Real notification categories and actions |
-| `iOS/Resources/Info.plist` | Verify usage descriptions |
 | `project.yml` | Never run through XcodeGen |
 | Every `#Preview` | Marked `TODO-XCODE: Verify SwiftUI preview` |
-| `Sources/AssistantPlatform/PlatformProtocols.swift` | EventKit / AlarmKit / UserNotifications implementation notes |
 | `Sources/MockPlatform/MockPermissionService.swift` | iOS permission prompts cannot be modelled here |
 | `iOS/Platform/KeychainCredentialStore.swift` | Verify against a real Keychain |
-| `iOS/Platform/EventKitCalendarService.swift` | EventKit calendar |
-| `iOS/Platform/UserNotificationsService.swift` | Notification delivery and the Done/Snooze actions |
+| `Sources/AssistantPlatformApple/AlarmKitAlarmService.swift` | Switch off the deprecated alert initialiser once the minimum Xcode allows |
+
+The calendar, reminder, notification and alarm entries are gone from this list
+because those integrations now exist. What is left of them is a shorter list of
+`TODO-DEVICE` notes — behaviour that compiles and is reasoned about but has
+never executed, because no CI runner has a calendar database, a notification
+centre or an alarm daemon. See
+[Docs/PLATFORM-APPLE.md](Docs/PLATFORM-APPLE.md#what-still-needs-a-real-device).
 | `iOS/Platform/AlarmKitAlarmService.swift` | AlarmKit alarms |
 | `iOS/Integrations/README.md` | App Intents, widgets, Live Activities, background execution |
 

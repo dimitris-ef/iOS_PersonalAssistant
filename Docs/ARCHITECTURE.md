@@ -27,7 +27,7 @@ learn.
               \        |       |         /            /
                      AssistantCore  ─────────────────
                        /        \
-              MockPlatform    (iOS platform adapters)
+              MockPlatform    AssistantPlatformApple
 
   AIProviderApple ┐
   AIProviderLocal ├── depend on AssistantDomain + AssistantAI only
@@ -103,14 +103,22 @@ Four consequences worth stating explicitly:
 ## Honesty about what ran
 
 Every platform service declares a `PlatformFidelity`: `.live` or `.simulated`.
-Mocks report `.simulated`, and that propagates into
-`ToolOutcome.simulated(platform:)`. The iOS skeletons in `iOS/Platform/` also
-report `.simulated` — they only become `.live` when their method bodies are
-real.
+Mocks report `.simulated`, the Apple services in `AssistantPlatformApple`
+report `.live`, and the value propagates into `ToolOutcome` as
+`.simulated(platform:)` or `.executed`.
 
 This is why there is no `Bool` called `isMock` anywhere: the fidelity has to
 travel with the result, not be a property of the environment that callers might
-forget to consult.
+forget to consult. It is also why the action cards under an assistant reply
+stopped saying *simulated* the moment the real services were wired in, with no
+change to any view — the honesty was already plumbed through, waiting for
+something true to report.
+
+The one service that reports `.simulated` while never simulating anything is
+`UnavailableAlarmService`, used where AlarmKit does not exist. It produces no
+receipts at all, because every method throws; the fidelity value exists only so
+`PlatformServices.isFullyLive` stays truthful. See
+[PLATFORM-APPLE.md](PLATFORM-APPLE.md).
 
 ## Executive-function support
 
