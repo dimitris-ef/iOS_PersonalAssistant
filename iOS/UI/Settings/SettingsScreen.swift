@@ -290,9 +290,10 @@ private struct PermissionRow: View {
         LabeledContent(title) {
             if status.isSettled {
                 Text(description)
-                    // Both branches spelled as `Color`: a ternary between
-                    // `.secondary` and `Color.orange` mixes two different
-                    // ShapeStyle types and does not typecheck.
+                    // Both branches spelled as `Color` for legibility. A bare
+                    // `.secondary` also compiles here — inference resolves it
+                    // against the other branch — but which `secondary` it
+                    // means is then something the reader has to work out.
                     .foregroundStyle(status.allowsAccess ? Color.secondary : Color.orange)
             } else {
                 Button("Allow") {
