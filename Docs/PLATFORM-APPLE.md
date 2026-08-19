@@ -186,10 +186,11 @@ though EventKit would allow it. Making that work would need permission checks
 that distinguish reads from writes at every call site, and the trade was not
 worth the complexity for an answer few people will choose.
 
-`writeOnly` is also mapped for notifications' `provisional` tier, for the same
-reason — a provisional notification is delivered silently to Notification
-Centre, and an app that counted it as granted would believe it was reminding
-someone who was hearing nothing.
+Notifications get a `limited` of their own, for the same reason. A
+**provisional** authorization delivers silently to Notification Centre with no
+banner and no sound — reasonable as a trial mode for most apps, close to
+useless for this one. An app that counted it as granted would believe it was
+reminding someone who was hearing nothing.
 
 ## Escalation, honestly
 
