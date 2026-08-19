@@ -124,12 +124,12 @@ public final class AssistantEngine: Sendable {
         //
         // What is not done here is pretending the calendar was empty. The
         // context records that it could not be read, and the prompt says so.
-        let calendar = await upcomingEvents()
+        let schedule = await upcomingEvents()
         let context = try await contextAssembler.assemble(
             conversation: conversation,
             query: text,
-            calendarEvents: calendar.events,
-            calendarIsReadable: calendar.isReadable
+            calendarEvents: schedule.events,
+            calendarIsReadable: schedule.isReadable
         )
 
         // 2. Ask whichever provider settings point at.

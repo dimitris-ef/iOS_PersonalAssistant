@@ -28,8 +28,11 @@ public struct PlatformReceipt: Hashable, Codable, Sendable {
 
 /// The user's calendar.
 ///
-/// TODO-XCODE: the iOS implementation wraps EventKit (`EKEventStore`) and needs
-/// the calendar usage entitlement plus a foreground authorization prompt.
+/// Implemented for real by `EventKitCalendarService` in
+/// `AssistantPlatformApple`, and by `MockCalendarService` for tests, previews
+/// and CI. Note that this protocol requires reads as well as writes, which is
+/// why the app asks for full calendar access rather than the smaller
+/// add-events-only grant — see `Docs/PLATFORM-APPLE.md`.
 public protocol CalendarService: PlatformService {
     func createEvent(_ item: CalendarItem) async throws -> (item: CalendarItem, receipt: PlatformReceipt)
     /// Replaces the stored event with `item`, matched on `item.id`.
@@ -41,7 +44,10 @@ public protocol CalendarService: PlatformService {
 
 /// The system reminders list.
 ///
-/// TODO-XCODE: the iOS implementation wraps EventKit reminders.
+/// Apple's Reminders app, which is a different thing from this app's tasks: a
+/// `TaskItem` carries a status, a reminder plan and an escalation history, and
+/// a `ReminderItem` is a line in a list. Backed by EventKit reminders, whose
+/// permission is separate from the calendar's.
 public protocol ReminderService: PlatformService {
     func createReminder(_ item: ReminderItem) async throws -> (item: ReminderItem, receipt: PlatformReceipt)
     func completeReminder(id: ReminderItem.ID) async throws -> PlatformReceipt
@@ -50,10 +56,9 @@ public protocol ReminderService: PlatformService {
 
 /// Local notifications.
 ///
-/// TODO-XCODE: the iOS implementation wraps UserNotifications
-/// (`UNUserNotificationCenter`), including interruption levels, categories and
-/// the action buttons that let the user confirm completion rather than merely
-/// dismissing.
+/// Backed by `UNUserNotificationCenter`, including interruption levels and the
+/// action buttons that let the user confirm completion rather than merely
+/// dismissing — which is the distinction the whole product rests on.
 public protocol NotificationService: PlatformService {
     func schedule(_ request: NotificationRequest) async throws -> PlatformReceipt
     func cancel(id: NotificationRequest.ID) async throws -> PlatformReceipt
@@ -62,8 +67,11 @@ public protocol NotificationService: PlatformService {
 
 /// Alarms — louder and more persistent than notifications.
 ///
-/// TODO-XCODE: the iOS implementation wraps AlarmKit. Alarms are a distinct
-/// capability from notifications on iOS and cannot be emulated with one.
+/// A distinct capability, which is why this is its own protocol rather than a
+/// flag on `NotificationService`. An alarm sounds through the ringer switch and
+/// through Focus and has to be dismissed; a notification does none of that and
+/// cannot be made to. Backed by AlarmKit on iOS 26 and later, and by a service
+/// that fails honestly everywhere else — never by a notification pretending.
 public protocol AlarmService: PlatformService {
     func schedule(_ request: AlarmRequest) async throws -> PlatformReceipt
     /// Replaces the stored alarm with `request`, matched on `request.id`.

@@ -3,8 +3,12 @@ import Foundation
 
 /// Grants everything by default; configurable for tests that need a denial.
 ///
-/// The real iOS permission flow cannot be modelled here — it requires a
-/// foreground prompt and the user's answer. TODO-XCODE.
+/// Deliberately not a model of the iOS flow. A real prompt needs a foreground
+/// app and a human, and neither exists in a test process — so this answers
+/// instantly and lets a test state which answer it wants. The translation from
+/// Apple's authorization vocabulary is tested separately, against values rather
+/// than against alerts, in `AssistantPlatformAppleTests`. TODO-XCODE remains
+/// only for the prompt itself, which needs a device.
 public actor MockPermissionService: PermissionService {
     private var statuses: [PlatformCapability: PermissionStatus]
 

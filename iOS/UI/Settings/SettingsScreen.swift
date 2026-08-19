@@ -290,7 +290,10 @@ private struct PermissionRow: View {
         LabeledContent(title) {
             if status.isSettled {
                 Text(description)
-                    .foregroundStyle(status.allowsAccess ? .secondary : Color.orange)
+                    // Both branches spelled as `Color`: a ternary between
+                    // `.secondary` and `Color.orange` mixes two different
+                    // ShapeStyle types and does not typecheck.
+                    .foregroundStyle(status.allowsAccess ? Color.secondary : Color.orange)
             } else {
                 Button("Allow") {
                     Task { await model.requestPermission(capability) }

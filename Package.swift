@@ -16,8 +16,16 @@ import PackageDescription
 let package = Package(
     name: "PhonePersonalAI",
     // These minimums matter only when the package is consumed from Xcode.
-    // TODO-XCODE: raise the iOS minimum once we adopt Apple Foundation Models
-    // and AlarmKit, both of which require a newer deployment target.
+    //
+    // Still iOS 17, and staying there. Foundation Models and AlarmKit both
+    // need iOS 26, and both are adopted — behind `#if canImport` for the SDK
+    // and `if #available` for the device, with the frameworks weakly linked so
+    // dyld will still start the app on an OS that lacks them. Raising the
+    // minimum to 26 would trade most of the addressable devices for two
+    // optional features those devices could never have run, when almost
+    // everything the app does — tasks, reminders, the follow-up ladder,
+    // memory, the calendar — has nothing to do with either.
+    //
     // macOS 14 is the floor for SwiftData, which `AssistantPersistenceSwiftData`
     // needs; iOS 17 already was. Nothing else in the package requires it, and
     // the iOS deployment target is unchanged. Raised only because the store
