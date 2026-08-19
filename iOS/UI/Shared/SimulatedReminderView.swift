@@ -9,9 +9,10 @@ import SwiftUI
 /// specifically the difference between dismissing and confirming — can be
 /// designed and exercised now.
 ///
-/// TODO-XCODE: the real version is a `UNNotificationCategory` with matching
-/// actions, handled by a `UNUserNotificationCenterDelegate` that feeds the same
-/// `EngagementEvent`s into the core.
+/// The real version now exists: `AppleNotificationCategory.confirmable`, with
+/// the same choices, handled by `AppleNotificationCoordinator` and routed into
+/// the same `FollowUpService`. This sheet remains as a way to exercise the flow
+/// on demand rather than waiting for a reminder to come due.
 struct SimulatedReminderView: View {
     let reminder: SimulatedReminder
 

@@ -30,12 +30,14 @@ TaskStatusMachine          what that means for the task
         ↓
 SupportPlanner             one next intervention, or none
         ↓
-repositories + mock platform services
+repositories + platform services (EventKit / UserNotifications / AlarmKit)
 ```
 
 Nothing else may change a task's status. The UI's buttons, the assistant's
-`completeTask` tool and — later — notification callbacks all enter through
-`FollowUpService.handle(outcome:forTask:stageID:)`.
+`completeTask` tool and the notification callbacks all enter through
+`FollowUpService.handle(outcome:forTask:stageID:)`. That "one door" was written
+before notifications were real, and it is what made adding them a routing
+question rather than a second implementation of the rule.
 
 ## Reminder state
 
@@ -175,9 +177,17 @@ The planner produces a `ScheduledReminder`: task, stage, date, channel,
 escalation. `FollowUpService` decides only which service delivers it —
 `AlarmService` for alarm-level, `NotificationService` otherwise.
 
-Every one of those is a mock. Nothing reaches a real device, and the mocks
-report `.simulated`, which travels up into the UI's badges. Swapping in the
-Apple implementations changes one method and nothing above it.
+Those services are now real — `UNUserNotificationCenter` and, on iOS 26,
+AlarmKit — and they report `.live`, which travels up into the UI's badges.
+Swapping them in changed nothing in this file's diagram: the planner still
+produces a `ScheduledReminder`, and `FollowUpService` still chooses only which
+service delivers it. Tests, previews and CI keep the mocks, which is why the
+lifecycle can still be tested exhaustively with no device.
+
+The one thing worth knowing about the notification path: the OS-level request
+id *is* the stage id, so `UNUserNotificationCenter` replaces a rescheduled
+reminder rather than adding a second one. Snooze therefore produces exactly one
+replacement even if the cancellation is lost.
 
 ## No AI in the loop
 
@@ -191,13 +201,14 @@ state, which there are tests for.
 
 ## What is still missing for real delivery
 
-- **Notifications are not delivered by the OS.** `UserNotificationsService` is a
-  TODO-XCODE skeleton. Until it exists, "delivered" only happens when the user
-  taps a stage in the reminder timeline to simulate it.
-- **Missed reminders are only noticed when the app opens.** Catching one at the
-  moment it happens needs a notification callback or background execution.
-  The domain API is ready for both: `handle(outcome:forTask:stageID:)` is what
-  a callback would call, and `reconcile()` is what a launch or background
-  refresh would call.
-- **No alarm delivery.** `AlarmService` is an AlarmKit skeleton, so an
-  alarm-level escalation currently records intent and nothing more.
+- **Missed reminders are still only noticed when the app opens.** This one did
+  not go away with real notifications, and it is worth being clear about why: a
+  notification the user ignored produces no callback at all — iOS has nothing
+  to report. Only an answered reminder calls back. So `reconcile()` on
+  foreground remains the mechanism that turns silence into an escalation, and
+  catching it at the moment it happens would need background execution.
+- **Alarms need iOS 26.** Below that there is no AlarmKit, and an alarm-level
+  escalation fails and says so rather than being delivered as a notification the
+  user might sleep through.
+- **Nothing has run on a device.** See
+  [PLATFORM-APPLE.md](PLATFORM-APPLE.md#what-still-needs-a-real-device).

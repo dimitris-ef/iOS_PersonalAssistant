@@ -5,9 +5,12 @@ import Foundation
 ///
 /// This is a **simulation**, not an iOS notification. Nothing is registered
 /// with the system: the sheet is drawn by the app while it is in the
-/// foreground, and it disappears when the app does. Real delivery — including
-/// the Done/Snooze actions that make confirmation possible while the app is
-/// closed — arrives with UserNotifications. TODO-XCODE.
+/// foreground, and it disappears when the app does.
+///
+/// Real delivery exists now, with the same choices, through
+/// `AssistantPlatformApple`. Both paths end in the same place — an outcome
+/// handed to `FollowUpService` — so what this sheet exercises is genuinely the
+/// production flow minus the operating system.
 struct SimulatedReminder: Identifiable, Equatable {
     enum Subject: Equatable {
         case task(TaskItem.ID)

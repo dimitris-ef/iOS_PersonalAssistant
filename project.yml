@@ -11,7 +11,9 @@
 # Creating the target by hand in Xcode works equally well — this file then
 # doubles as the checklist of what that target needs. See iOS/README.md.
 #
-# TODO-XCODE: unverified. This has never been run through XcodeGen or Xcode.
+# Run through XcodeGen on every CI build — both the simulator preview and the
+# Apple SDK check generate the project from this file and compile it. What
+# remains unverified is opening the result in Xcode by hand.
 
 name: PersonalAssistant
 

@@ -648,7 +648,11 @@ final class AppModel {
     ///
     /// This is **not** an iOS notification. Nothing is scheduled with the
     /// system; the sheet is drawn by the app while it is in the foreground.
-    /// Real delivery arrives with UserNotifications. TODO-XCODE.
+    ///
+    /// Real delivery now exists alongside it. This is kept because it is the
+    /// only way to exercise the response flow without waiting for a reminder to
+    /// come due — useful in a simulator, where a lock-screen notification is
+    /// awkward to produce on demand. It stays labelled a simulation.
     func simulateReminder(for reminder: SimulatedReminder) {
         simulatedReminder = reminder
     }
