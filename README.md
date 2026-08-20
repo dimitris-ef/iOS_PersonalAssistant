@@ -45,9 +45,10 @@ implementations do.
 The Apple framework integrations: the on-device model over Foundation Models;
 the calendar, reminders, notifications and alarms over EventKit,
 UserNotifications and AlarmKit; and **speaking to the assistant** over Speech
-and AVFAudio. A shipped build changes the user's actual phone; tests, previews
-and CI keep the mocks. App Intents, Siri, widgets and Live Activities do not
-exist yet — see [Open items](Docs/OPEN-ITEMS.md).
+and AVFAudio; and **Siri, Shortcuts and the Action Button** over App Intents. A
+shipped build changes the user's actual phone; tests, previews and CI keep the
+mocks. Widgets, Live Activities, CarPlay and a Watch app do not exist yet — see
+[Open items](Docs/OPEN-ITEMS.md).
 
 > **What has and has not been verified.** This is written on a machine with no
 > Swift toolchain, so CI is the only compiler. Three GitHub Actions workflows,
@@ -105,8 +106,9 @@ work, not to avoid it.
 | Domain models, task/reminder state | Notification delivery on a device |
 | Assistant turn pipeline | Permission alerts actually appearing |
 | Tool definitions, validation, authorization | An alarm sounding through Focus |
-| Reminder planning and scheduling | App Intents / Siri |
-| Task status machine | Widgets, Live Activities |
+| Reminder planning and scheduling | Siri discovery and invocation |
+| Task status machine | Action Button assignment |
+| App Intent command layer | Widgets, Live Activities |
 | Repositories (SwiftData and JSON-backed) | Background execution |
 | Mock **and** Apple platform services | Signing, provisioning, TestFlight |
 | AI provider abstraction and routing | |

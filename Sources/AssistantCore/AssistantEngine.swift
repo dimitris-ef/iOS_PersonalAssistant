@@ -232,7 +232,6 @@ public final class AssistantEngine: Sendable {
         for reminderPlan in planning.reminderPlans {
             try await repositories.reminderPlans.save(reminderPlan)
         }
-        try await linkReminderPlans(planning.reminderPlans)
 
         var plan = planning.plan
         plan.actions = plan.actions.map { action in
@@ -242,6 +241,17 @@ public final class AssistantEngine: Sendable {
         }
 
         let results = await executor.execute(plan, context: context)
+
+        // Linked **after** execution, and the order is not cosmetic.
+        // `linkReminderPlans` writes the plan's id onto the task, so the task
+        // has to exist first — and the task is created by the executor. Doing
+        // this before, as an earlier version did, silently left
+        // `reminderPlanID` nil: the plan was saved, the task was saved, and
+        // nothing joined them, so the follow-up ladder had no plan to read and
+        // a task created from Shortcuts was never chased. `send` has always
+        // linked after its turn for the same reason.
+        try await linkReminderPlans(planning.reminderPlans)
+
         return (plan, results)
     }
 
