@@ -32,6 +32,12 @@ struct PersonalAssistantApp: App {
             // arrive afterwards; the delegate cannot.
             environment.notificationCoordinator?.install()
 
+            // Hands the app's environment to the App Intents side, so an
+            // intent run while the app is open reuses this composition rather
+            // than building a second one — and, critically, a second
+            // SwiftData container over the same file.
+            AppIntentDependencies.adopt(environment)
+
             _startup = State(initialValue: .ready(AppModel(environment: environment)))
         } catch {
             // Deliberately not a fallback to in-memory storage. The user would

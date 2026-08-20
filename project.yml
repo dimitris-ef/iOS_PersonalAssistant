@@ -44,6 +44,10 @@ targets:
       - path: iOS/RemoteAI
       - path: iOS/ViewModels
       - path: iOS/UI
+      # Siri, Shortcuts and the Action Button. Every file here is a thin
+      # shell over `AssistantCommandService`; no assistant logic lives in the
+      # App Intents layer.
+      - path: iOS/Intents
       - path: iOS/Resources
       # What is left of the app-target platform code: the Keychain store. The
       # calendar, reminder, notification and alarm adapters moved into the

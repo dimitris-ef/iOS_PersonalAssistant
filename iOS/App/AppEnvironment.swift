@@ -43,6 +43,12 @@ final class AppEnvironment: Sendable {
     ///
     /// `nil` on a demo launch, where notifications are mocks.
     let notificationCoordinator: AppleNotificationCoordinator?
+    /// The bridge system surfaces use: Siri, Shortcuts, the Action Button.
+    ///
+    /// Built here so an App Intent and the app share one composition — the
+    /// same repositories, the same providers, the same database. See
+    /// `AppIntentDependencies`.
+    let commands: AssistantCommandService
     /// Speech recognition and synthesis.
     ///
     /// Always present — on a platform without the Speech framework the input
@@ -65,7 +71,8 @@ final class AppEnvironment: Sendable {
         launch: AppLaunchConfiguration,
         memory: MemoryService,
         notificationCoordinator: AppleNotificationCoordinator?,
-        voice: VoiceServices?
+        voice: VoiceServices?,
+        commands: AssistantCommandService
     ) {
         self.engine = engine
         self.repositories = repositories
@@ -78,6 +85,7 @@ final class AppEnvironment: Sendable {
         self.memory = memory
         self.notificationCoordinator = notificationCoordinator
         self.voice = voice
+        self.commands = commands
     }
 
     /// The environment the app actually launches with.
@@ -193,6 +201,11 @@ final class AppEnvironment: Sendable {
             ScriptedDevProvider(dateProvider: dateProvider),
         ])
 
+        let memory = MemoryService(
+            repository: repositories.memories,
+            dateProvider: dateProvider
+        )
+
         let engine = AssistantEngine(
             providers: providers,
             repositories: repositories,
@@ -209,12 +222,15 @@ final class AppEnvironment: Sendable {
             credentialStore: credentialStore,
             remoteConfiguration: remoteConfiguration,
             launch: launch,
-            memory: MemoryService(
-                repository: repositories.memories,
-                dateProvider: dateProvider
-            ),
+            memory: memory,
             notificationCoordinator: platform?.notifications,
-            voice: voice
+            voice: voice,
+            commands: AssistantCommandService(
+                engine: engine,
+                repositories: repositories,
+                memory: memory,
+                dateProvider: dateProvider
+            )
         )
     }
 
