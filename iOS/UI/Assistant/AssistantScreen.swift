@@ -1,6 +1,7 @@
 import AssistantDomain
 import AssistantVoice
 import SwiftUI
+import UIKit
 
 /// The main screen: a conversation that produces real, structured results.
 ///
@@ -104,7 +105,7 @@ struct AssistantScreen: View {
                     text: $viewModel.draft,
                     isFocused: $isComposerFocused,
                     canSend: viewModel.canSend,
-                    isVoiceAvailable: model.voice != nil,
+                    isVoiceAvailable: model.isVoiceAvailable,
                     isSpeaking: model.voice?.state == .speaking,
                     onSend: { Task { await viewModel.send(using: model) } },
                     onVoice: { model.voice?.startListening() },

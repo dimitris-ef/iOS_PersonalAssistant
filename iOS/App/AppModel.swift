@@ -164,6 +164,19 @@ final class AppModel {
         )
     }
 
+    /// Whether the microphone button should do anything.
+    ///
+    /// Not simply `voice != nil`: the coordinator always exists, because a
+    /// device with no Speech framework gets `UnavailableSpeechInputService`
+    /// rather than nothing at all. What decides this is the permission state
+    /// that service reports — `unsupported` means the capability does not exist
+    /// here, and the button is disabled with a reason instead of opening a
+    /// session that was never going to work.
+    var isVoiceAvailable: Bool {
+        guard let voice else { return false }
+        return voice.permissions.combined != .unsupported
+    }
+
     private func focus(_ taskID: TaskItem.ID) async {
         await reload()
         focusedTask = FocusedTask(id: taskID)
