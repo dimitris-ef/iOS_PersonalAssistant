@@ -185,6 +185,76 @@ public final class AssistantEngine: Sendable {
     /// `supportsToolResultContinuation` flag. A provider that cannot read tool
     /// results gets exactly one round, so it can never be re-asked the same
     /// question and duplicate the actions it already proposed.
+    /// Runs one tool request the app already decided on, with no model involved.
+    ///
+    /// ## Why this exists
+    ///
+    /// Some requests arrive already structured. A Shortcuts action called
+    /// "Add a Task" with a title and a due date has nothing left to interpret,
+    /// and sending it to a language model to be turned back into the
+    /// `createTask` call it already is would cost latency, money and accuracy
+    /// for no gain.
+    ///
+    /// What it must **not** skip is everything after interpretation. This runs
+    /// the engine's own planner and executor — the same instances `send`
+    /// uses — so authorization, support expansion, reminder-plan generation,
+    /// persistence and platform routing all happen exactly as they would for a
+    /// call the model made. The only thing missing is the model.
+    ///
+    /// `origin` records who asked. A structured request from a person is
+    /// `.user`, which is what distinguishes it in the action history from
+    /// something a model proposed.
+    @discardableResult
+    public func perform(
+        _ request: ToolRequest,
+        origin: ActionOrigin = .user
+    ) async throws -> (plan: AssistantActionPlan, results: [ToolResult]) {
+        let calendar = await upcomingEvents()
+        let context = try await contextAssembler.assemble(
+            conversation: Conversation(createdAt: dateProvider.now),
+            // No query text: nothing here is being interpreted, so there is
+            // nothing for memory retrieval to be relevant *to*. Structured
+            // actions do not need remembered context to be carried out.
+            query: "",
+            calendarEvents: calendar.events,
+            calendarIsReadable: calendar.isReadable
+        )
+
+        let decoded = ToolDecodingOutcome(
+            accepted: [DecodedToolCall(callID: ToolCallID(), request: request)]
+        )
+        let planning = planner.makePlan(from: decoded, context: context)
+
+        // Reminder plans are persisted before execution, exactly as in `send`:
+        // the plan is what the follow-up ladder reads, and a crash between the
+        // two should leave support in place rather than an action with no
+        // support behind it.
+        for reminderPlan in planning.reminderPlans {
+            try await repositories.reminderPlans.save(reminderPlan)
+        }
+        try await linkReminderPlans(planning.reminderPlans)
+
+        var plan = planning.plan
+        plan.actions = plan.actions.map { action in
+            var action = action
+            action.origin = origin
+            return action
+        }
+
+        let results = await executor.execute(plan, context: context)
+        return (plan, results)
+    }
+
+    /// The user's calendar, through the platform layer the engine already
+    /// holds.
+    ///
+    /// Exposed so `AssistantCommandService` can build a Today briefing without
+    /// being handed a second reference to `PlatformServices` — one composition
+    /// owns the platform layer, and everything else asks it.
+    public func calendarEvents(in window: TimeWindow) async throws -> [CalendarItem] {
+        try await services.calendar.events(in: window)
+    }
+
     /// The next fortnight, and whether it could be read at all.
     ///
     /// The distinction is the whole reason this returns a pair rather than an
