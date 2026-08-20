@@ -55,6 +55,10 @@ public final class AppleSpeechOutputService: NSObject, SpeechOutputService, @unc
         }
     }
 
+    /// TODO-DEVICE: that stopping at `.immediate` really prevents the
+    /// recogniser hearing the tail of the assistant's own voice when the user
+    /// taps the microphone mid-reply. The handoff order is tested; the acoustics
+    /// are not testable without a speaker and a microphone in the same room.
     public func stop() async {
         lock.lock()
         let isSpeaking = speaking

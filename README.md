@@ -33,16 +33,19 @@ exists:
 - a command-line harness and unit tests
 - **the iPhone app's SwiftUI interface** — Assistant, Today, Tasks, Memory and
   Settings, with real navigation, sheets, forms and components
+- **voice input and optional spoken replies**, which reuse the typed-input
+  submission path rather than adding a second assistant
 
 The UI is the production interface, not a prototype: it is SwiftUI, it sits on
 the existing architecture, and it calls the same protocols the Apple
 implementations do.
 
-Four Apple framework integrations now exist: the on-device model over
-Foundation Models, and the calendar, reminders, notifications and alarms over
-EventKit, UserNotifications and AlarmKit. A shipped build changes the user's
-actual phone; tests, previews and CI keep the mocks. App Intents, Siri, widgets
-and Live Activities do not exist yet — see [Open items](Docs/OPEN-ITEMS.md).
+The Apple framework integrations: the on-device model over Foundation Models;
+the calendar, reminders, notifications and alarms over EventKit,
+UserNotifications and AlarmKit; and **speaking to the assistant** over Speech
+and AVFAudio. A shipped build changes the user's actual phone; tests, previews
+and CI keep the mocks. App Intents, Siri, widgets and Live Activities do not
+exist yet — see [Open items](Docs/OPEN-ITEMS.md).
 
 > **What has and has not been verified.** This is written on a machine with no
 > Swift toolchain, so CI is the only compiler. Three GitHub Actions workflows,
@@ -123,6 +126,7 @@ PhonePersonalAI/
 │   ├── AssistantCore/          The turn pipeline that ties it together.
 │   ├── MockPlatform/           In-memory platform services.
 │   ├── AssistantPlatformApple/ EventKit, UserNotifications, AlarmKit (real)
+│   ├── AssistantVoice/         Speech recognition and synthesis (real)
 │   ├── AIProviderApple/        Apple Foundation Models  (real; TODO-DEVICE)
 │   ├── AIProviderLocal/        Downloaded local model    (runtime not chosen)
 │   ├── AIProviderRemote/       Remote API, vendor-neutral
@@ -143,6 +147,7 @@ PhonePersonalAI/
     ├── UI-ARCHITECTURE.md   How the SwiftUI layer is organised
     ├── OPEN-ITEMS.md        Everything incomplete, unverified or limited
     ├── PLATFORM-APPLE.md    EventKit, UserNotifications, AlarmKit
+    ├── VOICE.md             Speech in, speech out
     ├── APPLE-ON-DEVICE.md   Foundation Models
     ├── REMOTE-AI.md         The cloud provider and its credentials
     ├── PERSISTENCE.md       SwiftData schema and migration

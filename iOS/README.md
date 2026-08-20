@@ -103,6 +103,6 @@ Each of these is an implementation task with no UI consequences:
 | On-device model | `respond(to:)` in `AppleFoundationModelsProvider` | already registered |
 | Local model | A `LocalModelRuntime` | `LocalModelProvider` |
 | Cloud model | Done — see [`Docs/REMOTE-AI.md`](../Docs/REMOTE-AI.md) | Settings → AI Model |
-| Voice input | `AVAudioEngine` + `SFSpeechRecognizer` | `VoiceInputPlaceholderView` |
+| Voice input | Done — see [`Docs/VOICE.md`](../Docs/VOICE.md) | Assistant composer |
 | Storage | Done — see [`Docs/PERSISTENCE.md`](../Docs/PERSISTENCE.md) | `AppEnvironment.makePersistent()` |
 | Keychain | Verify `KeychainCredentialStore` on a device | already wired |

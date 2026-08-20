@@ -159,6 +159,11 @@ public actor AppleSpeechInputService: SpeechInputService {
 
     // MARK: Listening
 
+    /// TODO-DEVICE: nothing below has ever captured audio. That the two
+    /// permission alerts appear in order with the right Info.plist strings,
+    /// how far behind the speaker partial results actually lag, whether the
+    /// level meter tracks a real voice, and Bluetooth routing including a
+    /// headset disconnecting mid-sentence, all need an iPhone.
     public func startListening(
         session: VoiceSessionID,
         delegate: any SpeechInputDelegate
@@ -280,6 +285,9 @@ public actor AppleSpeechInputService: SpeechInputService {
     /// an audible gap plus an opportunity to fail. `.spokenAudio` tells the
     /// system this is speech rather than music, which is what makes it duck
     /// other audio politely instead of stopping it.
+    /// TODO-DEVICE: whether `.playAndRecord` with `.duckOthers` behaves
+    /// acceptably over music already playing, and whether the route survives a
+    /// Bluetooth handoff, are audible questions no simulator answers.
     private func configureAudioSession() throws {
         let session = AVAudioSession.sharedInstance()
         try session.setCategory(
@@ -371,6 +379,8 @@ public actor AppleSpeechInputService: SpeechInputService {
     /// through. Audio captured across an interruption is missing the middle of
     /// the sentence, and half a sentence submitted to the assistant is worse
     /// than none — it would be acted on as though it were what the user said.
+    /// TODO-DEVICE: a real phone call arriving mid-sentence, and Retry
+    /// working cleanly afterwards.
     private func observeInterruptions() {
         interruptionObserver = NotificationCenter.default.addObserver(
             forName: AVAudioSession.interruptionNotification,
