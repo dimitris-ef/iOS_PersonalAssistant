@@ -65,11 +65,12 @@ public enum PersonalAssistantMigrationPlan: SchemaMigrationPlan {
             PersonalAssistantSchemaV1.self,
             PersonalAssistantSchemaV2.self,
             PersonalAssistantSchemaV3.self,
+            PersonalAssistantSchemaV4.self,
         ]
     }
 
     public static var stages: [MigrationStage] {
-        [migrateV1toV2, migrateV2toV3]
+        [migrateV1toV2, migrateV2toV3, migrateV3toV4]
     }
 
     /// Purely additive, all-nullable. Nothing to compute, nothing to lose.
@@ -84,6 +85,15 @@ public enum PersonalAssistantMigrationPlan: SchemaMigrationPlan {
     static let migrateV2toV3 = MigrationStage.lightweight(
         fromVersion: PersonalAssistantSchemaV2.self,
         toVersion: PersonalAssistantSchemaV3.self
+    )
+
+    /// Three columns on the settings row for voice. The two booleans carry
+    /// declared defaults of `false` and the locale is optional, so every
+    /// existing row already has a correct answer and there is nothing to
+    /// compute.
+    static let migrateV3toV4 = MigrationStage.lightweight(
+        fromVersion: PersonalAssistantSchemaV3.self,
+        toVersion: PersonalAssistantSchemaV4.self
     )
 }
 

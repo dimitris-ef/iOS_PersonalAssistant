@@ -8,6 +8,7 @@ import AssistantPersistence
 import AssistantPersistenceSwiftData
 import AssistantPlatform
 import AssistantPlatformApple
+import AssistantVoice
 import DevSupport
 import Foundation
 import MockPlatform
@@ -42,6 +43,13 @@ final class AppEnvironment: Sendable {
     ///
     /// `nil` on a demo launch, where notifications are mocks.
     let notificationCoordinator: AppleNotificationCoordinator?
+    /// Speech recognition and synthesis.
+    ///
+    /// Always present — on a platform without the Speech framework the input
+    /// service reports `unsupported` rather than being absent, so the
+    /// microphone button can be shown disabled with a reason instead of
+    /// vanishing.
+    let voice: VoiceServices?
 
     /// The provider the remote configuration belongs to.
     static let remoteProviderID: AIProviderIdentifier = "remote.openai-compatible"
@@ -56,7 +64,8 @@ final class AppEnvironment: Sendable {
         remoteConfiguration: RemoteAIConfigurationStore,
         launch: AppLaunchConfiguration,
         memory: MemoryService,
-        notificationCoordinator: AppleNotificationCoordinator?
+        notificationCoordinator: AppleNotificationCoordinator?,
+        voice: VoiceServices?
     ) {
         self.engine = engine
         self.repositories = repositories
@@ -68,6 +77,7 @@ final class AppEnvironment: Sendable {
         self.launch = launch
         self.memory = memory
         self.notificationCoordinator = notificationCoordinator
+        self.voice = voice
     }
 
     /// The environment the app actually launches with.
@@ -143,6 +153,12 @@ final class AppEnvironment: Sendable {
         let platform: AppleLivePlatform? = launch.seedsDemoData ? nil : PlatformServices.live()
         let services = platform?.services ?? PlatformServices.mock()
 
+        // Voice follows the same rule as the platform services, for the same
+        // reason: a seeded launch is a demonstration, and CI screenshot runs
+        // have no microphone. The mock renders the voice UI without ever
+        // opening an audio session.
+        let voice = launch.seedsDemoData ? VoiceServices.mock() : VoiceServices.live()
+
         // TODO-XCODE: `KeychainCredentialStore` has not been verified against a
         // real Keychain. If it misbehaves, the app still runs — a failed read
         // reads as "no credential", which shows as "Setup needed".
@@ -197,7 +213,8 @@ final class AppEnvironment: Sendable {
                 repository: repositories.memories,
                 dateProvider: dateProvider
             ),
-            notificationCoordinator: platform?.notifications
+            notificationCoordinator: platform?.notifications,
+            voice: voice
         )
     }
 

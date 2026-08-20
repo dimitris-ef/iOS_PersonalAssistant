@@ -41,9 +41,6 @@ public final class VoiceCoordinator {
 
     /// The typed-input path. See the type's documentation.
     private let submit: @MainActor (String) async -> Void
-    /// Whether replies should be read aloud, asked fresh each turn so a change
-    /// in Settings takes effect immediately.
-    private let shouldSpeakReplies: @MainActor () async -> Bool
 
     /// Work owned by the current session, so cancellation actually cancels.
     private var sessionTask: Task<Void, Never>?
@@ -51,13 +48,11 @@ public final class VoiceCoordinator {
     public init(
         input: any SpeechInputService,
         output: (any SpeechOutputService)? = nil,
-        submit: @escaping @MainActor (String) async -> Void,
-        shouldSpeakReplies: @escaping @MainActor () async -> Bool = { false }
+        submit: @escaping @MainActor (String) async -> Void
     ) {
         self.input = input
         self.output = output
         self.submit = submit
-        self.shouldSpeakReplies = shouldSpeakReplies
     }
 
     // MARK: User actions
@@ -74,18 +69,22 @@ public final class VoiceCoordinator {
         recognitionMode = await input.recognitionMode()
     }
 
-    /// Speaks a reply, if the user asked for spoken replies.
+    /// Reads a reply aloud.
+    ///
+    /// Speaks unconditionally: *whether* to speak is one decision and it lives
+    /// in `VoicePreferences.shouldSpeak(replyTo:)`, because it depends on how
+    /// the request arrived — which this type does not know and should not.
+    /// Gating here as well would mean two places that can disagree about the
+    /// same setting.
     ///
     /// Called by the app *after* a turn completes, with the assistant's own
-    /// text. The engine does not know this happens, which is the point of
-    /// keeping speech synthesis on the presentation side: `AssistantEngine`
-    /// returns a string and remains ignorant of whether anything says it out
-    /// loud.
-    public func speakIfEnabled(_ text: String) async {
+    /// text. `AssistantEngine` returns a string and remains ignorant of whether
+    /// anything says it out loud, which is what keeps speech synthesis a
+    /// presentation concern.
+    public func speak(_ text: String) async {
         guard let output else { return }
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        guard await shouldSpeakReplies() else { return }
 
         handle(.speechStarted)
         await output.speak(trimmed)

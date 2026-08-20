@@ -5,6 +5,7 @@ import AssistantDomain
 import AssistantPersistence
 import AssistantPlatform
 import AssistantTools
+import AssistantVoice
 import ExecutiveSupport
 import Foundation
 import Observation
@@ -62,6 +63,13 @@ final class AppModel {
     /// A reminder being simulated in-app. See `SimulatedReminder`.
     var simulatedReminder: SimulatedReminder?
 
+    /// Speech in and out, when this build has it.
+    ///
+    /// Created once and shared, rather than owned by the Assistant screen: a
+    /// spoken request that is still processing must survive the user switching
+    /// tabs, and a reply being read aloud must be stoppable from anywhere.
+    private(set) var voice: VoiceCoordinator?
+
     /// The task to show because the user tapped its notification.
     ///
     /// Set from the notification router's `.open` route, which is the one
@@ -107,6 +115,7 @@ final class AppModel {
         // this runs, and it should be applied even if loading the screens goes
         // wrong afterwards.
         connectNotifications()
+        connectVoice()
 
         do {
             if environment.launch.seedsDemoData {
@@ -126,6 +135,24 @@ final class AppModel {
     /// layer. Deciding what a response *means* happened in
     /// `AppleNotificationRouter`, and applying it happens in `FollowUpService`;
     /// what is left here is showing the user the result.
+    /// Builds the voice coordinator, if this build has speech services.
+    ///
+    /// The `submit` closure is `send(_:from:)` — the same method the composer's
+    /// send button calls. Not a copy, not a variant: the identical function,
+    /// which is what makes "voice cannot bypass a layer" true by construction
+    /// rather than by review.
+    private func connectVoice() {
+        guard let services = environment.voice else { return }
+        voice = VoiceCoordinator(
+            input: services.input,
+            output: services.output,
+            submit: { [weak self] text in
+                await self?.send(text, from: .voice)
+            }
+        )
+        Task { [weak self] in await self?.voice?.refreshPermissions() }
+    }
+
     private func connectNotifications() {
         environment.connectNotificationRouting(
             onOpen: { [weak self] taskID in
@@ -360,6 +387,18 @@ final class AppModel {
     /// *words* are canned — but the tool decoding, authorization, reminder
     /// planning and (simulated) execution around them are the production path.
     func send(_ text: String) async {
+        await send(text, from: .typed)
+    }
+
+    /// The one door into the assistant, for typed and spoken input alike.
+    ///
+    /// `source` changes exactly one thing — whether the reply is read aloud —
+    /// and it is applied *after* the turn, in the presentation layer. It is not
+    /// passed to `AssistantEngine`, does not reach a provider, is not stored on
+    /// the message and does not alter context assembly, memory retrieval, tool
+    /// validation, authorization or follow-up planning. A sentence spoken and
+    /// the same sentence typed produce byte-identical work.
+    func send(_ text: String, from source: MessageInputSource) async {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, !isAssistantResponding else { return }
 
@@ -372,6 +411,12 @@ final class AppModel {
             actionPlans[result.plan.id] = result.plan
             toolResults[result.plan.id] = result.results
             await reload()
+
+            // Presentation, after the fact. The engine returned a string and
+            // has no idea anything might say it out loud.
+            if settings.voice.shouldSpeak(replyTo: source) {
+                await voice?.speak(result.assistantMessage.text)
+            }
         } catch {
             // Surfaced rather than swallowed: if the provider cannot answer, the
             // user is told why, and the composer never sits in a silent

@@ -5,19 +5,32 @@ struct AssistantComposerView: View {
     @Binding var text: String
     var isFocused: FocusState<Bool>.Binding
     let canSend: Bool
+    /// False where speech recognition does not exist. The button is shown
+    /// disabled rather than hidden, so the capability is discoverable and its
+    /// absence is explained rather than silent.
+    var isVoiceAvailable: Bool = true
+    /// True while the assistant is reading a reply aloud.
+    var isSpeaking: Bool = false
     let onSend: () -> Void
     let onVoice: () -> Void
+    var onStopSpeaking: () -> Void = {}
 
     var body: some View {
         HStack(alignment: .bottom, spacing: Theme.Spacing.sm) {
-            Button(action: onVoice) {
-                Image(systemName: "mic")
+            // While the assistant is talking, the same button stops it. Tapping
+            // a microphone during playback means "my turn" either way, and the
+            // coordinator's own rule — stop speaking, then listen — makes the
+            // two readings converge.
+            Button(action: isSpeaking ? onStopSpeaking : onVoice) {
+                Image(systemName: isSpeaking ? "stop.circle" : "mic")
                     .font(.body)
                     .frame(width: Theme.touchTarget, height: Theme.touchTarget)
             }
             .buttonStyle(.plain)
-            .foregroundStyle(.secondary)
-            .accessibilityLabel("Voice input")
+            .foregroundStyle(isVoiceAvailable ? .secondary : Color(.tertiaryLabel))
+            .disabled(!isVoiceAvailable)
+            .accessibilityLabel(isSpeaking ? "Stop speaking" : "Voice input")
+            .accessibilityHint(isVoiceAvailable ? "" : "Speech recognition isn't available on this device")
 
             // `axis: .vertical` grows the field with the text, up to the line
             // limit, which is what a composer should do on a phone.
@@ -83,44 +96,6 @@ struct SuggestedPromptsView: View {
         }
         .scrollIndicators(.hidden)
         .accessibilityLabel("Suggested prompts")
-    }
-}
-
-/// The microphone placeholder.
-///
-/// Voice is a real intention, not a real feature yet — so the button exists and
-/// says exactly that, rather than showing a fake waveform.
-///
-/// TODO-XCODE: implement with `AVAudioEngine` for capture and `SFSpeechRecognizer`
-/// (or on-device dictation) for transcription. Both need a device, microphone
-/// and speech-recognition usage descriptions, and neither can be built or
-/// tested from Windows.
-struct VoiceInputPlaceholderView: View {
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        VStack(spacing: Theme.Spacing.lg) {
-            Image(systemName: "mic")
-                .font(.system(size: 34, weight: .light))
-                .foregroundStyle(.secondary)
-                .padding(.top, Theme.Spacing.xxl)
-
-            Text("Voice isn't wired up yet")
-                .font(.headline)
-
-            Text("Speaking to the assistant needs microphone capture and speech recognition, which arrive with the Apple integration. For now, type instead.")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, Theme.Spacing.xl)
-
-            Button("OK") { dismiss() }
-                .buttonStyle(.borderedProminent)
-                .padding(.top, Theme.Spacing.sm)
-
-            Spacer(minLength: 0)
-        }
-        .frame(maxWidth: .infinity)
     }
 }
 

@@ -95,12 +95,20 @@
 	<key>NSAlarmKitUsageDescription</key>
 	<string>The assistant sets alarms for the things you told it you must not sleep through.</string>
 	<!--
-	  Not yet requested by any code. Declared so the strings are reviewed as
-	  product copy rather than written in a hurry the day the feature lands.
+	  Voice. Both are requested contextually, the first time the user taps the
+	  microphone — never at launch. The microphone alert comes first; if it is
+	  declined the speech-recognition alert is not shown at all, because
+	  recognition without a microphone is useless and two refusals in a row is
+	  worse than one.
+
+	  Both keys are required by the implementation: `AVAudioApplication` for
+	  capture and `SFSpeechRecognizer` for transcription. Audio is transcribed
+	  and the buffers released — nothing is recorded to disk, and no audio ever
+	  reaches an AI provider.
 	-->
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Speak to the assistant instead of typing.</string>
+	<string>Personal Assistant uses the microphone when you choose to speak to the assistant.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
-	<string>Your speech is turned into text so the assistant can act on what you said.</string>
+	<string>What you say is turned into text so the assistant can act on it. Your recordings are not saved.</string>
 </dict>
 </plist>

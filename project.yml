@@ -78,6 +78,10 @@ targets:
       # again would put the app back on mocks with no other change.
       - package: PhonePersonalAI
         product: AssistantPlatformApple
+      # Speech in, speech out: SFSpeechRecognizer, AVAudioEngine and
+      # AVSpeechSynthesizer, behind a protocol the UI depends on instead.
+      - package: PhonePersonalAI
+        product: AssistantVoice
       - package: PhonePersonalAI
         product: AIProviderApple
       - package: PhonePersonalAI

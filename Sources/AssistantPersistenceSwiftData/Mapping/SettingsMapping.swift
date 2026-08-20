@@ -45,7 +45,10 @@ enum SettingsMapper {
             supportSnoozeEscalateAfter: support.snooze.escalateAfterSnoozes,
             supportCompletionRequiresExplicitConfirmation:
                 support.completion.requiresExplicitConfirmation,
-            supportCompletionMarkMissedAfter: support.completion.markMissedAfter
+            supportCompletionMarkMissedAfter: support.completion.markMissedAfter,
+            voiceSpeaksReplies: settings.voice.speaksReplies,
+            voiceSpeaksTypedReplies: settings.voice.speaksTypedReplies,
+            voiceLocaleIdentifier: settings.voice.localeIdentifier
         )
     }
 
@@ -81,6 +84,9 @@ enum SettingsMapper {
         row.supportSnoozeEscalateAfter = support.snooze.escalateAfterSnoozes
         row.supportCompletionRequiresExplicitConfirmation = support.completion.requiresExplicitConfirmation
         row.supportCompletionMarkMissedAfter = support.completion.markMissedAfter
+        row.voiceSpeaksReplies = settings.voice.speaksReplies
+        row.voiceSpeaksTypedReplies = settings.voice.speaksTypedReplies
+        row.voiceLocaleIdentifier = settings.voice.localeIdentifier
     }
 
     static func makeDomain(from row: SDAssistantSettings) throws -> AssistantSettings {
@@ -130,7 +136,12 @@ enum SettingsMapper {
                 flexibleNudgesPerDay: row.supportFlexibleNudgesPerDay
             ),
             conversationContextLimit: row.conversationContextLimit,
-            memoryContextLimit: row.memoryContextLimit
+            memoryContextLimit: row.memoryContextLimit,
+            voice: VoicePreferences(
+                speaksReplies: row.voiceSpeaksReplies,
+                speaksTypedReplies: row.voiceSpeaksTypedReplies,
+                localeIdentifier: row.voiceLocaleIdentifier
+            )
         )
     }
 

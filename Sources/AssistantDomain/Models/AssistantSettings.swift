@@ -76,6 +76,65 @@ public struct SupportPreferences: Hashable, Codable, Sendable {
     }
 }
 
+/// How the assistant should sound, and whether it should.
+///
+/// Conservative by default: nothing is ever read aloud until the user asks for
+/// it. An assistant that starts talking on a train because someone typed a
+/// question is an assistant people turn off.
+public struct VoicePreferences: Hashable, Codable, Sendable {
+    /// Read replies aloud after the user *spoke* to the assistant.
+    ///
+    /// Off by default. When on, it applies only to spoken requests, which is
+    /// the conversational case where a reply you have to read defeats the point
+    /// of having talked.
+    public var speaksReplies: Bool
+    /// Also read replies to messages that were typed.
+    ///
+    /// Separate, and off by default even when `speaksReplies` is on. Typing is
+    /// what people do when they cannot or do not want to make noise, and
+    /// answering out loud misreads the room — literally.
+    public var speaksTypedReplies: Bool
+    /// BCP-47 identifier for recognition and synthesis, or nil to follow the
+    /// system.
+    ///
+    /// Nil by default rather than "en-US". The assistant's whole value is
+    /// understanding how someone actually talks, and a default that forces a
+    /// second language on them is a default that excludes them.
+    public var localeIdentifier: String?
+
+    public init(
+        speaksReplies: Bool = false,
+        speaksTypedReplies: Bool = false,
+        localeIdentifier: String? = nil
+    ) {
+        self.speaksReplies = speaksReplies
+        self.speaksTypedReplies = speaksTypedReplies
+        self.localeIdentifier = localeIdentifier
+    }
+
+    /// Whether this reply should be spoken, given how the request arrived.
+    ///
+    /// One function, so the rule cannot drift between the composer, the
+    /// settings screen and whatever asks next.
+    public func shouldSpeak(replyTo source: MessageInputSource) -> Bool {
+        switch source {
+        case .voice: return speaksReplies
+        case .typed: return speaksReplies && speaksTypedReplies
+        }
+    }
+}
+
+/// How a message reached the assistant.
+///
+/// Presentation metadata, deliberately not stored: a message is a message, and
+/// forking the conversation into spoken and typed halves would mean every
+/// reader had to handle both. It exists only so the reply can decide whether to
+/// speak.
+public enum MessageInputSource: String, Hashable, Codable, Sendable {
+    case typed
+    case voice
+}
+
 /// How the assistant should behave. Owned by the application; never by a provider.
 public struct AssistantSettings: Hashable, Codable, Sendable {
     public var preferredProviderID: AIProviderIdentifier?
@@ -88,6 +147,7 @@ public struct AssistantSettings: Hashable, Codable, Sendable {
     /// How many past messages to include as provider context.
     public var conversationContextLimit: Int
     public var memoryContextLimit: Int
+    public var voice: VoicePreferences
 
     public init(
         preferredProviderID: AIProviderIdentifier? = nil,
@@ -97,7 +157,8 @@ public struct AssistantSettings: Hashable, Codable, Sendable {
         defaultAuthorization: ToolAuthorization = .allowed,
         support: SupportPreferences = SupportPreferences(),
         conversationContextLimit: Int = 20,
-        memoryContextLimit: Int = 10
+        memoryContextLimit: Int = 10,
+        voice: VoicePreferences = VoicePreferences()
     ) {
         self.preferredProviderID = preferredProviderID
         self.preferredModelID = preferredModelID
@@ -107,6 +168,7 @@ public struct AssistantSettings: Hashable, Codable, Sendable {
         self.support = support
         self.conversationContextLimit = conversationContextLimit
         self.memoryContextLimit = memoryContextLimit
+        self.voice = voice
     }
 
     /// Destructive tools ask first; everything else runs.

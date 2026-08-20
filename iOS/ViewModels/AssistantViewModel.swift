@@ -5,15 +5,16 @@ import Observation
 
 /// Screen state for the Assistant.
 ///
-/// Holds only what belongs to this screen — the draft, the voice placeholder,
-/// and the derived conversation turns. Shared data and every state change live
+/// Holds only what belongs to this screen — the draft and the derived
+/// conversation turns. Voice state belongs to `VoiceCoordinator`, which the
+/// whole app shares, because a spoken request that outlives this screen still
+/// has to finish. Shared data and every state change live
 /// in `AppModel`, which is passed in rather than captured, so the view model
 /// has no lifetime tied to the app graph.
 @MainActor
 @Observable
 final class AssistantViewModel {
     var draft: String = ""
-    var isShowingVoicePlaceholder = false
 
     /// The id to scroll to after new content arrives.
     private(set) var scrollTarget: Message.ID?

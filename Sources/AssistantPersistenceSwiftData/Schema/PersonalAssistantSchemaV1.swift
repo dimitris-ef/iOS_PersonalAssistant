@@ -593,6 +593,15 @@ public final class SDAssistantSettings {
     public var supportCompletionRequiresExplicitConfirmation: Bool
     public var supportCompletionMarkMissedAfter: Double?
 
+    // Voice, added in V4. Defaults are declared here, which is what makes the
+    // migration inferrable: SwiftData can add a non-optional column to an
+    // existing store only when it knows what to put in the rows that are
+    // already there. Both default to false, so an upgrading user's app does not
+    // start talking at them because a new version shipped.
+    public var voiceSpeaksReplies: Bool = false
+    public var voiceSpeaksTypedReplies: Bool = false
+    public var voiceLocaleIdentifier: String?
+
     public init(
         id: UUID,
         preferredProviderID: String?,
@@ -618,7 +627,10 @@ public final class SDAssistantSettings {
         supportSnoozeMaximum: Int,
         supportSnoozeEscalateAfter: Int,
         supportCompletionRequiresExplicitConfirmation: Bool,
-        supportCompletionMarkMissedAfter: Double?
+        supportCompletionMarkMissedAfter: Double?,
+        voiceSpeaksReplies: Bool = false,
+        voiceSpeaksTypedReplies: Bool = false,
+        voiceLocaleIdentifier: String? = nil
     ) {
         self.id = id
         self.preferredProviderID = preferredProviderID
@@ -645,6 +657,9 @@ public final class SDAssistantSettings {
         self.supportSnoozeEscalateAfter = supportSnoozeEscalateAfter
         self.supportCompletionRequiresExplicitConfirmation = supportCompletionRequiresExplicitConfirmation
         self.supportCompletionMarkMissedAfter = supportCompletionMarkMissedAfter
+        self.voiceSpeaksReplies = voiceSpeaksReplies
+        self.voiceSpeaksTypedReplies = voiceSpeaksTypedReplies
+        self.voiceLocaleIdentifier = voiceLocaleIdentifier
     }
 }
 

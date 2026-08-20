@@ -1,4 +1,5 @@
 import AssistantDomain
+import AssistantVoice
 import SwiftUI
 
 /// The main screen: a conversation that produces real, structured results.
@@ -20,11 +21,6 @@ struct AssistantScreen: View {
                 .toolbar {
                     ToolbarItem(placement: .principal) { AssistantHeaderView() }
                     ToolbarItem(placement: .topBarTrailing) { SettingsToolbarButton() }
-                }
-                .sheet(isPresented: $viewModel.isShowingVoicePlaceholder) {
-                    VoiceInputPlaceholderView()
-                        .presentationDetents([.height(280)])
-                        .presentationDragIndicator(.visible)
                 }
         }
     }
@@ -88,18 +84,49 @@ struct AssistantScreen: View {
                 .transition(.opacity)
             }
 
-            AssistantComposerView(
-                text: $viewModel.draft,
-                isFocused: $isComposerFocused,
-                canSend: viewModel.canSend,
-                onSend: { Task { await viewModel.send(using: model) } },
-                onVoice: { viewModel.isShowingVoicePlaceholder = true }
-            )
+            // The composer becomes the voice UI while the microphone is
+            // live, rather than a sheet appearing over the conversation. The
+            // user is mid-conversation and should stay in it — and it means
+            // there is exactly one place that can be typing *or* speaking,
+            // never both.
+            if let voice = model.voice, voice.state != .idle, voice.state != .speaking {
+                VoiceComposerView(
+                    state: voice.state,
+                    onStop: { voice.stopListening() },
+                    onCancel: { voice.cancelListening() },
+                    onRetry: { voice.retry() },
+                    onDismissError: { voice.dismissError() },
+                    onOpenSettings: { openSystemSettings() }
+                )
+                .transition(.opacity)
+            } else {
+                AssistantComposerView(
+                    text: $viewModel.draft,
+                    isFocused: $isComposerFocused,
+                    canSend: viewModel.canSend,
+                    isVoiceAvailable: model.voice != nil,
+                    isSpeaking: model.voice?.state == .speaking,
+                    onSend: { Task { await viewModel.send(using: model) } },
+                    onVoice: { model.voice?.startListening() },
+                    onStopSpeaking: { Task { await model.voice?.stopSpeaking() } }
+                )
+            }
         }
         .padding(.top, Theme.Spacing.sm)
         .padding(.bottom, Theme.Spacing.sm)
         .background(.bar)
         .animation(Theme.transition, value: isComposerFocused)
+        .animation(Theme.quickTransition, value: model.voice?.state)
+    }
+
+    /// Opens the app's own page in Settings.
+    ///
+    /// Only ever from a button the user pressed. The app never navigates here
+    /// on its own — being ejected into Settings because a permission was
+    /// missing is a context switch nobody asked for.
+    private func openSystemSettings() {
+        guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
+        UIApplication.shared.open(url)
     }
 
     /// Says plainly when the chosen model cannot actually answer.
