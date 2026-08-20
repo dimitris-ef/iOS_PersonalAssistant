@@ -177,26 +177,28 @@ final class MemoryMetadataPersistenceTests: PersistenceTestCase {
     /// the *relationship*: every version has a stage into it, and the store the
     /// app opens is the latest one. Those hold at V4 and will hold at V9.
     func testTheMigrationPlanCoversEveryVersion() throws {
-        let versions = PersonalAssistantMigrationPlan.schemas
-        XCTAssertFalse(versions.isEmpty)
-
         // One stage per hop between consecutive versions. A version added
         // without a stage is a store that cannot be opened after an upgrade,
-        // which is the failure this asserts against.
+        // and that is the failure worth asserting against — it survives every
+        // future version without editing.
         XCTAssertEqual(
             PersonalAssistantMigrationPlan.stages.count,
-            versions.count - 1,
+            PersonalAssistantMigrationPlan.schemas.count - 1,
             "Every schema version needs a migration stage into it"
         )
+        XCTAssertFalse(PersonalAssistantMigrationPlan.schemas.isEmpty)
 
         // The app opens the newest version, not an older one left behind.
-        let newest = try XCTUnwrap(versions.last)
-        XCTAssertEqual(store.container.schema.version, newest.versionIdentifier)
-
-        // Versions are declared in ascending order, which is what makes
-        // "consecutive" meaningful above.
-        let identifiers = versions.map(\.versionIdentifier)
-        XCTAssertEqual(identifiers, identifiers.sorted(), "Schemas must be listed oldest first")
+        //
+        // The newest version is named concretely rather than read off the end
+        // of `schemas`, and not by choice: reading `versionIdentifier` through
+        // `any VersionedSchema.Type` **crashes the Swift 6.2 frontend** with a
+        // SIL error on `alloc_stack $@opened(…) any VersionedSchema`. Opening
+        // an existential metatype to reach a static protocol member is the
+        // trigger. So this line costs one edit per schema version, which is
+        // the price of compiling.
+        XCTAssertEqual(store.container.schema.version, PersonalAssistantSchemaV4.versionIdentifier)
+        XCTAssertEqual(PersonalAssistantSchemaV4.versionIdentifier, Schema.Version(4, 0, 0))
     }
 }
 
