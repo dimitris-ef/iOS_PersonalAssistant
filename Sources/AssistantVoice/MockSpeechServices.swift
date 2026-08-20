@@ -125,22 +125,45 @@ public actor MockSpeechOutputService: SpeechOutputService {
     public private(set) var stopCount = 0
     private var speaking = false
 
+    /// When true, `speak` suspends until `stop()` — the way the real
+    /// synthesiser behaves.
+    ///
+    /// Off by default, because most tests only care *what* was said. It has to
+    /// be available, though: the handoff rule — tapping the microphone while
+    /// the assistant is talking stops it first — cannot be tested at all
+    /// against a `speak` that has already returned by the time the test looks.
+    private var holdsUntilStopped = false
+    private var waiter: CheckedContinuation<Void, Never>?
+
     public init() {}
 
     public func speak(_ text: String) async {
         spokenText.append(text)
         speaking = true
-        // Returns immediately. The real implementation waits for the
-        // synthesiser to finish; a test that waited would just be sleeping.
+
+        if holdsUntilStopped {
+            // The actor is free while this suspends, so `stop()` can run and
+            // resume it — which is exactly the interleaving being tested.
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                waiter = continuation
+            }
+        }
         speaking = false
     }
 
     public func stop() async {
         stopCount += 1
         speaking = false
+        let waiting = waiter
+        waiter = nil
+        waiting?.resume()
     }
 
     public func isSpeaking() async -> Bool { speaking }
+
+    public func setHoldsUntilStopped(_ holds: Bool) {
+        holdsUntilStopped = holds
+    }
 
     /// The last thing the assistant said out loud.
     public func lastSpoken() -> String? { spokenText.last }

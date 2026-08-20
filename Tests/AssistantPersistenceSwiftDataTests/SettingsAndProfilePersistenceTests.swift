@@ -68,6 +68,60 @@ final class SettingsAndProfilePersistenceTests: PersistenceTestCase {
         XCTAssertEqual(rows, 1)
     }
 
+    // MARK: Voice
+
+    func testVoicePreferencesSurviveARelaunch() async throws {
+        var settings = try await repositories.settings.settings()
+        settings.voice = VoicePreferences(
+            speaksReplies: true,
+            speaksTypedReplies: true,
+            localeIdentifier: "el-GR"
+        )
+        try await repositories.settings.update(settings)
+
+        try relaunch()
+
+        let reloaded = try await repositories.settings.settings()
+        XCTAssertEqual(reloaded.voice.speaksReplies, true)
+        XCTAssertEqual(reloaded.voice.speaksTypedReplies, true)
+        XCTAssertEqual(reloaded.voice.localeIdentifier, "el-GR")
+    }
+
+    /// The product default, asserted rather than assumed.
+    ///
+    /// Someone who updates the app must not discover the new version by having
+    /// it start talking at them on a train.
+    func testTheAssistantIsSilentUntilAsked() async throws {
+        let settings = try await repositories.settings.settings()
+
+        XCTAssertFalse(settings.voice.speaksReplies)
+        XCTAssertFalse(settings.voice.speaksTypedReplies)
+        XCTAssertNil(settings.voice.localeIdentifier, "nil means follow the system language")
+
+        XCTAssertFalse(settings.voice.shouldSpeak(replyTo: .voice))
+        XCTAssertFalse(settings.voice.shouldSpeak(replyTo: .typed))
+    }
+
+    /// Spoken replies answer speech; typed messages stay silent unless the
+    /// second switch is on too.
+    func testSpokenRepliesFollowHowTheRequestArrived() {
+        let spokenOnly = VoicePreferences(speaksReplies: true)
+        XCTAssertTrue(spokenOnly.shouldSpeak(replyTo: .voice))
+        XCTAssertFalse(
+            spokenOnly.shouldSpeak(replyTo: .typed),
+            "Typing is what people do when they cannot make noise"
+        )
+
+        let both = VoicePreferences(speaksReplies: true, speaksTypedReplies: true)
+        XCTAssertTrue(both.shouldSpeak(replyTo: .voice))
+        XCTAssertTrue(both.shouldSpeak(replyTo: .typed))
+
+        // The typed switch alone does nothing: the master switch is off.
+        let typedOnly = VoicePreferences(speaksReplies: false, speaksTypedReplies: true)
+        XCTAssertFalse(typedOnly.shouldSpeak(replyTo: .voice))
+        XCTAssertFalse(typedOnly.shouldSpeak(replyTo: .typed))
+    }
+
     func testEveryRoutingPolicySurvives() async throws {
         for policy in ModelRoutingPolicy.allCases {
             var settings = try await repositories.settings.settings()

@@ -1,5 +1,6 @@
 import AssistantDomain
 import AssistantPlatform
+import AssistantVoice
 import SwiftUI
 
 /// Settings.
@@ -22,6 +23,7 @@ struct SettingsScreen: View {
                 assistantSection
                 modelSection
                 supportSection
+                voiceSection
                 permissionsSection
                 appearanceSection
                 privacySection
@@ -153,6 +155,62 @@ struct SettingsScreen: View {
             Text("ADHD Assistance")
         } footer: {
             Text("With confirmation required, dismissing a reminder marks the task as still open rather than done. This is the behaviour the assistant is built around.")
+        }
+    }
+
+    /// Voice: whether the assistant talks back, and what it can hear.
+    ///
+    /// The permission rows report the real authorization state rather than a
+    /// stored guess, and the recognition row says truthfully where audio is
+    /// processed — `SFSpeechRecognizer` only guarantees on-device handling when
+    /// the device supports it, so this reads that rather than assuming it.
+    private var voiceSection: some View {
+        Section {
+            Toggle(
+                "Speak replies",
+                isOn: binding(
+                    get: { $0.voice.speaksReplies },
+                    set: { settings, value in settings.voice.speaksReplies = value }
+                )
+            )
+
+            if model.settings.voice.speaksReplies {
+                Toggle(
+                    "Also speak replies to typed messages",
+                    isOn: binding(
+                        get: { $0.voice.speaksTypedReplies },
+                        set: { settings, value in settings.voice.speaksTypedReplies = value }
+                    )
+                )
+            }
+
+            if let voice = model.voice {
+                LabeledContent("Microphone", value: Self.describe(voice.permissions.microphone))
+                LabeledContent(
+                    "Speech recognition",
+                    value: Self.describe(voice.permissions.speechRecognition)
+                )
+                LabeledContent("Recognition", value: voice.recognitionMode.description)
+            }
+
+            LabeledContent("Language", value: Locale.current.localizedString(
+                forIdentifier: Locale.current.identifier
+            ) ?? Locale.current.identifier)
+        } header: {
+            Text("Voice")
+        } footer: {
+            Text("Spoken replies are off until you turn them on, and answer only what you said out loud unless you also switch on typed replies. Speech is transcribed and the audio discarded — nothing is recorded, and no audio is sent to the AI model.")
+        }
+        .task { await model.voice?.refreshPermissions() }
+    }
+
+    private static func describe(_ permission: VoicePermission) -> String {
+        switch permission {
+        case .authorized: return "Allowed"
+        case .denied: return "Denied"
+        case .restricted: return "Restricted"
+        case .notDetermined: return "Not asked yet"
+        case .unsupported: return "Unavailable"
         }
     }
 

@@ -219,6 +219,11 @@ let package = Package(
                 // property of the whole app, so it is asserted here rather
                 // than inside the Apple provider's own tests.
                 "AIProviderApple",
+                // For the voice-pipeline tests. `AssistantVoice` cannot import
+                // the engine — it depends on nothing in this package — so the
+                // only place "a spoken sentence gets the whole pipeline" can be
+                // asserted is where both are visible.
+                "AssistantVoice",
             ]
         ),
         .testTarget(

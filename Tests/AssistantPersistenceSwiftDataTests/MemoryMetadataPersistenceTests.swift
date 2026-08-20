@@ -168,11 +168,35 @@ final class MemoryMetadataPersistenceTests: PersistenceTestCase {
         XCTAssertTrue(searched.isEmpty)
     }
 
-    func testTheSchemaIsAtVersionThree() throws {
-        XCTAssertEqual(PersonalAssistantSchemaV3.versionIdentifier, Schema.Version(3, 0, 0))
-        XCTAssertEqual(store.container.schema.version, Schema.Version(3, 0, 0))
-        XCTAssertEqual(PersonalAssistantMigrationPlan.schemas.count, 3)
-        XCTAssertEqual(PersonalAssistantMigrationPlan.stages.count, 2)
+    /// The migration plan is complete and the container opens the newest
+    /// version.
+    ///
+    /// Rewritten from asserting the literal "version 3", which made adding a
+    /// schema version fail a test about memory metadata — a false alarm that
+    /// teaches people to edit the number and move on. What actually matters is
+    /// the *relationship*: every version has a stage into it, and the store the
+    /// app opens is the latest one. Those hold at V4 and will hold at V9.
+    func testTheMigrationPlanCoversEveryVersion() throws {
+        let versions = PersonalAssistantMigrationPlan.schemas
+        XCTAssertFalse(versions.isEmpty)
+
+        // One stage per hop between consecutive versions. A version added
+        // without a stage is a store that cannot be opened after an upgrade,
+        // which is the failure this asserts against.
+        XCTAssertEqual(
+            PersonalAssistantMigrationPlan.stages.count,
+            versions.count - 1,
+            "Every schema version needs a migration stage into it"
+        )
+
+        // The app opens the newest version, not an older one left behind.
+        let newest = try XCTUnwrap(versions.last)
+        XCTAssertEqual(store.container.schema.version, newest.versionIdentifier)
+
+        // Versions are declared in ascending order, which is what makes
+        // "consecutive" meaningful above.
+        let identifiers = versions.map(\.versionIdentifier)
+        XCTAssertEqual(identifiers, identifiers.sorted(), "Schemas must be listed oldest first")
     }
 }
 
