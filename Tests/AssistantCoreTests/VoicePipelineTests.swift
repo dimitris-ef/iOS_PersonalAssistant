@@ -92,7 +92,7 @@ final class VoicePipelineTests: XCTestCase {
         // The model was asked, with the spoken words as the user message.
         let request = try XCTUnwrap(provider.receivedRequests.last)
         XCTAssertEqual(
-            request.messages.last(where: { $0.role == .user })?.text,
+            request.messages.last(where: { $0.role == .user })?.content,
             "Set an alarm tomorrow for 7."
         )
 
@@ -111,8 +111,8 @@ final class VoicePipelineTests: XCTestCase {
 
         try await repositories.memories.store(
             MemoryItem(
-                content: "Needs 30 minutes to get ready",
                 kind: .routine,
+                content: "Needs 30 minutes to get ready",
                 createdAt: now,
                 source: .user
             )
@@ -203,9 +203,8 @@ final class VoicePipelineTests: XCTestCase {
         await input.emitFinal("Book a haircut on Saturday.")
         try await settle()
 
-        let conversation = try XCTUnwrap(
-            try await repositories.conversations.allConversations().first
-        )
+        let stored = try await repositories.conversations.allConversations()
+        let conversation = try XCTUnwrap(stored.first)
         let user = try XCTUnwrap(conversation.messages.first { $0.role == .user })
         XCTAssertEqual(user.text, "Book a haircut on Saturday.")
         XCTAssertEqual(user.role, .user)
