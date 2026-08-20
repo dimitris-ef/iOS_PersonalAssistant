@@ -183,6 +183,7 @@ public struct TodayBriefingBuilder: Sendable {
             for reminder in resolver.resolve(plan: plan, now: .distantPast) {
                 guard calendar.isDate(reminder.fireDate, inSameDayAs: now) else { continue }
                 guard let kind = Self.kind(for: reminder.kind) else { continue }
+                guard let reference = Self.reference(for: plan) else { continue }
 
                 items.append(
                     TodayItem(
@@ -190,7 +191,7 @@ public struct TodayBriefingBuilder: Sendable {
                         date: reminder.fireDate,
                         title: reminder.body,
                         kind: kind,
-                        reference: Self.reference(for: plan),
+                        reference: reference,
                         isDone: false,
                         hasPassed: reminder.fireDate < now
                     )
@@ -215,10 +216,17 @@ public struct TodayBriefingBuilder: Sendable {
         }
     }
 
-    private static func reference(for plan: ReminderPlan) -> TodayItem.Reference {
+    /// Where a reminder stage points.
+    ///
+    /// A plan can also be `.freeform` — a reminder attached to neither a task
+    /// nor an event. Those stages are dropped rather than given a made-up
+    /// reference: a briefing row the user cannot open is worse than one row
+    /// fewer.
+    private static func reference(for plan: ReminderPlan) -> TodayItem.Reference? {
         switch plan.subject.reference {
         case .task(let id): return .task(id)
-        case .event(let id): return .event(id)
+        case .calendarItem(let id): return .event(id)
+        case .freeform: return nil
         }
     }
 }

@@ -167,8 +167,8 @@ public struct AssistantCommandService: Sendable {
         let input = CreateTaskInput(
             title: trimmed,
             details: notes?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty,
-            dueDate: dueDate,
-            importance: importance
+            importance: importance,
+            dueDate: dueDate
         )
 
         let (plan, results) = try await run(.createTask(input))
