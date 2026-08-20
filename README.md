@@ -35,6 +35,8 @@ exists:
   Settings, with real navigation, sheets, forms and components
 - **voice input and optional spoken replies**, which reuse the typed-input
   submission path rather than adding a second assistant
+- **Siri, Shortcuts and Action Button access** through App Intents, over the
+  same command layer — no second assistant engine
 
 The UI is the production interface, not a prototype: it is SwiftUI, it sits on
 the existing architecture, and it calls the same protocols the Apple
@@ -139,6 +141,7 @@ PhonePersonalAI/
 │   ├── Data/                   Centralised demo content
 │   ├── Presentation/           Domain → display mapping
 │   ├── ViewModels/             Per-screen state
+│   ├── Intents/                App Intents: Siri, Shortcuts, Action Button
 │   ├── UI/                     Views and reusable components
 │   ├── Platform/               Keychain credential store
 │   └── Resources/              Assets, Info.plist
@@ -149,6 +152,7 @@ PhonePersonalAI/
     ├── OPEN-ITEMS.md        Everything incomplete, unverified or limited
     ├── PLATFORM-APPLE.md    EventKit, UserNotifications, AlarmKit
     ├── VOICE.md             Speech in, speech out
+    ├── SYSTEM-INTENTS.md    Siri, Shortcuts and the Action Button
     ├── APPLE-ON-DEVICE.md   Foundation Models
     ├── REMOTE-AI.md         The cloud provider and its credentials
     ├── PERSISTENCE.md       SwiftData schema and migration

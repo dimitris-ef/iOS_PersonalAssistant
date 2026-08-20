@@ -24,6 +24,11 @@ import Foundation
 /// memory, routes to the selected provider, and validates, authorizes and
 /// executes any tool calls that come back. Asking Siri to set a reminder runs
 /// the identical pipeline as typing it.
+/// TODO-DEVICE: Siri discovering this at all, whether the phrases in
+/// `AssistantAppShortcuts` are recognised as written, and whether
+/// `openAppWhenRun = false` really lets the whole engine turn complete in the
+/// background — including whether the Keychain is readable and Apple
+/// Intelligence usable when Siri woke the process rather than the user.
 struct AskAssistantIntent: AppIntent {
     static var title: LocalizedStringResource = "Ask Assistant"
     static var description = IntentDescription(

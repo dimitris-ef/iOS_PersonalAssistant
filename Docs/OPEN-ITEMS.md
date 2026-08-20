@@ -15,7 +15,7 @@ was fixed.
 
 ```bash
 grep -rn "TODO-XCODE"  --include=*.swift --include=*.yml .   # 27 — needs Xcode or an Apple SDK
-grep -rn "TODO-DEVICE" --include=*.swift .                   # 11 — compiles, never executed
+grep -rn "TODO-DEVICE" --include=*.swift .                   # 13 — compiles, never executed
 ```
 
 Restrict the grep to source. Counting `Docs/` as well inflates both numbers,
@@ -45,6 +45,9 @@ trade-off changes, not when someone notices the symptom.
 | 12 | **An interrupted recording is discarded, not resumed.** A phone call mid-sentence ends the attempt and offers Retry. | Audio captured across an interruption is missing the middle of the sentence, and this assistant *acts* on what it hears — half a command submitted is worse than none. | `AppleSpeechInputService.interrupted()` |
 | 13 | **Cancellation is an event, not a state.** The milestone's sketch lists `cancelled` beside `idle`. | Nothing rests there: the user just pressed Cancel and knows it, so a "Cancelled" screen to dismiss is worse than the composer returning. `failed` *is* a state, because there is something to say and a decision to make. | `VoiceSession` |
 | 14 | **Voice input source is not stored on the message.** Only the reply's spokenness depends on it. | Forking messages into spoken and typed kinds would make every reader handle both, for a distinction that matters for exactly one decision — and that decision is made before the message is saved. | `MessageInputSource` |
+| 15 | **Structured intents log nothing to the conversation.** Adding a task through Shortcuts leaves no chat message. | The task *is* the record. A fabricated "I created a task" message would be the app talking to itself, and would make the conversation a log rather than a conversation. | `AssistantCommandService` |
+| 16 | **`AskAssistantIntent` shortens long replies for Siri.** The full text is still persisted. | Siri reading a 600-word answer is an answer nobody retains. The provider's own behaviour is untouched — only what the system surface reads aloud is trimmed, and it is cut at a sentence boundary. | `AssistantCommandService.concise` |
+| 17 | **Only a Task entity is exposed, not Memory or CalendarItem entities.** | An entity earns its place by making system interaction materially better, which for tasks means the completion picker. Nothing in this milestone needs to pick a memory, and unused system-model duplication is surface to maintain for no benefit. | `TaskEntity` |
 
 ---
 
@@ -75,6 +78,12 @@ framework calls themselves are unexercised.
 | Voice | A phone call arriving while listening, and Retry working afterwards | `AppleSpeechInputService` |
 | Voice | The TTS → microphone handoff: that `.immediate` really stops the recogniser hearing the assistant's own tail | `AppleSpeechOutputService` |
 | Voice | Whether `.playAndRecord` with `.duckOthers` behaves acceptably over music already playing | `AppleSpeechInputService` |
+| Siri | Discovery of the app's shortcuts, and whether the phrases are recognised as written | `AssistantAppShortcuts` |
+| Siri | Shortcuts app discovery and how the parameter prompts read | `AssistantIntents` |
+| Siri | Action Button assignment and invocation | `AssistantAppShortcuts` |
+| Siri | Whether `openAppWhenRun = false` lets a whole engine turn finish in the background, and the system's real time limit | `AskAssistantIntent` |
+| Siri | Provider availability when Siri woke the process — Keychain readability, Apple Intelligence usability | `AskAssistantIntent` |
+| Siri | Opening the SwiftData store from a background launch | `AppIntentDependencies` |
 
 **The first scenario worth running**, because it tests the product's founding
 claim end to end: ask for a reminder in ten minutes, lock the phone, and swipe
@@ -114,6 +123,11 @@ everything that is wrong.
 | Swift Tests | macos-26 | The full suite compiles and runs, including the routing, identity, escalation, recurrence and permission mappings, the voice state machine and coordinator, and the EventKit and UserNotifications code (which compiles on macOS) |
 | Apple SDK Check | macos-26 | EventKit, UserNotifications, AlarmKit and FoundationModels are present in the SDK, are really referenced by the built binary, and the two iOS 26 frameworks are **weakly** linked — the check that stops a launch crash on every iPhone below iOS 26. The Speech and AVFAudio code compiles here too, since `AppleSpeechInputService` is iOS-only |
 | iOS Simulator Preview | macos-15 | The app builds against an older SDK (where AlarmKit does not exist), launches and renders |
+
+App Intents definitions are validated by the compiler: a malformed
+`ParameterSummary`, a phrase missing `\(.applicationName)`, or an entity with no
+query are compile-time failures, so a green Apple SDK Check is meaningful
+validation of the intent metadata — not merely that the files parse.
 
 ## Keeping this file honest
 

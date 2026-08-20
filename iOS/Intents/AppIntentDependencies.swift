@@ -47,6 +47,9 @@ enum AppIntentDependencies {
     /// store must say so — quietly succeeding while writing nowhere is the
     /// worst outcome available, because Siri would confirm a task that does not
     /// exist.
+    /// TODO-DEVICE: opening the store from a background launch, when Siri
+    /// started the process rather than the user, has never run. The foreground
+    /// path is exercised on every app launch; this one is not.
     static func environment() throws -> AppEnvironment {
         if let cached { return cached }
         let created = try AppEnvironment.makePersistent()
