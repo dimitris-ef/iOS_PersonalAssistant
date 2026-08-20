@@ -54,6 +54,9 @@ let package = Package(
         // the target still builds on Linux and Windows, where it contains only
         // the mapping layer.
         .library(name: "AssistantPlatformApple", targets: ["AssistantPlatformApple"]),
+        // Speech in, speech out. The state machine is framework-free and builds
+        // everywhere; the Apple implementations are iOS-only and behind guards.
+        .library(name: "AssistantVoice", targets: ["AssistantVoice"]),
         .library(name: "AIProviderRemote", targets: ["AIProviderRemote"]),
         .library(name: "AIProviderApple", targets: ["AIProviderApple"]),
         .library(name: "AIProviderLocal", targets: ["AIProviderLocal"]),
@@ -136,6 +139,15 @@ let package = Package(
             dependencies: ["AssistantDomain", "AssistantPlatform", "ExecutiveSupport"]
         ),
 
+        // Voice input and output.
+        //
+        // Depends on *nothing* in this package, which is the architectural
+        // claim of the milestone expressed as a dependency list: the voice
+        // layer cannot reach the engine, a provider, a repository or a
+        // platform service, because none of them is available to it. It turns
+        // speech into a `String` and hands it to a closure.
+        .target(name: "AssistantVoice"),
+
         // MARK: AI providers
 
         .target(name: "AIProviderRemote", dependencies: ["AssistantDomain", "AssistantAI"]),
@@ -208,6 +220,10 @@ let package = Package(
                 // than inside the Apple provider's own tests.
                 "AIProviderApple",
             ]
+        ),
+        .testTarget(
+            name: "AssistantVoiceTests",
+            dependencies: ["AssistantVoice"]
         ),
         .testTarget(
             name: "AssistantPlatformAppleTests",
