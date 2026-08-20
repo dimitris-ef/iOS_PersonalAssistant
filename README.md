@@ -57,8 +57,8 @@ mocks. Widgets, Live Activities, CarPlay and a Watch app do not exist yet — se
 > | Workflow | Runner | What it proves |
 > | --- | --- | --- |
 > | iOS Simulator Preview | macos-15, Xcode 16.4 | The app builds, launches and renders |
-> | Apple SDK Check | macos-26, Xcode 26.6 | Foundation Models, AlarmKit, EventKit, UserNotifications, Speech and AVFAudio are really compiled in, and the two iOS 26 frameworks are weakly linked |
-> | Swift Tests | macos-26, Xcode 26.6 | 377 tests, 0 failures |
+> | Apple SDK Check | macos-26, Xcode 26.6 | Foundation Models, AlarmKit, EventKit, UserNotifications, Speech, AVFAudio and App Intents are really compiled in, and the two iOS 26 frameworks are weakly linked |
+> | Swift Tests | macos-26, Xcode 26.6 | 400 tests, 0 failures |
 >
 > What remains unverified is narrower now: **nothing has run on a device.** The
 > Apple integrations compile, link, and have their decisions tested — which
@@ -66,8 +66,8 @@ mocks. Widgets, Live Activities, CarPlay and a Watch app do not exist yet — se
 > an identifier round-trips — but no permission alert has appeared, no
 > notification has been delivered, no alarm has sounded, no word has been
 > spoken or heard, and no generation has happened. A CI runner has no calendar
-> database, no notification centre, no alarm daemon, no microphone and no Apple
-> Intelligence. See [Open items](Docs/OPEN-ITEMS.md).
+> database, no notification centre, no alarm daemon, no microphone, no Siri and
+> no Apple Intelligence. See [Open items](Docs/OPEN-ITEMS.md).
 
 ---
 
