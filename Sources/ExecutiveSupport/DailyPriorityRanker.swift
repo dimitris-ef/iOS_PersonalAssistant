@@ -156,7 +156,9 @@ public struct DailyPriorityRanker: Sendable {
 
         let scored = open.map { task -> RankedTask in
             let blocked = graph.blockedReason(for: task)
-            let timeline = preparation.timeline(for: task, now: now)
+            let timeline = Self.hasPreparation(task)
+                ? preparation.timeline(for: task, now: now)
+                : nil
             return RankedTask(
                 task: task,
                 score: score(task, blocked: blocked, timeline: timeline, now: now, calendar: calendar),
@@ -176,6 +178,20 @@ public struct DailyPriorityRanker: Sendable {
         }
 
         return liftPrerequisites(ordered, graph: graph)
+    }
+
+    /// Whether there is anything to get ready for.
+    ///
+    /// Without this every task would earn the preparation weight, because a
+    /// timeline can be computed for anything with a date — it would just be a
+    /// zero-length plan ending at the buffer. That is not "you should be
+    /// getting ready now", it is "this is soon", and urgency already says so.
+    /// Worse, an old overdue task's degenerate timeline reads as *behind*,
+    /// which would quietly hand a month-old errand the top of the list.
+    private static func hasPreparation(_ task: TaskItem) -> Bool {
+        !task.preparationSteps.isEmpty
+            || (task.preparationDuration ?? 0) > 0
+            || (task.travelDuration ?? 0) > 0
     }
 
     // MARK: Scoring
