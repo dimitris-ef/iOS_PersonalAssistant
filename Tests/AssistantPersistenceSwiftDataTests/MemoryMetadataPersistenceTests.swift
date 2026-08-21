@@ -197,8 +197,8 @@ final class MemoryMetadataPersistenceTests: PersistenceTestCase {
         // an existential metatype to reach a static protocol member is the
         // trigger. So this line costs one edit per schema version, which is
         // the price of compiling.
-        XCTAssertEqual(store.container.schema.version, PersonalAssistantSchemaV5.versionIdentifier)
-        XCTAssertEqual(PersonalAssistantSchemaV5.versionIdentifier, Schema.Version(5, 0, 0))
+        XCTAssertEqual(store.container.schema.version, PersonalAssistantSchemaV6.versionIdentifier)
+        XCTAssertEqual(PersonalAssistantSchemaV6.versionIdentifier, Schema.Version(6, 0, 0))
     }
 }
 

@@ -65,13 +65,17 @@ public struct FollowUpTiming: Hashable, Sendable {
     /// when several missed stages reconcile at once.
     public var maximumInterventionsPerDay: Int
 
-    /// Extra weight, in attempts, carried by a reminder the user actively
-    /// swiped away versus one they never saw.
+    /// Extra weight carried by each dismissal *after the first*.
     ///
     /// Dismissal and silence are different signals. Someone who dismissed three
     /// reminders has decided not to act three times, which calls for a
     /// different approach sooner than three notifications that arrived while
     /// their phone was face-down in a bag.
+    ///
+    /// After the first, because the first is already counted: dismissing a
+    /// reminder spends a follow-up, and `followUpCount` has gone up. What the
+    /// dismissal count adds that nothing else knows is that it *keeps
+    /// happening*. See ``pressure(for:)``.
     public var dismissalWeight: Int
 
     public init(
@@ -172,20 +176,37 @@ public struct FollowUpTiming: Hashable, Sendable {
 
     /// How much pressure a task has already absorbed.
     ///
-    /// The single number the escalation rules read, assembled from the four
-    /// things the user actually did: reminders that went unanswered, reminders
-    /// they dismissed, times they pushed it back, and follow-ups already spent.
-    /// Section 26 lists these as separate inputs; collapsing them here — with
-    /// dismissals weighted heavier than silence — keeps every call site from
-    /// having to remember all four.
+    /// The single number the escalation rules read. Section 26 lists misses,
+    /// dismissals, repeated snoozes and spent follow-ups as separate inputs;
+    /// collapsing them here saves every call site from having to remember all
+    /// four.
+    ///
+    /// ## Why this is not the sum of all four counters
+    ///
+    /// Because they overlap, and adding them counts the same event twice. Both
+    /// a miss and a dismissal spend a follow-up — `TaskStatusMachine`
+    /// increments `followUpCount` for each — so `followUpCount` is already the
+    /// number of attempts, and `missCount` is a *classification* of those
+    /// attempts, not additional ones. Summing them made one dismissal register
+    /// as two failed attempts, which halved the interval twice and collapsed
+    /// `.high` and `.critical` onto the same ten-minute floor: the priority
+    /// ladder stopped meaning anything.
+    ///
+    /// So:
+    ///
+    /// - **follow-ups** count in full — they *are* the attempts;
+    /// - **snoozes** count in full — a snooze defers without spending a
+    ///   follow-up, so it is pressure nothing else has recorded;
+    /// - **dismissals** count only beyond the first, weighted. The first is
+    ///   already in `followUpCount`; what the count adds is that it keeps
+    ///   happening, which silence does not tell you.
     ///
     /// Deliberately not a model call. This has to give the same answer offline,
     /// instantly, at three in the morning.
     public func pressure(for task: TaskItem) -> Int {
         task.followUpCount
-            + task.missCount
             + task.snoozeCount
-            + task.dismissalCount * max(1, dismissalWeight)
+            + max(0, task.dismissalCount - 1) * max(0, dismissalWeight)
     }
 
     /// Whether this task has already had its share of interruptions today.
