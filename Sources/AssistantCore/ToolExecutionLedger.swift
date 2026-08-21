@@ -93,12 +93,16 @@ public actor ToolExecutionLedger {
     ///
     /// Bounded because this actor lives as long as the engine does, and an
     /// unbounded dictionary of every action of every conversation would be a
-    /// leak that grows for exactly as long as someone uses the app. Two turns
-    /// is enough for the only cross-turn case that matters — a confirmation
-    /// answered immediately after the turn that proposed it.
+    /// leak that grows for exactly as long as someone uses the app.
+    ///
+    /// Four rather than two, because turns are not the only scope here: a
+    /// structured request through `AssistantEngine.perform` brings its own
+    /// idempotency key, and a Shortcut running while a chat turn is in flight
+    /// would otherwise be able to evict that turn's own entries and undo its
+    /// duplicate protection half way through.
     private let retainedScopes: Int
 
-    public init(retainedScopes: Int = 2) {
+    public init(retainedScopes: Int = 4) {
         self.retainedScopes = max(1, retainedScopes)
     }
 
