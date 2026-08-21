@@ -72,7 +72,13 @@ public struct ToolFingerprint: Hashable, Sendable, CustomStringConvertible {
     /// for a dictionary key would be the wrong trade.
     static func digest(of text: String) -> String {
         var hash: UInt64 = 0xcbf2_9ce4_8422_2325
-        let prime: UInt64 = 0x1000_0000_01b3
+        // Written without digit grouping on purpose. The FNV prime is eleven
+        // hex digits, so any grouping into fours misaligns it — an earlier
+        // version read `0x1000_0000_01b3`, which is a *different*, larger
+        // number. It still hashed deterministically, which is why nothing
+        // failed except the one test that checks this against the published
+        // value. That test is the whole reason the mistake was found.
+        let prime: UInt64 = 0x100000001b3
         for byte in text.utf8 {
             hash ^= UInt64(byte)
             hash = hash &* prime

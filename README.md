@@ -37,6 +37,9 @@ exists:
   submission path rather than adding a second assistant
 - **Siri, Shortcuts and Action Button access** through App Intents, over the
   same command layer — no second assistant engine
+- **a bounded multi-round agent loop**: one message can need several coordinated
+  actions, the model sees what each one really did before choosing the next, and
+  nothing can happen twice
 
 The UI is the production interface, not a prototype: it is SwiftUI, it sits on
 the existing architecture, and it calls the same protocols the Apple
@@ -150,6 +153,7 @@ PhonePersonalAI/
 ├── project.yml                 XcodeGen spec for the app target
 └── Docs/
     ├── ARCHITECTURE.md      Decisions and module boundaries
+    ├── AGENT.md             The multi-round tool loop
     ├── UI-ARCHITECTURE.md   How the SwiftUI layer is organised
     ├── OPEN-ITEMS.md        Everything incomplete, unverified or limited
     ├── PLATFORM-APPLE.md    EventKit, UserNotifications, AlarmKit

@@ -47,11 +47,15 @@ public struct TurnSummarizer: Sendable {
 
         switch stopReason {
         case .providerFailed:
-            sentences.append(
-                done.isEmpty
-                    ? "I couldn't get a reply from the model."
-                    : "I finished what you asked for, but couldn't write the reply myself."
-            )
+            if done.isEmpty {
+                sentences.append("I couldn't get a reply from the model.")
+            } else if problems.isEmpty {
+                sentences.append("I finished what you asked for, but couldn't write the reply myself.")
+            } else {
+                // Not "I finished what you asked for" — something did not
+                // happen, and it is named in the sentences below.
+                sentences.append("I couldn't write the reply myself, so here is what happened.")
+            }
         case .agentRoundLimitExceeded, .repeatedProposals:
             sentences.append("I couldn't finish that request cleanly, so I stopped.")
         case .toolBudgetExhausted:
