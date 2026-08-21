@@ -23,6 +23,13 @@ public enum ToolKind: String, Hashable, Codable, Sendable, CaseIterable {
     case completeTask
     case createFollowUp
     case getUpcomingSchedule
+    /// Set up a recurring responsibility — the definition, not one occurrence.
+    case createRoutine
+    /// Say that one task must happen before another.
+    case addTaskDependency
+    /// "Help me start." Produces the first concrete step and moves the task
+    /// into progress. Never completes anything.
+    case startTask
     /// Ask the user one focused question instead of guessing.
     ///
     /// The odd one out: it changes nothing, and the application never executes
@@ -53,7 +60,8 @@ public enum ToolKind: String, Hashable, Codable, Sendable, CaseIterable {
              .scheduleNotification:
             return true
         case .storeMemory, .updateMemory, .createTask, .completeTask,
-             .createFollowUp, .getUpcomingSchedule, .askClarification:
+             .createFollowUp, .getUpcomingSchedule, .askClarification,
+             .createRoutine, .addTaskDependency, .startTask:
             return false
         }
     }

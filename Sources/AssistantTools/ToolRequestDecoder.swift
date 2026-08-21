@@ -142,6 +142,12 @@ public struct ToolRequestDecoder: Sendable {
             return .createFollowUp(try input(CreateFollowUpInput.self))
         case .getUpcomingSchedule:
             return .getUpcomingSchedule(try input(GetUpcomingScheduleInput.self))
+        case .createRoutine:
+            return .createRoutine(try input(CreateRoutineInput.self))
+        case .addTaskDependency:
+            return .addTaskDependency(try input(AddTaskDependencyInput.self))
+        case .startTask:
+            return .startTask(try input(StartTaskInput.self))
         case .askClarification:
             return .askClarification(try input(AskClarificationInput.self))
         }
@@ -172,6 +178,52 @@ public struct ToolRequestDecoder: Sendable {
 
         case .createTask(let input):
             try requireNonEmpty(input.title, field: "title", kind: request.kind)
+            try requireSaneDuration(input.estimatedMinutes, field: "estimatedMinutes", kind: request.kind)
+            try requireSaneSteps(input.preparationSteps, kind: request.kind)
+
+        case .createRoutine(let input):
+            try requireNonEmpty(input.title, field: "title", kind: request.kind)
+            // The rule itself. This is where "every 0 days", "weekly on no
+            // days", "the 45th of the month" and "ends before it starts" are
+            // refused — section 55, before anything can be persisted and long
+            // before an occurrence generator would have to cope with it.
+            do {
+                _ = try input.recurrence.resolvedRule(now: dateProvider.now)
+            } catch {
+                throw ToolDecodingError.failedValidation(
+                    kind: request.kind,
+                    detail: String(describing: error)
+                )
+            }
+            try requireSaneSteps(input.preparationSteps, kind: request.kind)
+            try requireSaneDuration(
+                input.preparationDurationMinutes,
+                field: "preparationDurationMinutes",
+                kind: request.kind
+            )
+            try requireSaneDuration(
+                input.travelDurationMinutes,
+                field: "travelDurationMinutes",
+                kind: request.kind
+            )
+            if let window = input.recoveryWindowMinutes, window < 0 {
+                throw ToolDecodingError.failedValidation(
+                    kind: request.kind,
+                    detail: "recoveryWindowMinutes is negative"
+                )
+            }
+
+        case .addTaskDependency(let input):
+            // A task cannot wait for itself. Longer cycles need every task to
+            // check against, so they are caught at execution — but this one is
+            // decidable here, and catching it here means the model gets told
+            // immediately rather than after authorization.
+            if input.prerequisiteTaskID == input.dependentTaskID {
+                throw ToolDecodingError.failedValidation(
+                    kind: request.kind,
+                    detail: "a task cannot depend on itself"
+                )
+            }
 
         case .storeMemory(let input):
             try requireNonEmpty(input.content, field: "content", kind: request.kind)
@@ -186,7 +238,7 @@ public struct ToolRequestDecoder: Sendable {
 
         case .updateCalendarEvent, .deleteCalendarEvent, .completeReminder,
              .updateAlarm, .cancelAlarm, .updateMemory, .completeTask,
-             .getUpcomingSchedule:
+             .getUpcomingSchedule, .startTask:
             break
         }
     }
@@ -194,6 +246,59 @@ public struct ToolRequestDecoder: Sendable {
     private func requireNonEmpty(_ value: String, field: String, kind: ToolKind) throws {
         if value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             throw ToolDecodingError.failedValidation(kind: kind, detail: "\(field) is empty")
+        }
+    }
+
+    /// Section 57: absurd durations, refused rather than clamped.
+    ///
+    /// Clamping would be friendlier and worse. A model that says a shower takes
+    /// six hours has misunderstood something, and silently rewriting it to two
+    /// leaves the user with a plan nobody agreed to; a rejection gets corrected
+    /// on the next round of the loop.
+    private func requireSaneDuration(_ minutes: Int?, field: String, kind: ToolKind) throws {
+        guard let minutes else { return }
+        if minutes < 0 {
+            throw ToolDecodingError.failedValidation(kind: kind, detail: "\(field) is negative")
+        }
+        if minutes > 12 * 60 {
+            throw ToolDecodingError.failedValidation(
+                kind: kind,
+                detail: "\(field) of \(minutes) minutes is implausible"
+            )
+        }
+    }
+
+    private func requireSaneSteps(_ steps: [PreparationStepInput]?, kind: ToolKind) throws {
+        guard let steps else { return }
+        if steps.count > 8 {
+            throw ToolDecodingError.failedValidation(
+                kind: kind,
+                detail: "too many preparation steps (\(steps.count))"
+            )
+        }
+        for step in steps {
+            try requireNonEmpty(step.title, field: "preparation step title", kind: kind)
+            if let minutes = step.estimatedMinutes {
+                if minutes < 0 {
+                    throw ToolDecodingError.failedValidation(
+                        kind: kind,
+                        detail: "preparation step duration is negative"
+                    )
+                }
+                if TimeSpan.minutes(Double(minutes)) > PreparationStepInput.maximumDuration {
+                    throw ToolDecodingError.failedValidation(
+                        kind: kind,
+                        detail: "preparation step \"\(step.title)\" claims \(minutes) minutes"
+                    )
+                }
+            }
+            if let necessity = step.necessity,
+               StepNecessity(rawValue: necessity.lowercased()) == nil {
+                throw ToolDecodingError.failedValidation(
+                    kind: kind,
+                    detail: "\"\(necessity)\" is not a step necessity"
+                )
+            }
         }
     }
 

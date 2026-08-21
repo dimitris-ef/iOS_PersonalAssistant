@@ -14,19 +14,27 @@ public struct FollowUpResult: Sendable {
     public var rationale: String?
     /// False when the outcome had already been applied and nothing changed.
     public var didChange: Bool
+    /// Tasks that became workable because this one is now settled.
+    ///
+    /// Returned rather than merely persisted so the caller can say so — "the
+    /// documents are printed, you can leave now" is the moment the dependency
+    /// feature exists for, and a UI that has to poll for it would miss it.
+    public var unblocked: [TaskItem]
 
     public init(
         task: TaskItem,
         plan: ReminderPlan?,
         nextReminder: ScheduledReminder? = nil,
         rationale: String? = nil,
-        didChange: Bool = true
+        didChange: Bool = true,
+        unblocked: [TaskItem] = []
     ) {
         self.task = task
         self.plan = plan
         self.nextReminder = nextReminder
         self.rationale = rationale
         self.didChange = didChange
+        self.unblocked = unblocked
     }
 }
 
@@ -104,7 +112,8 @@ public struct FollowUpService: Sendable {
             plan: decision.plan,
             nextReminder: decision.schedule.first,
             rationale: decision.rationale,
-            didChange: decision.didChange
+            didChange: decision.didChange,
+            unblocked: try await unblock(after: decision.task)
         )
     }
 
@@ -269,7 +278,44 @@ public struct FollowUpService: Sendable {
         // change and nothing else — which is correct, because nothing ever
         // offered to remind the user about it.
         try await repositories.tasks.save(decision.task)
-        return FollowUpResult(task: decision.task, plan: nil, rationale: decision.rationale)
+        return FollowUpResult(
+            task: decision.task,
+            plan: nil,
+            rationale: decision.rationale,
+            unblocked: try await unblock(after: decision.task)
+        )
+    }
+
+    // MARK: Dependencies
+
+    /// Re-evaluates whatever was waiting on this task.
+    ///
+    /// Runs on every settlement, not only on completion. A prerequisite that
+    /// was skipped or has expired is never going to be completed either, and
+    /// leaving its dependents blocked forever would turn one missed step into a
+    /// permanently stuck list — section 15's nagging problem inverted.
+    ///
+    /// Each newly workable task gets its status nudged off `notStarted` so the
+    /// change is visible and persisted; support for it is planned the next time
+    /// something happens to it, exactly as for any other task. Section 16 asks
+    /// that the user not have to reopen the app for this, and this is what
+    /// makes that true — the work happens when the prerequisite resolves, not
+    /// when a screen appears.
+    private func unblock(after task: TaskItem) async throws -> [TaskItem] {
+        guard task.status.isSettled else { return [] }
+
+        let all = try await repositories.tasks.tasks(matching: TaskFilter())
+        let graph = TaskDependencyGraph(tasks: all)
+        let newly = graph.unblocked(by: task.id)
+        guard !newly.isEmpty else { return [] }
+
+        var updated: [TaskItem] = []
+        for var candidate in newly {
+            candidate.updatedAt = dateProvider.now
+            try await repositories.tasks.save(candidate)
+            updated.append(candidate)
+        }
+        return updated
     }
 
     private func planningContext() async throws -> SupportPlanningContext {

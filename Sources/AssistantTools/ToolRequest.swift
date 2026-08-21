@@ -30,6 +30,9 @@ public enum ToolRequest: Hashable, Codable, Sendable {
     case completeTask(CompleteTaskInput)
     case createFollowUp(CreateFollowUpInput)
     case getUpcomingSchedule(GetUpcomingScheduleInput)
+    case createRoutine(CreateRoutineInput)
+    case addTaskDependency(AddTaskDependencyInput)
+    case startTask(StartTaskInput)
     case askClarification(AskClarificationInput)
 
     public var kind: ToolKind {
@@ -49,6 +52,9 @@ public enum ToolRequest: Hashable, Codable, Sendable {
         case .completeTask: return .completeTask
         case .createFollowUp: return .createFollowUp
         case .getUpcomingSchedule: return .getUpcomingSchedule
+        case .createRoutine: return .createRoutine
+        case .addTaskDependency: return .addTaskDependency
+        case .startTask: return .startTask
         case .askClarification: return .askClarification
         }
     }
@@ -86,6 +92,12 @@ public enum ToolRequest: Hashable, Codable, Sendable {
             return "Follow up on \(input.taskID) at \(Self.format(input.checkBackAt))"
         case .getUpcomingSchedule:
             return "Read upcoming schedule"
+        case .createRoutine(let input):
+            return "Routine \"\(input.title)\" (\(input.recurrence.frequency))"
+        case .addTaskDependency(let input):
+            return "\(input.dependentTaskID) waits for \(input.prerequisiteTaskID)"
+        case .startTask(let input):
+            return "Start task \(input.taskID)"
         case .askClarification(let input):
             return "Ask: \(input.question)"
         }

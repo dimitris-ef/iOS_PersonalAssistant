@@ -17,6 +17,29 @@ public struct TodayItem: Identifiable, Hashable, Sendable {
         /// "Leave now."
         case leave
         case reminder
+        /// One occurrence of a recurring responsibility.
+        case routine
+    }
+
+    /// Why this is on the list, beyond simply being scheduled.
+    ///
+    /// Presentation reads this to choose a badge — "Blocked", "Recovery",
+    /// "Up next" — without re-deriving any of it from the task. Section 67
+    /// asks the Today screen to show advanced support meaningfully, and this is
+    /// what makes that possible without the view growing its own opinions.
+    public enum Emphasis: String, Hashable, Sendable {
+        /// Nothing special; it is simply due.
+        case none
+        /// The most pressing thing right now.
+        case upNext
+        /// Waiting on an unfinished prerequisite.
+        case blocked
+        /// Missed and still worth doing.
+        case recovery
+        /// Its preparation should be starting about now.
+        case startNow
+        /// Running late against its own plan.
+        case behind
     }
 
     public enum Reference: Hashable, Sendable {
@@ -31,6 +54,9 @@ public struct TodayItem: Identifiable, Hashable, Sendable {
     public var reference: Reference
     public var isDone: Bool
     public var hasPassed: Bool
+    public var emphasis: Emphasis
+    /// One line saying what it is waiting on, when it is waiting on something.
+    public var detail: String?
 
     public init(
         id: String,
@@ -39,7 +65,9 @@ public struct TodayItem: Identifiable, Hashable, Sendable {
         kind: Kind,
         reference: Reference,
         isDone: Bool,
-        hasPassed: Bool
+        hasPassed: Bool,
+        emphasis: Emphasis = .none,
+        detail: String? = nil
     ) {
         self.id = id
         self.date = date
@@ -48,6 +76,8 @@ public struct TodayItem: Identifiable, Hashable, Sendable {
         self.reference = reference
         self.isDone = isDone
         self.hasPassed = hasPassed
+        self.emphasis = emphasis
+        self.detail = detail
     }
 }
 
@@ -125,10 +155,16 @@ public struct TodayBriefing: Hashable, Sendable {
 public struct TodayBriefingBuilder: Sendable {
     private let now: Date
     private let calendar: Calendar
+    private let ranker: DailyPriorityRanker
 
-    public init(now: Date, calendar: Calendar = .current) {
+    public init(
+        now: Date,
+        calendar: Calendar = .current,
+        ranker: DailyPriorityRanker = DailyPriorityRanker()
+    ) {
         self.now = now
         self.calendar = calendar
+        self.ranker = ranker
     }
 
     public func build(
@@ -152,23 +188,36 @@ public struct TodayBriefingBuilder: Sendable {
             )
         }
 
-        for task in tasks {
-            guard let date = task.timing.anchorDate ?? task.deadline else { continue }
-            guard calendar.isDate(date, inSameDayAs: now) else { continue }
-            // A cancelled task is not part of the day. A completed one is —
-            // it shows as done, because seeing what you finished is part of
-            // the point.
-            guard task.status != .cancelled else { continue }
+        // Ranking runs over *every* task, not just today's, because whether
+        // something is blocked depends on tasks that may be due next week. The
+        // day is then filtered out of the ranked result, so a row's emphasis
+        // reflects the whole picture rather than one day's slice of it.
+        let ranked = ranker.rank(tasks, now: now, calendar: calendar)
+        let rankedByID = Dictionary(ranked.map { ($0.task.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let topID = ranked.first { !$0.isBlocked }?.task.id
 
+        for task in tasks {
+            guard let date = task.anchorDate else { continue }
+            guard calendar.isDate(date, inSameDayAs: now) else { continue }
+            // A cancelled task is not part of the day, and neither is a skipped
+            // occurrence — the user already answered that question. A completed
+            // one is, shown as done, because seeing what you finished is part
+            // of the point. An expired one stays too: quietly vanishing is how
+            // someone learns not to trust the list.
+            guard task.status != .cancelled, task.status != .skipped else { continue }
+
+            let entry = rankedByID[task.id]
             items.append(
                 TodayItem(
                     id: "task-\(task.id)",
                     date: date,
                     title: task.title,
-                    kind: .task,
+                    kind: task.isRoutineOccurrence ? .routine : .task,
                     reference: .task(task.id),
                     isDone: task.status == .completed,
-                    hasPassed: date < now
+                    hasPassed: date < now,
+                    emphasis: Self.emphasis(for: task, ranked: entry, isTop: task.id == topID, now: now),
+                    detail: entry?.blocked?.summary
                 )
             )
         }
@@ -200,6 +249,27 @@ public struct TodayBriefingBuilder: Sendable {
         }
 
         return TodayBriefing(items: items.sorted { $0.date < $1.date }, now: now)
+    }
+
+    /// Why a row is worth looking at.
+    ///
+    /// One place, so the badge on the Today screen and anything Siri says about
+    /// the same item cannot disagree. Order matters: blocked outranks
+    /// everything, because a task you cannot start is not "up next" however
+    /// urgent it looks.
+    private static func emphasis(
+        for task: TaskItem,
+        ranked: RankedTask?,
+        isTop: Bool,
+        now: Date
+    ) -> TodayItem.Emphasis {
+        if ranked?.isBlocked == true { return .blocked }
+        if task.status == .missed || task.status == .needsFollowUp { return .recovery }
+        if let start = ranked?.preparationStart {
+            if start <= now { return .behind }
+            if start.timeIntervalSince(now) <= TimeSpan.hours(1) { return .startNow }
+        }
+        return isTop ? .upNext : .none
     }
 
     /// Only stages representing something the user has to *do* earn a place.

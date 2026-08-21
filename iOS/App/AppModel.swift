@@ -511,9 +511,21 @@ final class AppModel {
     /// stop.
     func reconcileFollowUps() async {
         do {
+            // Routines first. Generating today's occurrences before reconciling
+            // reminders means a routine whose moment passed while the app was
+            // closed is caught in the same pass, rather than appearing an hour
+            // later once something else happened to trigger a reload.
+            let recurring = try await environment.engine.routines.reconcileAll()
             let results = try await environment.engine.followUp.reconcile()
-            guard !results.isEmpty else { return }
+            guard !results.isEmpty || recurring.didChange else { return }
             await reload()
+
+            if results.isEmpty {
+                // Occurrences appeared or expired, but no reminder was missed.
+                // Nothing to announce: the Today list already shows it, and a
+                // banner for "your routine still exists" is noise.
+                return
+            }
 
             // Said out loud rather than silently rescheduling. Repeated
             // interventions the user cannot see or explain are how an assistant

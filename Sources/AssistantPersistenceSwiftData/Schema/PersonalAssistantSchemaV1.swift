@@ -314,6 +314,11 @@ public final class SDTask {
     public var travelDuration: Double?
 
     /// `RecurrenceRule`, decomposed. Nil `recurrenceKind` means no recurrence.
+    ///
+    /// Dormant since schema V6: recurrence became a property of `SDRoutine`,
+    /// because a recurring responsibility and one of its occurrences are
+    /// different things and only the first has a rule. The columns stay — a
+    /// schema does not delete — and nothing writes them any more.
     public var recurrenceKind: String?
     public var recurrenceInterval: Int?
     public var recurrenceWeekdays: [Int]?
@@ -326,6 +331,31 @@ public final class SDTask {
     public var createdAt: Date
     public var updatedAt: Date
     public var completedAt: Date?
+
+    // MARK: Added in schema V6
+
+    /// Roughly how long the work itself takes, once started.
+    public var estimatedDuration: Double?
+    /// The recurring responsibility this is one occurrence of.
+    public var routineID: UUID?
+    /// Which occurrence — the scheduled moment, not when the row was made.
+    ///
+    /// Together with `routineID` this is the occurrence's natural key. The row
+    /// id is *derived* from the same pair, so regenerating an occurrence
+    /// rewrites it rather than creating a second one.
+    public var occurrenceDate: Date?
+    /// Tasks that must be settled before this one is worth doing.
+    public var dependsOn: [UUID]?
+    /// `[PreparationStep]` as JSON.
+    public var preparationStepsJSON: Data?
+    /// Reminders swiped away without resolving anything.
+    ///
+    /// Declared with a default so existing rows migrate without computation,
+    /// and zero is the truthful value for them: nothing was counted before, so
+    /// nothing is claimed.
+    public var dismissalCount: Int = 0
+    /// Reminders that went entirely unanswered.
+    public var missCount: Int = 0
 
     public init(
         id: UUID,
@@ -350,7 +380,14 @@ public final class SDTask {
         snoozeCount: Int,
         createdAt: Date,
         updatedAt: Date,
-        completedAt: Date?
+        completedAt: Date?,
+        estimatedDuration: Double? = nil,
+        routineID: UUID? = nil,
+        occurrenceDate: Date? = nil,
+        dependsOn: [UUID]? = nil,
+        preparationStepsJSON: Data? = nil,
+        dismissalCount: Int = 0,
+        missCount: Int = 0
     ) {
         self.id = id
         self.title = title
@@ -375,6 +412,13 @@ public final class SDTask {
         self.createdAt = createdAt
         self.updatedAt = updatedAt
         self.completedAt = completedAt
+        self.estimatedDuration = estimatedDuration
+        self.routineID = routineID
+        self.occurrenceDate = occurrenceDate
+        self.dependsOn = dependsOn
+        self.preparationStepsJSON = preparationStepsJSON
+        self.dismissalCount = dismissalCount
+        self.missCount = missCount
     }
 }
 

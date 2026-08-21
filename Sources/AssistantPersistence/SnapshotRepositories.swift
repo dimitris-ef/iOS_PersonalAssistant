@@ -13,6 +13,7 @@ private enum SnapshotKey {
     static let conversations = "conversations"
     static let memories = "memories"
     static let tasks = "tasks"
+    static let routines = "routines"
     static let reminderPlans = "reminder-plans"
     static let settings = "settings"
     static let profile = "profile"
@@ -140,8 +141,8 @@ public actor SnapshotTaskRepository: TaskRepository {
         let matched = storage.values
             .filter(filter.matches)
             .sorted { lhs, rhs in
-                let left = lhs.timing.anchorDate ?? lhs.deadline ?? Date.distantFuture
-                let right = rhs.timing.anchorDate ?? rhs.deadline ?? Date.distantFuture
+                let left = lhs.anchorDate ?? Date.distantFuture
+                let right = rhs.anchorDate ?? Date.distantFuture
                 return left < right
             }
         guard let limit = filter.limit else { return matched }
@@ -263,6 +264,53 @@ public actor SnapshotUserProfileRepository: UserProfileRepository {
     }
 }
 
+public actor SnapshotRoutineRepository: RoutineRepository {
+    private let store: any SnapshotStore
+    private var storage: [Routine.ID: Routine] = [:]
+    private var isLoaded = false
+
+    public init(store: any SnapshotStore) {
+        self.store = store
+    }
+
+    public func save(_ routine: Routine) async throws {
+        try await loadIfNeeded()
+        storage[routine.id] = routine
+        try await persist()
+    }
+
+    public func routine(id: Routine.ID) async throws -> Routine? {
+        try await loadIfNeeded()
+        return storage[id]
+    }
+
+    public func routines(activeOnly: Bool) async throws -> [Routine] {
+        try await loadIfNeeded()
+        return storage.values
+            .filter { !activeOnly || $0.isActive }
+            .sorted { $0.createdAt > $1.createdAt }
+    }
+
+    public func delete(id: Routine.ID) async throws {
+        try await loadIfNeeded()
+        storage.removeValue(forKey: id)
+        try await persist()
+    }
+
+    private func loadIfNeeded() async throws {
+        guard !isLoaded else { return }
+        isLoaded = true
+        guard let data = try await store.read(key: SnapshotKey.routines) else { return }
+        let decoded = try JSONCoding.decoder.decode([Routine].self, from: data)
+        storage = Dictionary(uniqueKeysWithValues: decoded.map { ($0.id, $0) })
+    }
+
+    private func persist() async throws {
+        let data = try JSONCoding.encoder.encode(Array(storage.values))
+        try await store.write(data, key: SnapshotKey.routines)
+    }
+}
+
 extension AssistantRepositories {
     /// All repositories backed by one store.
     public static func snapshot(store: any SnapshotStore) -> AssistantRepositories {
@@ -270,6 +318,7 @@ extension AssistantRepositories {
             conversations: SnapshotConversationRepository(store: store),
             memories: SnapshotMemoryRepository(store: store),
             tasks: SnapshotTaskRepository(store: store),
+            routines: SnapshotRoutineRepository(store: store),
             reminderPlans: SnapshotReminderPlanRepository(store: store),
             settings: SnapshotSettingsRepository(store: store),
             profile: SnapshotUserProfileRepository(store: store),

@@ -50,6 +50,30 @@ public struct FollowUpTiming: Hashable, Sendable {
     /// rather than just reminding.
     public var confirmationAfterAttempts: Int
 
+    /// The loudest this is ever allowed to get.
+    ///
+    /// Adaptive is not the same as unbounded. Without a ceiling, "one step per
+    /// attempt" means a task ignored six times eventually reaches whatever the
+    /// noisiest level in the enum is and stays there — which is how a support
+    /// tool turns into something people disable. Section 29.
+    public var maximumEscalation: EscalationLevel
+
+    /// How many interventions one task may produce in a rolling day.
+    ///
+    /// The other half of boundedness. Escalation controls how loud; this
+    /// controls how often, and it is the one that prevents a reminder storm
+    /// when several missed stages reconcile at once.
+    public var maximumInterventionsPerDay: Int
+
+    /// Extra weight, in attempts, carried by a reminder the user actively
+    /// swiped away versus one they never saw.
+    ///
+    /// Dismissal and silence are different signals. Someone who dismissed three
+    /// reminders has decided not to act three times, which calls for a
+    /// different approach sooner than three notifications that arrived while
+    /// their phone was face-down in a bag.
+    public var dismissalWeight: Int
+
     public init(
         interval: [Importance: TimeInterval] = FollowUpTiming.defaultIntervals,
         repeatedAttemptFactor: Double = 0.5,
@@ -57,7 +81,10 @@ public struct FollowUpTiming: Hashable, Sendable {
         deadlineFraction: Double = 0.5,
         overdueInterval: TimeInterval = TimeSpan.minutes(30),
         inProgressCheckIn: TimeInterval = TimeSpan.minutes(45),
-        confirmationAfterAttempts: Int = 2
+        confirmationAfterAttempts: Int = 2,
+        maximumEscalation: EscalationLevel = .alarm,
+        maximumInterventionsPerDay: Int = 6,
+        dismissalWeight: Int = 1
     ) {
         self.interval = interval
         self.repeatedAttemptFactor = repeatedAttemptFactor
@@ -66,6 +93,9 @@ public struct FollowUpTiming: Hashable, Sendable {
         self.overdueInterval = overdueInterval
         self.inProgressCheckIn = inProgressCheckIn
         self.confirmationAfterAttempts = confirmationAfterAttempts
+        self.maximumEscalation = maximumEscalation
+        self.maximumInterventionsPerDay = maximumInterventionsPerDay
+        self.dismissalWeight = dismissalWeight
     }
 
     public static let defaultIntervals: [Importance: TimeInterval] = [
@@ -136,7 +166,44 @@ public struct FollowUpTiming: Hashable, Sendable {
         for _ in 0..<max(0, attempt) {
             level = level.escalated
         }
-        return level
+        // The ceiling. Applied last so nothing above can route around it.
+        return min(level, maximumEscalation)
+    }
+
+    /// How much pressure a task has already absorbed.
+    ///
+    /// The single number the escalation rules read, assembled from the four
+    /// things the user actually did: reminders that went unanswered, reminders
+    /// they dismissed, times they pushed it back, and follow-ups already spent.
+    /// Section 26 lists these as separate inputs; collapsing them here — with
+    /// dismissals weighted heavier than silence — keeps every call site from
+    /// having to remember all four.
+    ///
+    /// Deliberately not a model call. This has to give the same answer offline,
+    /// instantly, at three in the morning.
+    public func pressure(for task: TaskItem) -> Int {
+        task.followUpCount
+            + task.missCount
+            + task.snoozeCount
+            + task.dismissalCount * max(1, dismissalWeight)
+    }
+
+    /// Whether this task has already had its share of interruptions today.
+    ///
+    /// Counted from stages the plan actually scheduled, so it survives a
+    /// relaunch — a budget kept in memory would reset every time the app was
+    /// killed, which is precisely when a storm would otherwise start.
+    public func hasExhaustedDailyBudget(
+        plan: ReminderPlan,
+        now: Date,
+        calendar: Calendar
+    ) -> Bool {
+        let dayStart = calendar.startOfDay(for: now)
+        let scheduledToday = plan.stages.filter { stage in
+            guard let scheduled = stage.scheduledFor else { return false }
+            return scheduled >= dayStart && scheduled <= now.addingTimeInterval(TimeSpan.day)
+        }
+        return scheduledToday.count >= maximumInterventionsPerDay
     }
 
     /// Whether the next attempt should ask for confirmation rather than simply

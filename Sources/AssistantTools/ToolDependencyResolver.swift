@@ -118,6 +118,8 @@ public struct ToolDependencyResolver: Sendable {
             return input.eventID.map { [$0.rawValue] } ?? []
         case .createTask(let input):
             return input.taskID.map { [$0.rawValue] } ?? []
+        case .createRoutine(let input):
+            return input.routineID.map { [$0.rawValue] } ?? []
         default:
             return []
         }
@@ -150,8 +152,15 @@ public struct ToolDependencyResolver: Sendable {
             return [input.taskID.rawValue]
         case .createFollowUp(let input):
             return [input.taskID.rawValue]
+        case .startTask(let input):
+            return [input.taskID.rawValue]
+        case .addTaskDependency(let input):
+            // Both ends. "Book the flight, then pack, and pack depends on
+            // booking" is a three-call turn in which the edge has to run last,
+            // and this is what tells the resolver so.
+            return [input.prerequisiteTaskID.rawValue, input.dependentTaskID.rawValue]
         case .createCalendarEvent, .createTask, .createAlarm, .storeMemory,
-             .getUpcomingSchedule, .askClarification:
+             .getUpcomingSchedule, .askClarification, .createRoutine:
             return []
         }
     }

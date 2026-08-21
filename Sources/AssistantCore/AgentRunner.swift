@@ -664,6 +664,17 @@ struct AgentRunner: Sendable {
             return ["kind": input.kind.rawValue]
         case .updateMemory(let input):
             return ["memoryID": input.memoryID.description]
+        case .createRoutine(let input):
+            var values = ["title": input.title, "frequency": input.recurrence.frequency]
+            if let id = input.routineID { values["routineID"] = id.description }
+            return values
+        case .addTaskDependency(let input):
+            return [
+                "prerequisiteTaskID": input.prerequisiteTaskID.description,
+                "dependentTaskID": input.dependentTaskID.description,
+            ]
+        case .startTask(let input):
+            return ["taskID": input.taskID.description]
         case .getUpcomingSchedule, .askClarification:
             return [:]
         }

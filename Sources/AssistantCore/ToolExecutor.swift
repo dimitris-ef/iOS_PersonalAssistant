@@ -30,6 +30,13 @@ public struct DefaultToolExecutor: ToolExecutor {
     private let followUp: FollowUpService
     /// Duplicate and conflict handling for anything the assistant remembers.
     private let memory: MemoryService
+    /// Recurring responsibilities. The executor never generates occurrences
+    /// itself: `createRoutine` saves the definition and asks this to reconcile,
+    /// which is the same path the app takes on foreground.
+    private let routines: RoutineService
+    /// "Help me start", reached from a conversation instead of from a button.
+    private let startSupport: StartSupportService
+    private let dateProvider: any DateProvider
 
     public init(
         services: PlatformServices,
@@ -50,13 +57,29 @@ public struct DefaultToolExecutor: ToolExecutor {
             repository: repositories.memories,
             dateProvider: dateProvider
         )
-        self.followUp = followUp
+        self.dateProvider = dateProvider
+        let resolvedFollowUp = followUp
             ?? FollowUpService(
                 repositories: repositories,
                 services: services,
                 dateProvider: dateProvider,
                 coordinator: FollowUpCoordinator(statusMachine: statusMachine)
             )
+        self.followUp = resolvedFollowUp
+        self.routines = RoutineService(
+            repositories: repositories,
+            services: services,
+            dateProvider: dateProvider
+        )
+        // The deterministic decomposer, deliberately. A model asking for "help
+        // me start" already had its chance to write the steps down in the tool
+        // arguments; reaching back out to a provider from inside execution
+        // would put a network round trip in the middle of a side effect.
+        self.startSupport = StartSupportService(
+            repositories: repositories,
+            followUp: resolvedFollowUp,
+            dateProvider: dateProvider
+        )
     }
 
     public func execute(
@@ -141,6 +164,26 @@ public struct DefaultToolExecutor: ToolExecutor {
                 "Failed: \(action.request.summary)",
                 context,
                 failure: Self.category(for: error)
+            )
+        } catch let error as RecurrenceRule.ValidationError {
+            // A rule the decoder passed and the domain refuses. Reported as a
+            // validation failure rather than a transient one, so the retry
+            // policy does not ask a model to propose the same impossible
+            // schedule again.
+            return result(
+                action,
+                .denied(reason: error.description),
+                "Not set up: \(error.description)",
+                context,
+                failure: .validationFailure
+            )
+        } catch let error as RecurrenceInputError {
+            return result(
+                action,
+                .denied(reason: error.description),
+                "Not set up: \(error.description)",
+                context,
+                failure: .validationFailure
             )
         } catch is CancellationError {
             return result(
@@ -325,8 +368,12 @@ public struct DefaultToolExecutor: ToolExecutor {
                 travelDuration: minutes(input.travelDurationMinutes),
                 createdAt: context.now
             )
-            try await repositories.tasks.save(task)
-            return result(action, .executed, "Task tracked: \(task.title)", context)
+            var stored = task
+            stored.estimatedDuration = minutes(input.estimatedMinutes)
+            stored.preparationSteps = (input.preparationSteps ?? [])
+                .resolvedSteps(parent: task.id.description)
+            try await repositories.tasks.save(stored)
+            return result(action, .executed, "Task tracked: \(stored.title)", context)
 
         case .completeTask(let input):
             guard let task = try await repositories.tasks.task(id: input.taskID) else {
@@ -391,6 +438,86 @@ public struct DefaultToolExecutor: ToolExecutor {
             let summary = "\(events.count) event(s) and \(tasks.count) open task(s) in window"
             return result(action, .executed, summary, context)
 
+        case .createRoutine(let input):
+            // Re-derived here rather than carried through the plan, because the
+            // decoder's job was to reject an impossible rule, not to smuggle a
+            // domain value through a `Codable` payload. Validating twice is
+            // cheap; a rule that was valid at decode time and is being written
+            // now is exactly the thing worth checking again.
+            let rule = try input.recurrence.resolvedRule(now: context.now)
+            let routineID = input.routineID ?? Routine.ID()
+            let routine = Routine(
+                id: routineID,
+                title: input.title,
+                details: input.details,
+                recurrence: rule,
+                importance: input.importance ?? .normal,
+                recovery: recovery(for: input),
+                preparationDuration: minutes(input.preparationDurationMinutes),
+                travelDuration: minutes(input.travelDurationMinutes),
+                preparationSteps: (input.preparationSteps ?? [])
+                    .resolvedSteps(parent: routineID.description),
+                createdAt: context.now
+            )
+            let reconciliation = try await routines.create(routine)
+            let created = reconciliation.created.count
+            let summary = created == 0
+                ? "Routine set up: \(routine.title) — \(rule.summary(calendar: dateProvider.calendar))"
+                : "Routine set up: \(routine.title) — \(rule.summary(calendar: dateProvider.calendar)). "
+                    + "\(created) upcoming one\(created == 1 ? "" : "s") scheduled."
+            return result(action, .executed, summary, context)
+
+        case .addTaskDependency(let input):
+            // The cycle check needs every task, which is why it happens here
+            // and not in the decoder: A→B is fine on its own and catastrophic
+            // if B already reaches A. Section 14.
+            let all = try await repositories.tasks.tasks(matching: TaskFilter())
+            let graph = TaskDependencyGraph(tasks: all)
+            do {
+                try graph.validate(
+                    prerequisite: input.prerequisiteTaskID,
+                    dependent: input.dependentTaskID
+                )
+            } catch let error as TaskDependencyGraph.ValidationError {
+                return result(
+                    action,
+                    .denied(reason: error.description),
+                    "Not linked: \(error.description)",
+                    context,
+                    failure: .validationFailure
+                )
+            }
+
+            guard var dependent = all.first(where: { $0.id == input.dependentTaskID }) else {
+                throw RepositoryError.notFound(input.dependentTaskID.description)
+            }
+            dependent.dependsOn.append(input.prerequisiteTaskID)
+            dependent.updatedAt = context.now
+            try await repositories.tasks.save(dependent)
+
+            let prerequisiteTitle = all
+                .first { $0.id == input.prerequisiteTaskID }?
+                .title ?? "the other task"
+            return result(
+                action,
+                .executed,
+                "\"\(dependent.title)\" now waits for \"\(prerequisiteTitle)\"",
+                context
+            )
+
+        case .startTask(let input):
+            // Moves the task into progress and hands back one concrete thing to
+            // do. It never completes anything — section 42 — and the message
+            // says so plainly, because this text is what the model sees and
+            // then repeats to the user.
+            let support = try await startSupport.start(taskID: input.taskID)
+            return result(
+                action,
+                .executed,
+                "Started \"\(support.task.title)\" (in progress, not done). \(support.summary)",
+                context
+            )
+
         case .askClarification:
             // Unreachable through the engine, which ends the turn on a
             // clarification rather than planning it. Kept explicit — and kept
@@ -418,6 +545,26 @@ public struct DefaultToolExecutor: ToolExecutor {
 
     private func minutes(_ value: Int?) -> TimeInterval? {
         value.map { TimeSpan.minutes(Double($0)) }
+    }
+
+    /// How long a missed occurrence of this routine stays worth doing.
+    ///
+    /// A window of zero is taken literally — the user said being late is worse
+    /// than skipping — while an unstated window keeps the default rather than
+    /// silently turning recovery off. Section 8: the policy is the routine's,
+    /// and it is deterministic either way.
+    private func recovery(for input: CreateRoutineInput) -> RoutineRecoveryPolicy {
+        guard let windowMinutes = input.recoveryWindowMinutes else {
+            var policy = RoutineRecoveryPolicy()
+            policy.allowsNextDay = input.recoveryAllowsNextDay ?? false
+            return policy
+        }
+        guard windowMinutes > 0 else { return .none }
+        return RoutineRecoveryPolicy(
+            isEnabled: true,
+            window: TimeSpan.minutes(Double(windowMinutes)),
+            allowsNextDay: input.recoveryAllowsNextDay ?? false
+        )
     }
 
     /// Faithfully reports whether the platform really did the thing.
@@ -468,7 +615,13 @@ public struct DefaultToolExecutor: ToolExecutor {
         case .createAlarm, .updateAlarm, .cancelAlarm:
             return .alarms
         case .storeMemory, .updateMemory, .createTask, .completeTask,
-             .getUpcomingSchedule, .askClarification:
+             .getUpcomingSchedule, .askClarification,
+             // None of these three touch an OS API directly. They write app
+             // state, and the reminder support that follows asks for
+             // notification permission at the moment it schedules something —
+             // which is also why declining notifications does not stop someone
+             // setting up a routine.
+             .createRoutine, .addTaskDependency, .startTask:
             return nil
         }
     }

@@ -6,6 +6,10 @@ public struct StatusTransition: Hashable, Sendable {
     public var status: TaskStatus
     public var snoozeCount: Int
     public var followUpCount: Int
+    /// Reminders swiped away without resolving anything.
+    public var dismissalCount: Int
+    /// Reminders that went entirely unanswered.
+    public var missCount: Int
     /// Raised escalation for the next reminder, when the transition warrants it.
     public var nextEscalation: EscalationLevel?
     /// When the assistant should check back, if it should.
@@ -15,12 +19,16 @@ public struct StatusTransition: Hashable, Sendable {
         status: TaskStatus,
         snoozeCount: Int,
         followUpCount: Int,
+        dismissalCount: Int = 0,
+        missCount: Int = 0,
         nextEscalation: EscalationLevel? = nil,
         followUpAt: Date? = nil
     ) {
         self.status = status
         self.snoozeCount = snoozeCount
         self.followUpCount = followUpCount
+        self.dismissalCount = dismissalCount
+        self.missCount = missCount
         self.nextEscalation = nextEscalation
         self.followUpAt = followUpAt
     }
@@ -48,6 +56,8 @@ public struct TaskStatusMachine: Sendable {
 
         var snoozeCount = task.snoozeCount
         var followUpCount = task.followUpCount
+        var dismissalCount = task.dismissalCount
+        var missCount = task.missCount
 
         switch event {
         case .reminderDelivered:
@@ -55,24 +65,35 @@ public struct TaskStatusMachine: Sendable {
             return StatusTransition(
                 status: task.status == .inProgress ? .inProgress : .reminded,
                 snoozeCount: snoozeCount,
-                followUpCount: followUpCount
+                followUpCount: followUpCount,
+                dismissalCount: dismissalCount,
+                missCount: missCount
             )
 
         case .reminderDismissed(let date):
             guard !task.status.isTerminal else { return unchanged(task) }
             // The important rule. A swipe is acknowledgement, not completion.
+            //
+            // Counted before the policy guards, because the count is a fact
+            // about what the user did and stays true whether or not the plan
+            // has follow-ups left to spend on it.
+            dismissalCount += 1
             guard completion.requiresExplicitConfirmation else {
                 return StatusTransition(
                     status: .reminded,
                     snoozeCount: snoozeCount,
-                    followUpCount: followUpCount
+                    followUpCount: followUpCount,
+                    dismissalCount: dismissalCount,
+                    missCount: missCount
                 )
             }
             guard followUp.isEnabled, followUpCount < followUp.maximumFollowUps else {
                 return StatusTransition(
                     status: .reminded,
                     snoozeCount: snoozeCount,
-                    followUpCount: followUpCount
+                    followUpCount: followUpCount,
+                    dismissalCount: dismissalCount,
+                    missCount: missCount
                 )
             }
             followUpCount += 1
@@ -80,12 +101,15 @@ public struct TaskStatusMachine: Sendable {
                 status: .needsFollowUp,
                 snoozeCount: snoozeCount,
                 followUpCount: followUpCount,
+                dismissalCount: dismissalCount,
+                missCount: missCount,
                 nextEscalation: followUp.escalatesEachTime ? escalated(task, plan: plan) : nil,
                 followUpAt: date.addingTimeInterval(followUp.interval)
             )
 
         case .reminderMissed(let date):
             guard !task.status.isTerminal else { return unchanged(task) }
+            missCount += 1
             // An unanswered reminder is not a failed task — the deadline may
             // still be days away. It *is* evidence that this intervention did
             // not work, so the assistant takes another turn rather than
@@ -97,7 +121,9 @@ public struct TaskStatusMachine: Sendable {
                 return StatusTransition(
                     status: .needsFollowUp,
                     snoozeCount: snoozeCount,
-                    followUpCount: followUpCount
+                    followUpCount: followUpCount,
+                    dismissalCount: dismissalCount,
+                    missCount: missCount
                 )
             }
             followUpCount += 1
@@ -105,6 +131,8 @@ public struct TaskStatusMachine: Sendable {
                 status: .needsFollowUp,
                 snoozeCount: snoozeCount,
                 followUpCount: followUpCount,
+                dismissalCount: dismissalCount,
+                missCount: missCount,
                 nextEscalation: escalated(task, plan: plan),
                 followUpAt: date.addingTimeInterval(followUp.interval)
             )
@@ -117,6 +145,8 @@ public struct TaskStatusMachine: Sendable {
                     status: .needsFollowUp,
                     snoozeCount: snoozeCount,
                     followUpCount: followUpCount,
+                    dismissalCount: dismissalCount,
+                    missCount: missCount,
                     nextEscalation: .alarm,
                     followUpAt: until
                 )
@@ -127,6 +157,8 @@ public struct TaskStatusMachine: Sendable {
                 status: .snoozed,
                 snoozeCount: snoozeCount,
                 followUpCount: followUpCount,
+                dismissalCount: dismissalCount,
+                missCount: missCount,
                 nextEscalation: shouldEscalate ? escalated(task, plan: plan) : nil,
                 followUpAt: until
             )
@@ -136,14 +168,18 @@ public struct TaskStatusMachine: Sendable {
             return StatusTransition(
                 status: .inProgress,
                 snoozeCount: snoozeCount,
-                followUpCount: followUpCount
+                followUpCount: followUpCount,
+                dismissalCount: dismissalCount,
+                missCount: missCount
             )
 
         case .confirmedComplete:
             return StatusTransition(
                 status: .completed,
                 snoozeCount: snoozeCount,
-                followUpCount: followUpCount
+                followUpCount: followUpCount,
+                dismissalCount: dismissalCount,
+                missCount: missCount
             )
 
         case .deferred(let date):
@@ -152,6 +188,8 @@ public struct TaskStatusMachine: Sendable {
                 status: .needsFollowUp,
                 snoozeCount: snoozeCount,
                 followUpCount: followUpCount,
+                dismissalCount: dismissalCount,
+                missCount: missCount,
                 followUpAt: date
             )
 
@@ -167,6 +205,8 @@ public struct TaskStatusMachine: Sendable {
                 status: .missed,
                 snoozeCount: snoozeCount,
                 followUpCount: followUpCount,
+                dismissalCount: dismissalCount,
+                missCount: missCount,
                 nextEscalation: shouldFollowUp ? escalated(task, plan: plan) : nil,
                 followUpAt: shouldFollowUp ? date.addingTimeInterval(followUp.interval) : nil
             )
@@ -175,7 +215,9 @@ public struct TaskStatusMachine: Sendable {
             return StatusTransition(
                 status: .cancelled,
                 snoozeCount: snoozeCount,
-                followUpCount: followUpCount
+                followUpCount: followUpCount,
+                dismissalCount: dismissalCount,
+                missCount: missCount
             )
         }
     }
@@ -186,6 +228,8 @@ public struct TaskStatusMachine: Sendable {
         updated.status = transition.status
         updated.snoozeCount = transition.snoozeCount
         updated.followUpCount = transition.followUpCount
+        updated.dismissalCount = transition.dismissalCount
+        updated.missCount = transition.missCount
         updated.updatedAt = date
         if transition.status == .completed {
             updated.completedAt = date
@@ -197,7 +241,9 @@ public struct TaskStatusMachine: Sendable {
         StatusTransition(
             status: task.status,
             snoozeCount: task.snoozeCount,
-            followUpCount: task.followUpCount
+            followUpCount: task.followUpCount,
+            dismissalCount: task.dismissalCount,
+            missCount: task.missCount
         )
     }
 

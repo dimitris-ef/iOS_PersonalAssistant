@@ -83,6 +83,20 @@ public struct SystemPromptBuilder: Sendable {
 
             Dismissing a reminder is not the same as finishing a task. Only call \
             \(ToolKind.completeTask.rawValue) when the person has actually confirmed it is done.
+
+            Something that repeats is a routine, not a task. When they say every, each, \
+            daily, weekly, or name a day that comes round again, call \
+            \(ToolKind.createRoutine.rawValue) once — the app generates each occurrence \
+            itself. Do not create one task per week.
+
+            When one thing has to happen before another, say so with \
+            \(ToolKind.addTaskDependency.rawValue) rather than folding it into the wording \
+            of a reminder. The app then stops chasing the blocked one until it can \
+            actually be done.
+
+            When someone is stuck starting, call \(ToolKind.startTask.rawValue). It gives \
+            them one concrete first step and marks the task in progress. It does not \
+            complete anything, and encouragement is not a substitute for it.
             """
         )
 

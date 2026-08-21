@@ -115,6 +115,17 @@ public struct DefaultActionPlanner: ActionPlanner {
         case .createTask(var input):
             if input.taskID == nil { input.taskID = TaskItem.ID() }
             return .createTask(input)
+        case .createRoutine(var input):
+            // Assigned here rather than in the executor so the id exists while
+            // the plan is still a plan — which is what lets a sibling call in
+            // the same turn refer to the routine, and what the dependency
+            // resolver reads to order them.
+            //
+            // No reminder plan is expanded for it: a routine's support belongs
+            // to its occurrences, and `RoutineService` builds that per
+            // occurrence through the same `SupportPlanner`.
+            if input.routineID == nil { input.routineID = Routine.ID() }
+            return .createRoutine(input)
         default:
             return request
         }

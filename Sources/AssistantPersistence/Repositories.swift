@@ -39,6 +39,22 @@ public protocol ReminderPlanRepository: Sendable {
     func plans(for reference: ReminderSubject.Reference) async throws -> [ReminderPlan]
 }
 
+/// Recurring responsibilities.
+///
+/// Separate from `TaskRepository` because a routine and one of its occurrences
+/// are different things asked different questions: "which routines are still
+/// active" is a routine query, "what is outstanding today" is a task one. The
+/// occurrences themselves live in `TaskRepository` like everything else, which
+/// is what lets them use the whole existing lifecycle.
+public protocol RoutineRepository: Sendable {
+    func save(_ routine: Routine) async throws
+    func routine(id: Routine.ID) async throws -> Routine?
+    /// Every routine, newest first. `activeOnly` is the common case — occurrence
+    /// generation has no interest in paused ones.
+    func routines(activeOnly: Bool) async throws -> [Routine]
+    func delete(id: Routine.ID) async throws
+}
+
 public protocol SettingsRepository: Sendable {
     func settings() async throws -> AssistantSettings
     func update(_ settings: AssistantSettings) async throws
@@ -57,6 +73,7 @@ public struct AssistantRepositories: Sendable {
     public let conversations: any ConversationRepository
     public let memories: any MemoryRepository
     public let tasks: any TaskRepository
+    public let routines: any RoutineRepository
     public let reminderPlans: any ReminderPlanRepository
     public let settings: any SettingsRepository
     public let profile: any UserProfileRepository
@@ -67,6 +84,7 @@ public struct AssistantRepositories: Sendable {
         conversations: any ConversationRepository,
         memories: any MemoryRepository,
         tasks: any TaskRepository,
+        routines: any RoutineRepository,
         reminderPlans: any ReminderPlanRepository,
         settings: any SettingsRepository,
         profile: any UserProfileRepository,
@@ -75,6 +93,7 @@ public struct AssistantRepositories: Sendable {
         self.conversations = conversations
         self.memories = memories
         self.tasks = tasks
+        self.routines = routines
         self.reminderPlans = reminderPlans
         self.settings = settings
         self.profile = profile

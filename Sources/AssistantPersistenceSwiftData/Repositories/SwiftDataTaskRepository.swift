@@ -57,8 +57,8 @@ public struct SwiftDataTaskRepository: TaskRepository {
             let matched = all
                 .filter(filter.matches)
                 .sorted { lhs, rhs in
-                    let left = lhs.timing.anchorDate ?? lhs.deadline ?? Date.distantFuture
-                    let right = rhs.timing.anchorDate ?? rhs.deadline ?? Date.distantFuture
+                    let left = lhs.anchorDate ?? Date.distantFuture
+                    let right = rhs.anchorDate ?? Date.distantFuture
                     // Ties broken by creation order so the list never reorders
                     // itself between two loads of the same data.
                     return left == right ? lhs.createdAt < rhs.createdAt : left < right

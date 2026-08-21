@@ -83,6 +83,17 @@ public final class AssistantEngine: Sendable {
     /// else in the app is allowed to change a task's status directly.
     public let followUp: FollowUpService
 
+    /// Recurring responsibilities: generating occurrences, recovering the late
+    /// ones, expiring the ones whose window closed.
+    ///
+    /// Exposed for the same reason `followUp` is. The app calls `reconcileAll()`
+    /// on foreground beside `followUp.reconcile()`, and both are deterministic
+    /// and offline — a cold launch in a tunnel still knows what today owes.
+    public let routines: RoutineService
+
+    /// "Help me start", shared by the Today screen, Siri and the tool layer.
+    public let startSupport: StartSupportService
+
     public init(
         providers: AIProviderRegistry,
         repositories: AssistantRepositories,
@@ -112,6 +123,16 @@ public final class AssistantEngine: Sendable {
             timing: timing
         )
         self.followUp = followUp
+        self.routines = RoutineService(
+            repositories: repositories,
+            services: services,
+            dateProvider: dateProvider
+        )
+        self.startSupport = StartSupportService(
+            repositories: repositories,
+            followUp: followUp,
+            dateProvider: dateProvider
+        )
         self.executor = executor
             ?? DefaultToolExecutor(
                 services: services,

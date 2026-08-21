@@ -241,6 +241,10 @@ public struct CreateTaskInput: Hashable, Codable, Sendable {
     public var preparationDurationMinutes: Int?
     public var travelDurationMinutes: Int?
     public var wantsReminderSupport: Bool?
+    /// Roughly how long the work itself takes, once started.
+    public var estimatedMinutes: Int?
+    /// The ordered things to do before this can happen.
+    public var preparationSteps: [PreparationStepInput]?
 
     public init(
         taskID: TaskItem.ID? = nil,
@@ -252,7 +256,9 @@ public struct CreateTaskInput: Hashable, Codable, Sendable {
         flexibleWindow: TimeWindow? = nil,
         preparationDurationMinutes: Int? = nil,
         travelDurationMinutes: Int? = nil,
-        wantsReminderSupport: Bool? = nil
+        wantsReminderSupport: Bool? = nil,
+        estimatedMinutes: Int? = nil,
+        preparationSteps: [PreparationStepInput]? = nil
     ) {
         self.taskID = taskID
         self.title = title
@@ -264,6 +270,8 @@ public struct CreateTaskInput: Hashable, Codable, Sendable {
         self.preparationDurationMinutes = preparationDurationMinutes
         self.travelDurationMinutes = travelDurationMinutes
         self.wantsReminderSupport = wantsReminderSupport
+        self.estimatedMinutes = estimatedMinutes
+        self.preparationSteps = preparationSteps
     }
 }
 
@@ -320,5 +328,227 @@ public struct AskClarificationInput: Hashable, Codable, Sendable {
     public init(question: String, options: [String]? = nil) {
         self.question = question
         self.options = options
+    }
+}
+
+// MARK: - Part 8: recurrence, dependencies and start support
+
+/// A recurrence rule as a model may express it.
+///
+/// Deliberately flat and stringly-typed at the edges — `frequency` is a string,
+/// `time` is "HH:mm" — because that is what survives a JSON schema round trip
+/// through any provider. It becomes a validated ``RecurrenceRule`` in the
+/// decoder, which is where impossible rules are rejected.
+public struct RecurrenceInput: Hashable, Codable, Sendable {
+    /// `daily`, `weekly` or `monthly`.
+    public var frequency: String
+    /// Every *n* days, weeks or months. Defaults to 1.
+    public var interval: Int?
+    /// 1 = Sunday … 7 = Saturday. Required for a weekly rule.
+    public var weekdays: [Int]?
+    public var dayOfMonth: Int?
+    /// "HH:mm", 24-hour.
+    public var time: String
+    /// When the rule starts applying. Defaults to now.
+    public var startDate: Date?
+    public var endDate: Date?
+
+    public init(
+        frequency: String,
+        interval: Int? = nil,
+        weekdays: [Int]? = nil,
+        dayOfMonth: Int? = nil,
+        time: String,
+        startDate: Date? = nil,
+        endDate: Date? = nil
+    ) {
+        self.frequency = frequency
+        self.interval = interval
+        self.weekdays = weekdays
+        self.dayOfMonth = dayOfMonth
+        self.time = time
+        self.startDate = startDate
+        self.endDate = endDate
+    }
+}
+
+/// One preparation step, as proposed.
+public struct PreparationStepInput: Hashable, Codable, Sendable {
+    public var title: String
+    public var estimatedMinutes: Int?
+    /// `required`, `recommended` or `optional`. Defaults to required.
+    public var necessity: String?
+
+    public init(title: String, estimatedMinutes: Int? = nil, necessity: String? = nil) {
+        self.title = title
+        self.estimatedMinutes = estimatedMinutes
+        self.necessity = necessity
+    }
+}
+
+public struct CreateRoutineInput: Hashable, Codable, Sendable {
+    /// Assigned by the planner, not by the model.
+    public var routineID: Routine.ID?
+    public var title: String
+    public var details: String?
+    public var importance: Importance?
+    public var recurrence: RecurrenceInput
+    /// How long after the scheduled time a missed occurrence is still worth
+    /// doing. Zero means it never is.
+    public var recoveryWindowMinutes: Int?
+    /// Whether a missed evening occurrence stays useful the next morning.
+    public var recoveryAllowsNextDay: Bool?
+    public var preparationDurationMinutes: Int?
+    public var travelDurationMinutes: Int?
+    public var preparationSteps: [PreparationStepInput]?
+
+    public init(
+        routineID: Routine.ID? = nil,
+        title: String,
+        details: String? = nil,
+        importance: Importance? = nil,
+        recurrence: RecurrenceInput,
+        recoveryWindowMinutes: Int? = nil,
+        recoveryAllowsNextDay: Bool? = nil,
+        preparationDurationMinutes: Int? = nil,
+        travelDurationMinutes: Int? = nil,
+        preparationSteps: [PreparationStepInput]? = nil
+    ) {
+        self.routineID = routineID
+        self.title = title
+        self.details = details
+        self.importance = importance
+        self.recurrence = recurrence
+        self.recoveryWindowMinutes = recoveryWindowMinutes
+        self.recoveryAllowsNextDay = recoveryAllowsNextDay
+        self.preparationDurationMinutes = preparationDurationMinutes
+        self.travelDurationMinutes = travelDurationMinutes
+        self.preparationSteps = preparationSteps
+    }
+}
+
+public struct AddTaskDependencyInput: Hashable, Codable, Sendable {
+    /// The task that must happen first.
+    public var prerequisiteTaskID: TaskItem.ID
+    /// The task that has to wait.
+    public var dependentTaskID: TaskItem.ID
+
+    public init(prerequisiteTaskID: TaskItem.ID, dependentTaskID: TaskItem.ID) {
+        self.prerequisiteTaskID = prerequisiteTaskID
+        self.dependentTaskID = dependentTaskID
+    }
+}
+
+public struct StartTaskInput: Hashable, Codable, Sendable {
+    public var taskID: TaskItem.ID
+
+    public init(taskID: TaskItem.ID) {
+        self.taskID = taskID
+    }
+}
+
+// MARK: - Turning proposals into domain values
+
+/// Why a proposed recurrence could not become a rule at all.
+///
+/// Separate from ``RecurrenceRule/ValidationError``, which is about rules that
+/// are well-formed but describe nothing. These two are about arguments that are
+/// not a rule yet: a frequency nobody has heard of, a time that is not a time.
+public enum RecurrenceInputError: Error, Hashable, Sendable, CustomStringConvertible {
+    case unknownFrequency(String)
+    case malformedTime(String)
+
+    public var description: String {
+        switch self {
+        case .unknownFrequency(let value):
+            let known = RecurrenceRule.Frequency.allCases.map(\.rawValue).joined(separator: ", ")
+            return "\"\(value)\" is not a recurrence frequency; expected one of \(known)"
+        case .malformedTime(let value):
+            return "\"\(value)\" is not a time of day; expected HH:mm"
+        }
+    }
+}
+
+extension RecurrenceInput {
+    /// The validated rule this input describes.
+    ///
+    /// Throws twice over on purpose: once for arguments that are not a rule
+    /// (``RecurrenceInputError``) and once for rules that cannot happen
+    /// (``RecurrenceRule/ValidationError``). Section 55 asks for both, and a
+    /// caller that wants to report the difference to the user can.
+    public func resolvedRule(now: Date) throws -> RecurrenceRule {
+        guard let frequency = RecurrenceRule.Frequency(rawValue: frequency.lowercased()) else {
+            throw RecurrenceInputError.unknownFrequency(frequency)
+        }
+        guard let timeOfDay = Self.parseTime(time) else {
+            throw RecurrenceInputError.malformedTime(time)
+        }
+
+        let rule = RecurrenceRule(
+            frequency: frequency,
+            interval: interval ?? 1,
+            weekdays: weekdays ?? [],
+            dayOfMonth: dayOfMonth,
+            timeOfDay: timeOfDay,
+            startDate: startDate ?? now,
+            endDate: endDate
+        )
+        try rule.validate()
+        return rule
+    }
+
+    /// "HH:mm", strictly. Nothing clever: a model that writes "9am" gets a
+    /// rejection it can correct, not a guess that silently means 09:00 in one
+    /// locale and something else in another.
+    static func parseTime(_ text: String) -> TimeOfDay? {
+        let parts = text.trimmingCharacters(in: .whitespaces).split(separator: ":")
+        guard parts.count == 2,
+              let hour = Int(parts[0]), let minute = Int(parts[1]),
+              (0...23).contains(hour), (0...59).contains(minute)
+        else { return nil }
+        return TimeOfDay(hour: hour, minute: minute)
+    }
+}
+
+extension PreparationStepInput {
+    /// The longest a single step may claim to take.
+    ///
+    /// Section 57. A step is a thing you do before the thing; four hours of
+    /// "get ready" is not a step, it is a plan that would wreck every start
+    /// time computed from it.
+    public static let maximumDuration = TimeSpan.hours(2)
+
+    /// The structured step, bounded.
+    ///
+    /// `parent` is whatever the step hangs off — a task or a routine id — so
+    /// the identity is stable across replanning without colliding between two
+    /// tasks that both start with "Find your keys".
+    public func resolvedStep(parent: String, sequence: Int) -> PreparationStep {
+        let title = String(
+            self.title.trimmingCharacters(in: .whitespacesAndNewlines).prefix(120)
+        )
+        let minutes = Double(max(0, estimatedMinutes ?? 5))
+        return PreparationStep(
+            id: PreparationStep.identity(parent: parent, title: title),
+            title: title,
+            estimatedDuration: min(TimeSpan.minutes(minutes), Self.maximumDuration),
+            necessity: necessity.flatMap { StepNecessity(rawValue: $0.lowercased()) } ?? .required,
+            sequence: sequence
+        )
+    }
+}
+
+extension Array where Element == PreparationStepInput {
+    /// Structured steps in the order proposed, dropping the empty ones.
+    ///
+    /// Bounded at eight, the same ceiling the start-support service applies to
+    /// a decomposition: a list longer than that is not a preparation sequence,
+    /// and someone who needs help starting is the last person who should be
+    /// handed twenty checkboxes.
+    public func resolvedSteps(parent: String) -> [PreparationStep] {
+        prefix(8)
+            .filter { !$0.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            .enumerated()
+            .map { index, input in input.resolvedStep(parent: parent, sequence: index) }
     }
 }

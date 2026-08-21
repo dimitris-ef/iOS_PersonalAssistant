@@ -220,6 +220,11 @@ public enum ToolCatalog {
                         "preparationDurationMinutes": .integer(),
                         "travelDurationMinutes": .integer(),
                         "wantsReminderSupport": .boolean(),
+                        "estimatedMinutes": .integer(description: "Roughly how long the work itself takes."),
+                        "preparationSteps": .array(
+                            items: preparationStepSchema,
+                            description: "Ordered things to do before this can happen."
+                        ),
                     ],
                     required: ["title"]
                 )
@@ -274,6 +279,88 @@ public enum ToolCatalog {
                 )
             )
 
+        case .createRoutine:
+            return ToolSpecification(
+                kind: kind,
+                summary: """
+                    Set up something the user does repeatedly — medication every \
+                    morning, bins every Thursday, rent every month. This creates \
+                    the recurring responsibility itself; its individual \
+                    occurrences are generated automatically and each one is \
+                    completed, missed or skipped on its own. Use this rather than \
+                    createTask whenever the user says every, each, weekly, daily \
+                    or names a repeating day.
+                    """,
+                parameters: .object(
+                    properties: [
+                        "title": .string(description: "What the user does, e.g. \"Take medication\"."),
+                        "details": .string(),
+                        "importance": .enumeration(values: importanceValues),
+                        "recurrence": .object(
+                            properties: [
+                                "frequency": .enumeration(
+                                    values: RecurrenceRule.Frequency.allCases.map(\.rawValue),
+                                    description: "How often it repeats."
+                                ),
+                                "interval": .integer(description: "Every n days/weeks/months. Defaults to 1."),
+                                "weekdays": .array(
+                                    items: .integer(),
+                                    description: "1 = Sunday through 7 = Saturday. Required when weekly."
+                                ),
+                                "dayOfMonth": .integer(description: "1 to 31, for a monthly rule."),
+                                "time": .string(description: "Time of day, 24-hour \"HH:mm\"."),
+                                "startDate": .string(description: "When it starts. Defaults to now.", format: .dateTime),
+                                "endDate": .string(description: "When it stops, if it does.", format: .dateTime),
+                            ],
+                            required: ["frequency", "time"]
+                        ),
+                        "recoveryWindowMinutes": .integer(
+                            description: "How long a missed occurrence is still worth doing. 0 for never."
+                        ),
+                        "recoveryAllowsNextDay": .boolean(
+                            description: "True when an evening routine is still worth doing next morning."
+                        ),
+                        "preparationDurationMinutes": .integer(),
+                        "travelDurationMinutes": .integer(),
+                        "preparationSteps": .array(items: preparationStepSchema),
+                    ],
+                    required: ["title", "recurrence"]
+                )
+            )
+
+        case .addTaskDependency:
+            return ToolSpecification(
+                kind: kind,
+                summary: """
+                    Record that one task has to happen before another — printing \
+                    the documents before leaving for the appointment, buying the \
+                    ingredients before cooking. The assistant then stops chasing \
+                    the second one until the first is done.
+                    """,
+                parameters: .object(
+                    properties: [
+                        "prerequisiteTaskID": .string(description: "The task that must happen first.", format: .uuid),
+                        "dependentTaskID": .string(description: "The task that has to wait.", format: .uuid),
+                    ],
+                    required: ["prerequisiteTaskID", "dependentTaskID"]
+                )
+            )
+
+        case .startTask:
+            return ToolSpecification(
+                kind: kind,
+                summary: """
+                    Help the user begin something. Use this when they say they \
+                    do not know where to start, or ask for help starting. It \
+                    returns one small concrete first step and marks the task as \
+                    in progress — it does **not** complete it.
+                    """,
+                parameters: .object(
+                    properties: ["taskID": .string(format: .uuid)],
+                    required: ["taskID"]
+                )
+            )
+
         case .askClarification:
             return ToolSpecification(
                 kind: kind,
@@ -307,6 +394,19 @@ public enum ToolCatalog {
             )
         }
     }
+
+    /// One preparation step, shared by `createTask` and `createRoutine`.
+    private static let preparationStepSchema = JSONSchema.object(
+        properties: [
+            "title": .string(description: "One concrete thing to do."),
+            "estimatedMinutes": .integer(description: "Roughly how long it takes."),
+            "necessity": .enumeration(
+                values: StepNecessity.allCases.map(\.rawValue),
+                description: "Optional steps are dropped first when time runs short."
+            ),
+        ],
+        required: ["title"]
+    )
 
     // Derived from the enums themselves so the published schema cannot drift
     // away from what the decoder will actually accept.

@@ -96,7 +96,11 @@ public struct DefaultSupportPlanner: SupportPlanner {
             )
 
         case .dismissed:
-            let attempt = task.followUpCount
+            // Pressure, not the raw follow-up count. Someone who has dismissed
+            // three reminders and snoozed twice has told the assistant more
+            // than "one attempt failed", and the next attempt should reflect
+            // all of it. See `FollowUpTiming.pressure(for:)`.
+            let attempt = timing.pressure(for: task)
             let delay = timing.delay(
                 importance: plan.subject.importance,
                 attempt: attempt,
@@ -122,7 +126,7 @@ public struct DefaultSupportPlanner: SupportPlanner {
             // Silence is treated slightly more seriously than a dismissal: the
             // user did not even see it, so the same approach is unlikely to
             // work twice.
-            let attempt = max(task.followUpCount, 1)
+            let attempt = max(timing.pressure(for: task), 1)
             let delay = timing.delay(
                 importance: plan.subject.importance,
                 attempt: attempt,
@@ -176,6 +180,12 @@ public struct DefaultSupportPlanner: SupportPlanner {
     ) -> SupportIntervention? {
         guard plan.followUp.isEnabled else { return nil }
         guard !plan.hasPendingStage(kind: kind, at: date) else { return nil }
+        // The daily ceiling. Adaptive escalation without one is how a backlog
+        // of missed stages reconciling at once becomes a reminder storm, which
+        // is the behaviour that gets an assistant deleted rather than muted.
+        guard !timing.hasExhaustedDailyBudget(plan: plan, now: context.now, calendar: context.calendar) else {
+            return nil
+        }
 
         let stage = ReminderStage(
             kind: kind,
@@ -187,7 +197,7 @@ public struct DefaultSupportPlanner: SupportPlanner {
             escalation: escalation,
             message: message,
             requiresConfirmation: timing.requiresConfirmation(
-                attempt: task.followUpCount,
+                attempt: timing.pressure(for: task),
                 importance: plan.subject.importance
             ),
             state: .pending,

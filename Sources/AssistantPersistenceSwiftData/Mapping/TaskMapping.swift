@@ -13,7 +13,6 @@ enum TaskMapper {
 
     static func makeRow(from task: TaskItem) -> SDTask {
         let timing = encodeTiming(task.timing)
-        let recurrence = encodeRecurrence(task.recurrence)
 
         return SDTask(
             id: task.id.rawValue,
@@ -28,17 +27,27 @@ enum TaskMapper {
             deadline: task.deadline,
             preparationDuration: task.preparationDuration,
             travelDuration: task.travelDuration,
-            recurrenceKind: recurrence.kind,
-            recurrenceInterval: recurrence.interval,
-            recurrenceWeekdays: recurrence.weekdays,
-            recurrenceDay: recurrence.day,
+            // Recurrence columns are left nil: since V6 a recurring
+            // responsibility is an `SDRoutine`, and writing a rule here too
+            // would be a second definition of the same thing.
+            recurrenceKind: nil,
+            recurrenceInterval: nil,
+            recurrenceWeekdays: nil,
+            recurrenceDay: nil,
             linkedCalendarItemID: task.linkedCalendarItemID?.rawValue,
             reminderPlanID: task.reminderPlanID?.rawValue,
             followUpCount: task.followUpCount,
             snoozeCount: task.snoozeCount,
             createdAt: task.createdAt,
             updatedAt: task.updatedAt,
-            completedAt: task.completedAt
+            completedAt: task.completedAt,
+            estimatedDuration: task.estimatedDuration,
+            routineID: task.routineID?.rawValue,
+            occurrenceDate: task.occurrenceDate,
+            dependsOn: task.dependsOn.isEmpty ? nil : task.dependsOn.map(\.rawValue),
+            preparationStepsJSON: encodeSteps(task.preparationSteps),
+            dismissalCount: task.dismissalCount,
+            missCount: task.missCount
         )
     }
 
@@ -48,7 +57,6 @@ enum TaskMapper {
     /// identifier is how a "save" turns into a duplicate.
     static func update(_ row: SDTask, from task: TaskItem) {
         let timing = encodeTiming(task.timing)
-        let recurrence = encodeRecurrence(task.recurrence)
 
         row.title = task.title
         row.details = task.details
@@ -61,10 +69,6 @@ enum TaskMapper {
         row.deadline = task.deadline
         row.preparationDuration = task.preparationDuration
         row.travelDuration = task.travelDuration
-        row.recurrenceKind = recurrence.kind
-        row.recurrenceInterval = recurrence.interval
-        row.recurrenceWeekdays = recurrence.weekdays
-        row.recurrenceDay = recurrence.day
         row.linkedCalendarItemID = task.linkedCalendarItemID?.rawValue
         row.reminderPlanID = task.reminderPlanID?.rawValue
         row.followUpCount = task.followUpCount
@@ -72,6 +76,13 @@ enum TaskMapper {
         row.createdAt = task.createdAt
         row.updatedAt = task.updatedAt
         row.completedAt = task.completedAt
+        row.estimatedDuration = task.estimatedDuration
+        row.routineID = task.routineID?.rawValue
+        row.occurrenceDate = task.occurrenceDate
+        row.dependsOn = task.dependsOn.isEmpty ? nil : task.dependsOn.map(\.rawValue)
+        row.preparationStepsJSON = encodeSteps(task.preparationSteps)
+        row.dismissalCount = task.dismissalCount
+        row.missCount = task.missCount
     }
 
     // MARK: Storage → domain
@@ -89,11 +100,17 @@ enum TaskMapper {
             deadline: row.deadline,
             preparationDuration: row.preparationDuration,
             travelDuration: row.travelDuration,
-            recurrence: try decodeRecurrence(row),
+            estimatedDuration: row.estimatedDuration,
+            routineID: row.routineID.map { Routine.ID($0) },
+            occurrenceDate: row.occurrenceDate,
+            dependsOn: (row.dependsOn ?? []).map { TaskItem.ID($0) },
+            preparationSteps: decodeSteps(row.preparationStepsJSON),
             linkedCalendarItemID: row.linkedCalendarItemID.map { CalendarItem.ID($0) },
             reminderPlanID: row.reminderPlanID.map { ReminderPlan.ID($0) },
             followUpCount: row.followUpCount,
             snoozeCount: row.snoozeCount,
+            dismissalCount: row.dismissalCount,
+            missCount: row.missCount,
             createdAt: row.createdAt,
             updatedAt: row.updatedAt,
             completedAt: row.completedAt
@@ -145,43 +162,28 @@ enum TaskMapper {
         }
     }
 
-    // MARK: Recurrence
+    // MARK: Preparation steps
 
-    private static func encodeRecurrence(
-        _ rule: RecurrenceRule?
-    ) -> (kind: String?, interval: Int?, weekdays: [Int]?, day: Int?) {
-        switch rule {
-        case .none:
-            return (nil, nil, nil, nil)
-        case .daily(let interval):
-            return (RecurrenceKindColumn.daily, interval, nil, nil)
-        case .weekly(let interval, let weekdays):
-            return (RecurrenceKindColumn.weekly, interval, weekdays, nil)
-        case .monthly(let interval, let day):
-            return (RecurrenceKindColumn.monthly, interval, nil, day)
-        case .yearly(let interval):
-            return (RecurrenceKindColumn.yearly, interval, nil, nil)
-        }
+    /// Steps as JSON, or nil when there are none.
+    ///
+    /// Nil rather than an empty array so a task that never had steps and one
+    /// whose steps were all removed read back identically — there is no
+    /// meaningful difference, and two representations of "none" is one more
+    /// than any caller wants to handle.
+    static func encodeSteps(_ steps: [PreparationStep]) -> Data? {
+        guard !steps.isEmpty else { return nil }
+        return try? JSONCoding.encoder.encode(steps.ordered)
     }
 
-    private static func decodeRecurrence(_ row: SDTask) throws -> RecurrenceRule? {
-        guard let kind = row.recurrenceKind else { return nil }
-        let interval = row.recurrenceInterval ?? 1
-
-        switch kind {
-        case RecurrenceKindColumn.daily:
-            return .daily(interval: interval)
-        case RecurrenceKindColumn.weekly:
-            return .weekly(interval: interval, weekdays: row.recurrenceWeekdays ?? [])
-        case RecurrenceKindColumn.monthly:
-            return .monthly(interval: interval, day: row.recurrenceDay ?? 1)
-        case RecurrenceKindColumn.yearly:
-            return .yearly(interval: interval)
-        default:
-            throw PersistenceError.mappingFailed(
-                entity: entity, detail: "unrecognised recurrence kind"
-            )
-        }
+    /// Steps back from JSON.
+    ///
+    /// Unreadable payloads decode to no steps rather than throwing. A task is
+    /// still a task without its preparation breakdown, and refusing to load
+    /// someone's whole task list because one blob was written by a newer
+    /// version would be a worse failure than losing the breakdown.
+    static func decodeSteps(_ data: Data?) -> [PreparationStep] {
+        guard let data else { return [] }
+        return ((try? JSONCoding.decoder.decode([PreparationStep].self, from: data)) ?? []).ordered
     }
 }
 

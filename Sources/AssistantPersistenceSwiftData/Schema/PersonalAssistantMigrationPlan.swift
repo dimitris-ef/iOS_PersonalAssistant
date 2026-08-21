@@ -67,11 +67,12 @@ public enum PersonalAssistantMigrationPlan: SchemaMigrationPlan {
             PersonalAssistantSchemaV3.self,
             PersonalAssistantSchemaV4.self,
             PersonalAssistantSchemaV5.self,
+            PersonalAssistantSchemaV6.self,
         ]
     }
 
     public static var stages: [MigrationStage] {
-        [migrateV1toV2, migrateV2toV3, migrateV3toV4, migrateV4toV5]
+        [migrateV1toV2, migrateV2toV3, migrateV3toV4, migrateV4toV5, migrateV5toV6]
     }
 
     /// Purely additive, all-nullable. Nothing to compute, nothing to lose.
@@ -103,6 +104,31 @@ public enum PersonalAssistantMigrationPlan: SchemaMigrationPlan {
     static let migrateV4toV5 = MigrationStage.lightweight(
         fromVersion: PersonalAssistantSchemaV4.self,
         toVersion: PersonalAssistantSchemaV5.self
+    )
+
+    /// Recurring responsibilities, dependencies and preparation steps.
+    ///
+    /// One new entity — `SDRoutine` — and seven added properties on `SDTask`,
+    /// five of them optional and two carrying declared defaults of zero. No
+    /// column is renamed, retyped or removed, so there is nothing to compute
+    /// and nothing an existing row can lose.
+    ///
+    /// **What an existing task becomes.** Exactly what it was, with safe
+    /// defaults for everything new: no routine, no occurrence date, no
+    /// dependencies, no preparation steps, and zero dismissals and misses
+    /// counted. Zero is the honest value there — those events were never
+    /// recorded, so claiming any number would be inventing history. Critically,
+    /// `followUpCount`, `snoozeCount` and every reminder stage's state are
+    /// untouched: a task that had been chased twice is still a task that has
+    /// been chased twice, and escalation picks up where it left off rather than
+    /// starting the user over. That is section 63, and it is the difference
+    /// between an upgrade and a reset.
+    ///
+    /// Ordinary tasks are **not** turned into routines. A task with no
+    /// recurrence stays a task; nothing infers a rule from a repeated title.
+    static let migrateV5toV6 = MigrationStage.lightweight(
+        fromVersion: PersonalAssistantSchemaV5.self,
+        toVersion: PersonalAssistantSchemaV6.self
     )
 }
 
