@@ -61,14 +61,34 @@ exist. See [`APPLE-ON-DEVICE.md`](APPLE-ON-DEVICE.md).
 3. `ModelRouter` selects a provider from settings.
 4. `SystemPromptBuilder` renders the context into a system prompt, message list
    and tool schemas. This is the *only* thing a provider is shown.
-5. The provider returns text plus `AIToolCall`s.
-6. `ToolRequestDecoder` types and validates each call; failures are rejected.
-7. `DefaultActionPlanner` builds the plan and expands reminder support.
-8. `DefaultToolExecutor` runs the authorized actions.
-9. The assistant message and results are persisted.
+5. `AgentRunner` runs steps 6–9 as a bounded loop, up to `AgentLimits`.
+6. The provider returns text plus `AIToolCall`s.
+7. `ToolRequestDecoder` types and validates each call; failures are rejected.
+8. `DefaultActionPlanner` builds the plan and expands reminder support.
+9. `DefaultToolExecutor` runs the authorized actions, one at a time.
+10. The results go back to the provider and the loop repeats, until the model
+    stops asking for tools or a limit is reached.
+11. The assistant message and results are persisted.
 
-Steps 6–8 are three separate types on purpose: decoding, deciding and doing fail
+Steps 7–9 are three separate types on purpose: decoding, deciding and doing fail
 for different reasons and change for different reasons.
+
+### Several rounds, one turn
+
+One user message can need several coordinated actions, and the model has to be
+able to see what each one really did before choosing the next. `AgentRunner`
+owns that loop — in the application, never in a provider, because a provider
+running the loop would be a provider executing tools.
+
+Each round is untrusted output again: a call proposed in round six is decoded,
+validated, authorized and permission-checked exactly as one in round one.
+Nothing executes twice, because `ToolExecutionLedger` claims each call by id and
+by content fingerprint before it can run. When the model cannot write the
+closing reply — the provider failed, or the ceiling was reached —
+`TurnSummarizer` writes a truthful one from the results rather than letting a
+sentence composed before the results stand as the answer.
+
+See [`Docs/AGENT.md`](AGENT.md).
 
 ### Why the plan is a value
 
@@ -99,6 +119,10 @@ Four consequences worth stating explicitly:
   model inferring that something is probably done cannot close it.
 - The executor re-checks authorization rather than trusting the plan it was
   handed.
+- A successful action grants the next one nothing. Every round of a multi-round
+  turn goes through this pipeline from the top, so a model that creates a
+  reminder and then asks to delete a calendar gets the deletion evaluated on its
+  own terms — which, for a destructive tool, means it waits for the user.
 
 ## Honesty about what ran
 

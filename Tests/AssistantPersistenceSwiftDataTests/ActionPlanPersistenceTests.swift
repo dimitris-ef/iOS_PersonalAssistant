@@ -142,7 +142,9 @@ final class ActionPlanPersistenceTests: PersistenceTestCase {
 
         try relaunch()
 
-        let record = try XCTUnwrap(try await repositories.actionPlans.record(id: plan.id))
+        // Hoisted: `try await` inside an XCTUnwrap autoclosure does not compile.
+        let loaded = try await repositories.actionPlans.record(id: plan.id)
+        let record = try XCTUnwrap(loaded)
         XCTAssertEqual(try XCTUnwrap(record.results.first).failure, .permissionDenied)
     }
 
@@ -169,7 +171,8 @@ final class ActionPlanPersistenceTests: PersistenceTestCase {
 
         try relaunch()
 
-        let record = try XCTUnwrap(try await repositories.actionPlans.record(id: plan.id))
+        let loaded = try await repositories.actionPlans.record(id: plan.id)
+        let record = try XCTUnwrap(loaded)
         XCTAssertNil(try XCTUnwrap(record.results.first).failure)
     }
 
