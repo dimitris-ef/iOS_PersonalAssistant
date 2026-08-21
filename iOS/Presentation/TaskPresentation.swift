@@ -176,6 +176,8 @@ struct TaskPresenter {
         case .missed: return "Missed"
         case .needsFollowUp: return "Needs follow-up"
         case .cancelled: return "Cancelled"
+        case .skipped: return "Skipped"
+        case .expired: return "Window closed"
         }
     }
 
@@ -190,6 +192,13 @@ struct TaskPresenter {
             return "A reminder was dismissed without confirming, so this is still open."
         case .missed:
             return "Its moment passed without confirmation."
+        case .skipped:
+            // Said explicitly because it is the one settled status that is
+            // neither a success nor a failure, and because the reassurance
+            // matters: skipping today is not calling off the routine.
+            return "You skipped this one. Nothing else changed."
+        case .expired:
+            return "This was only worth doing at the time, and that time has gone."
         default:
             return nil
         }
@@ -203,7 +212,10 @@ enum TaskStatusStyle {
         case .inProgress: return .accentColor
         case .missed, .needsFollowUp: return .orange
         case .snoozed: return .purple
-        case .cancelled: return .secondary
+        // Neither green nor orange. Skipping and expiring settle a task without
+        // it having been done, and colouring them like success or like failure
+        // would both be a lie.
+        case .cancelled, .skipped, .expired: return .secondary
         case .notStarted, .reminded: return .secondary
         }
     }
@@ -215,6 +227,8 @@ enum TaskStatusStyle {
         case .missed, .needsFollowUp: return "exclamationmark.circle"
         case .snoozed: return "moon.zzz"
         case .cancelled: return "xmark.circle"
+        case .skipped: return "forward.end.circle"
+        case .expired: return "clock.badge.xmark"
         case .notStarted, .reminded: return "circle"
         }
     }

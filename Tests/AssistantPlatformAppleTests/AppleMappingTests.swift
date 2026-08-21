@@ -141,11 +141,10 @@ final class AppleMappingTests: XCTestCase {
     /// for an interval below 1, which terminates the process. Clamping here is
     /// what keeps a language model's zero out of that initialiser.
     func testAnIntervalBelowOneIsClampedRatherThanPassedOn() {
-        for rule: RecurrenceRule in [
-            .daily(interval: 0),
-            .weekly(interval: -3, weekdays: [2]),
-            .monthly(interval: 0, day: 5),
-            .yearly(interval: 0),
+        for rule in [
+            Self.rule(.daily, interval: 0),
+            Self.rule(.weekly, interval: -3, weekdays: [2]),
+            Self.rule(.monthly, interval: 0, dayOfMonth: 5),
         ] {
             XCTAssertGreaterThanOrEqual(
                 AppleRecurrenceMapping.specification(for: rule).interval, 1
@@ -155,7 +154,7 @@ final class AppleMappingTests: XCTestCase {
 
     func testImpossibleWeekdaysAreDroppedRatherThanClamped() {
         let spec = AppleRecurrenceMapping.specification(
-            for: .weekly(interval: 1, weekdays: [0, 2, 4, 9])
+            for: Self.rule(.weekly, weekdays: [0, 2, 4, 9])
         )
         // A weekday of 9 has no nearest sensible meaning, so it goes; 2 and 4
         // are real and stay.
@@ -164,29 +163,54 @@ final class AppleMappingTests: XCTestCase {
 
     func testADayOfMonthIsHeldInsideACalendarMonth() {
         XCTAssertEqual(
-            AppleRecurrenceMapping.specification(for: .monthly(interval: 1, day: 99)).dayOfMonth,
+            AppleRecurrenceMapping.specification(
+                for: Self.rule(.monthly, dayOfMonth: 99)
+            ).dayOfMonth,
             31
         )
         XCTAssertEqual(
-            AppleRecurrenceMapping.specification(for: .monthly(interval: 1, day: 0)).dayOfMonth,
+            AppleRecurrenceMapping.specification(
+                for: Self.rule(.monthly, dayOfMonth: 0)
+            ).dayOfMonth,
             1
         )
     }
 
     func testFrequenciesTranslateOneForOne() {
         XCTAssertEqual(
-            AppleRecurrenceMapping.specification(for: .daily(interval: 2)).frequency, .daily
+            AppleRecurrenceMapping.specification(for: Self.rule(.daily, interval: 2)).frequency,
+            .daily
         )
         XCTAssertEqual(
-            AppleRecurrenceMapping.specification(for: .weekly(interval: 1, weekdays: [])).frequency,
+            AppleRecurrenceMapping.specification(for: Self.rule(.weekly, weekdays: [3])).frequency,
             .weekly
         )
         XCTAssertEqual(
-            AppleRecurrenceMapping.specification(for: .monthly(interval: 1, day: 1)).frequency,
+            AppleRecurrenceMapping.specification(
+                for: Self.rule(.monthly, dayOfMonth: 1)
+            ).frequency,
             .monthly
         )
-        XCTAssertEqual(
-            AppleRecurrenceMapping.specification(for: .yearly(interval: 1)).frequency, .yearly
+    }
+
+    /// A rule with only the fields a given test cares about set.
+    ///
+    /// The intervals and weekdays here are deliberately invalid in places —
+    /// that is the point of the tests above — so this does not go through
+    /// `validate()`.
+    private static func rule(
+        _ frequency: RecurrenceRule.Frequency,
+        interval: Int = 1,
+        weekdays: [Int] = [],
+        dayOfMonth: Int? = nil
+    ) -> RecurrenceRule {
+        RecurrenceRule(
+            frequency: frequency,
+            interval: interval,
+            weekdays: weekdays,
+            dayOfMonth: dayOfMonth,
+            timeOfDay: TimeOfDay(hour: 9),
+            startDate: Date(timeIntervalSince1970: 1_700_000_000)
         )
     }
 }

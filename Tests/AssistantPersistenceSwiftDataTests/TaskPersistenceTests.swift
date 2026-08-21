@@ -20,7 +20,6 @@ final class TaskPersistenceTests: PersistenceTestCase {
             deadline: Self.referenceDate.addingTimeInterval(7_200),
             preparationDuration: TimeSpan.minutes(20),
             travelDuration: TimeSpan.minutes(15),
-            recurrence: .weekly(interval: 2, weekdays: [2, 4]),
             linkedCalendarItemID: CalendarItem.ID(),
             reminderPlanID: ReminderPlan.ID(),
             followUpCount: 2,
@@ -62,22 +61,66 @@ final class TaskPersistenceTests: PersistenceTestCase {
         }
     }
 
+    /// Recurrence belongs to a routine, not to a task.
+    ///
+    /// A task used to carry its own rule, which could not express the thing that
+    /// matters: yesterday's dose was missed and today's was taken. Occurrences
+    /// are separate tasks now, and the rule that generates them lives on the
+    /// routine — so this is where the round trip has to hold.
     func testRoundTripsEveryRecurrenceCase() async throws {
-        let cases: [RecurrenceRule?] = [
-            nil,
-            .daily(interval: 1),
-            .weekly(interval: 2, weekdays: [1, 3, 5]),
-            .monthly(interval: 1, day: 14),
-            .yearly(interval: 1),
+        let cases: [RecurrenceRule] = [
+            RecurrenceRule(
+                frequency: .daily,
+                timeOfDay: TimeOfDay(hour: 9),
+                startDate: Self.referenceDate
+            ),
+            RecurrenceRule(
+                frequency: .weekly,
+                interval: 2,
+                weekdays: [1, 3, 5],
+                timeOfDay: TimeOfDay(hour: 20, minute: 30),
+                startDate: Self.referenceDate
+            ),
+            RecurrenceRule(
+                frequency: .monthly,
+                dayOfMonth: 14,
+                timeOfDay: TimeOfDay(hour: 7, minute: 5),
+                startDate: Self.referenceDate,
+                endDate: Self.referenceDate.addingTimeInterval(TimeSpan.days(400))
+            ),
         ]
 
         for rule in cases {
-            let task = TaskItem(title: "t", recurrence: rule, createdAt: Self.referenceDate)
-            try await repositories.tasks.save(task)
-            let stored = try await repositories.tasks.task(id: task.id)
+            let routine = Routine(title: "r", recurrence: rule, createdAt: Self.referenceDate)
+            try await repositories.routines.save(routine)
+            let stored = try await repositories.routines.routine(id: routine.id)
             let loaded = try XCTUnwrap(stored)
             XCTAssertEqual(loaded.recurrence, rule)
         }
+    }
+
+    /// An occurrence is an ordinary task that knows where it came from.
+    func testRoundTripsAnOccurrencesLinkToItsRoutine() async throws {
+        let routineID = Routine.ID()
+        let when = Self.referenceDate.addingTimeInterval(TimeSpan.hours(9))
+        let task = TaskItem(
+            title: "Take medication",
+            timing: .fixed(when),
+            estimatedDuration: TimeSpan.minutes(2),
+            routineID: routineID,
+            occurrenceDate: when,
+            preparationSteps: [
+                PreparationStep(title: "Fill the glass", estimatedDuration: TimeSpan.minutes(1))
+            ],
+            createdAt: Self.referenceDate
+        )
+        try await repositories.tasks.save(task)
+
+        try relaunch()
+
+        let loaded = try XCTUnwrap(try await repositories.tasks.task(id: task.id))
+        XCTAssertEqual(loaded, task)
+        XCTAssertTrue(loaded.isRoutineOccurrence)
     }
 
     // MARK: Status

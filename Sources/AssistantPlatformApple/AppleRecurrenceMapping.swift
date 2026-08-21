@@ -49,32 +49,33 @@ public enum AppleRecurrenceMapping {
     /// Weekday numbers are filtered rather than clamped, because a weekday of
     /// 9 has no nearest sensible meaning. An empty result falls back to a plain
     /// weekly rule, which repeats on the start date's own weekday.
+    /// This direction only.
+    ///
+    /// ``RecurrenceRule`` is the app's own type precisely so that a repeating
+    /// responsibility does not need EventKit to exist. This function is the exit
+    /// door for the cases where a rule really is going into the user's calendar;
+    /// nothing reads recurrence back out of EventKit, and nothing should.
     public static func specification(for rule: RecurrenceRule) -> AppleRecurrenceSpecification {
-        switch rule {
-        case .daily(let interval):
-            return AppleRecurrenceSpecification(
-                frequency: .daily,
-                interval: max(1, interval)
-            )
+        let interval = max(1, rule.interval)
 
-        case .weekly(let interval, let weekdays):
+        switch rule.frequency {
+        case .daily:
+            return AppleRecurrenceSpecification(frequency: .daily, interval: interval)
+
+        case .weekly:
             return AppleRecurrenceSpecification(
                 frequency: .weekly,
-                interval: max(1, interval),
-                weekdays: weekdays.filter { (1...7).contains($0) }.sorted()
+                interval: interval,
+                weekdays: rule.weekdays.filter { (1...7).contains($0) }.sorted()
             )
 
-        case .monthly(let interval, let day):
+        case .monthly:
             return AppleRecurrenceSpecification(
                 frequency: .monthly,
-                interval: max(1, interval),
-                dayOfMonth: min(31, max(1, day))
-            )
-
-        case .yearly(let interval):
-            return AppleRecurrenceSpecification(
-                frequency: .yearly,
-                interval: max(1, interval)
+                interval: interval,
+                // A monthly rule with no explicit day repeats on the start
+                // date's own day, which is what the domain's own matching does.
+                dayOfMonth: rule.dayOfMonth.map { min(31, max(1, $0)) }
             )
         }
     }
