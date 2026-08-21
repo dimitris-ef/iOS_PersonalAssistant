@@ -262,8 +262,17 @@ final class FollowUpCoordinatorTests: XCTestCase {
         let other = ReminderStage(kind: .finalCall, offset: .absolute(now), message: "again")
         plan2.stages.append(other)
 
+        // "Attempt count has not moved on" now means all of it: the interval is
+        // computed from `FollowUpTiming.pressure(for:)`, which reads follow-ups,
+        // snoozes and repeated dismissals together. Resetting only
+        // `followUpCount` would leave this simulating a task that *has* been
+        // dismissed once more, which is a different scenario from the one the
+        // test is about.
         var task2 = first.task
         task2.followUpCount = f.task.followUpCount
+        task2.dismissalCount = f.task.dismissalCount
+        task2.missCount = f.task.missCount
+        task2.snoozeCount = f.task.snoozeCount
 
         let second = coordinator.apply(
             outcome: .dismissed,
