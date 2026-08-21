@@ -31,6 +31,11 @@ final class TodayViewModel {
         )
     }
 
+    /// What to do now, ranked by the domain.
+    func focus(for model: AppModel) -> [TodayFocusItem] {
+        presenter(for: model).focus(tasks: model.tasks)
+    }
+
     func upNext(for model: AppModel) -> UpNextItem? {
         presenter(for: model).upNext(
             tasks: model.tasks,

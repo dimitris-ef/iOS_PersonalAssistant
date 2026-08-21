@@ -57,6 +57,81 @@ struct TodayTimelineItem: Identifiable, Equatable {
     let hasPassed: Bool
 }
 
+/// Why a focus row is on screen, and how it should read.
+///
+/// One badge, not a pile of them: someone scanning this list needs to know at a
+/// glance which row is the one to act on, and a row wearing three labels is a
+/// row nobody reads. The order in ``TodayFocusItem/emphasis(for:isTop:now:)``
+/// is the priority between them.
+enum TodayEmphasis: String, Equatable {
+    /// The one thing to do next.
+    case upNext
+    /// Preparation should be starting about now.
+    case startNow
+    /// Preparation should already have started.
+    case behind
+    /// Missed, and still worth doing.
+    case recovery
+    /// One occurrence of something that repeats.
+    case routine
+    /// Waiting on something else.
+    case blocked
+    case none
+
+    var label: String? {
+        switch self {
+        case .upNext: return "Up next"
+        case .startNow: return "Start now"
+        case .behind: return "Running late"
+        case .recovery: return "Missed — still worth doing"
+        case .routine: return "Routine"
+        case .blocked: return "Blocked"
+        case .none: return nil
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .upNext: return "arrow.forward.circle.fill"
+        case .startNow: return "play.circle.fill"
+        case .behind: return "exclamationmark.triangle.fill"
+        case .recovery: return "arrow.counterclockwise.circle.fill"
+        case .routine: return "repeat.circle.fill"
+        case .blocked: return "lock.circle.fill"
+        case .none: return "circle"
+        }
+    }
+
+    var tint: Color {
+        switch self {
+        case .upNext: return .accentColor
+        case .startNow: return .green
+        case .behind: return .orange
+        case .recovery: return .orange
+        case .routine: return .purple
+        case .blocked: return .secondary
+        case .none: return .secondary
+        }
+    }
+}
+
+/// One row in the ranked "what to do" list.
+///
+/// The ordering is not decided here. `DailyPriorityRanker` produces it, and this
+/// type only says how each ranked task reads on screen — section 72's rule that
+/// prioritisation lives in the domain, not in a view.
+struct TodayFocusItem: Identifiable, Equatable {
+    let id: TaskItem.ID
+    let title: String
+    let timeLabel: String?
+    /// One line saying what is going on: what it waits for, when to start.
+    let detail: String?
+    let emphasis: TodayEmphasis
+    let isBlocked: Bool
+    /// Whether "Help me start" makes sense for this row.
+    let canStart: Bool
+}
+
 /// The single most relevant thing coming up, given more weight on screen.
 struct UpNextItem: Equatable {
     let title: String
@@ -76,6 +151,8 @@ struct TodayPresenter {
     let now: Date
     let calendar: Calendar
     var formatters: AppFormatters = .shared
+    /// The domain's ordering, borrowed rather than reimplemented.
+    var ranker: DailyPriorityRanker = DailyPriorityRanker()
 
     // MARK: Timeline
 
@@ -161,6 +238,76 @@ struct TodayPresenter {
         case .calendarItem(let id): return .event(id)
         case .freeform: return nil
         }
+    }
+
+    // MARK: Focus
+
+    /// What to do now, in order, with a reason for each.
+    ///
+    /// The ranking is entirely `DailyPriorityRanker`'s. This function turns its
+    /// output into rows — no sorting, no filtering by score, no second opinion
+    /// about what matters. If the order looks wrong, the test to write is
+    /// against the ranker.
+    func focus(tasks: [TaskItem], limit: Int = 6) -> [TodayFocusItem] {
+        let ranked = ranker.rank(tasks, now: now, calendar: calendar)
+
+        return ranked.prefix(limit).enumerated().map { index, entry in
+            let emphasis = emphasis(for: entry, isTop: index == 0)
+            return TodayFocusItem(
+                id: entry.task.id,
+                title: entry.task.title,
+                timeLabel: entry.task.anchorDate.map { formatters.relativeDayAndTime($0, now: now) },
+                detail: detail(for: entry, emphasis: emphasis),
+                emphasis: emphasis,
+                isBlocked: entry.isBlocked,
+                // Nothing to start when it is blocked or already under way. The
+                // button that offers to help you begin something you have begun
+                // is worse than no button.
+                canStart: !entry.isBlocked && entry.task.status != .inProgress
+            )
+        }
+    }
+
+    private func emphasis(for entry: RankedTask, isTop: Bool) -> TodayEmphasis {
+        // Blocked wins outright. A row that says "Up next" and cannot be done is
+        // the assistant telling someone to do the impossible.
+        if entry.isBlocked { return .blocked }
+
+        if let start = entry.preparationStart {
+            if start < now { return .behind }
+            if start.timeIntervalSince(now) <= TimeSpan.minutes(15) { return .startNow }
+        }
+
+        if entry.task.status == .missed || entry.task.status == .needsFollowUp {
+            return .recovery
+        }
+        if isTop { return .upNext }
+        if entry.task.isRoutineOccurrence { return .routine }
+        return .none
+    }
+
+    private func detail(for entry: RankedTask, emphasis: TodayEmphasis) -> String? {
+        if let blocked = entry.blocked { return blocked.summary }
+
+        switch emphasis {
+        case .behind:
+            return "You should already be getting ready."
+        case .startNow:
+            guard let start = entry.preparationStart else { return nil }
+            return "Start getting ready at \(formatters.time(start))."
+        case .recovery:
+            return "This did not happen yet — it is still on your list."
+        default:
+            break
+        }
+
+        if entry.task.isRoutineOccurrence, let date = entry.task.occurrenceDate {
+            return "Today's one, at \(formatters.time(date))."
+        }
+        if let start = entry.preparationStart, start > now {
+            return "Start getting ready at \(formatters.time(start))."
+        }
+        return nil
     }
 
     // MARK: Up next

@@ -90,6 +90,10 @@ struct TaskDetailView: View {
                 reminderSection(plan: plan)
             }
 
+            routineSection(for: task)
+            dependencySection(for: task)
+            preparationSection(for: task)
+
             Section {
                 if task.status == .completed {
                     Button {
@@ -109,6 +113,28 @@ struct TaskDetailView: View {
                             Task { await model.startTask(task.id) }
                         } label: {
                             Label("I'm working on it", systemImage: "circle.lefthalf.filled")
+                        }
+
+                        // The other half of starting: for the person who has
+                        // not begun and cannot work out how to. It produces a
+                        // first step, not a pep talk, and it does not complete
+                        // anything.
+                        Button {
+                            Task { await model.helpMeStart(task.id) }
+                        } label: {
+                            Label("Help me start", systemImage: "play.circle")
+                        }
+                    }
+
+                    if task.isRoutineOccurrence {
+                        // Skipping today, not calling off the routine. The
+                        // wording matters: "Cancel" here would read as ending
+                        // the whole thing, which is not what anybody means by
+                        // "not today".
+                        Button {
+                            Task { await model.skipOccurrence(task.id) }
+                        } label: {
+                            Label("Skip just this one", systemImage: "forward.end")
                         }
                     }
 
@@ -153,6 +179,134 @@ struct TaskDetailView: View {
         } message: {
             Text("This can't be undone.")
         }
+    }
+
+    /// What this occurrence repeats as, when it is one.
+    ///
+    /// Stated in words rather than shown as an editable rule, because the thing
+    /// a person wants to check here is "is this the daily one or a one-off" —
+    /// and because editing the schedule from inside one morning's occurrence
+    /// would change every future morning without saying so.
+    @ViewBuilder
+    private func routineSection(for task: TaskItem) -> some View {
+        if let routine = model.routine(forTask: task) {
+            Section("Routine") {
+                Text(routine.recurrence.summary(calendar: model.calendar))
+                    .font(.subheadline)
+                if let date = task.occurrenceDate {
+                    LabeledContent(
+                        "This one",
+                        value: AppFormatters.shared.relativeDayAndTime(date, now: model.now)
+                    )
+                }
+                if let last = routine.lastCompletedAt {
+                    LabeledContent(
+                        "Last done",
+                        value: AppFormatters.shared.relativeDayAndTime(last, now: model.now)
+                    )
+                }
+                Text("Completing or skipping this one doesn't change the routine.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+        } else if task.isRoutineOccurrence {
+            // The routine row is gone but the occurrence remains. Saying so is
+            // better than showing nothing and leaving a task nobody can explain.
+            Section("Routine") {
+                Text("This came from a routine that no longer exists. It's an ordinary task now.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    /// What this waits for, and what waits for it.
+    @ViewBuilder
+    private func dependencySection(for task: TaskItem) -> some View {
+        let prerequisites = task.dependsOn.compactMap { model.task(id: $0) }
+        let dependents = model.tasks.filter { $0.dependsOn.contains(task.id) }
+
+        if !prerequisites.isEmpty || !dependents.isEmpty {
+            Section("Order") {
+                ForEach(prerequisites) { prerequisite in
+                    LabeledContent {
+                        TaskStatusBadge(status: prerequisite.status)
+                    } label: {
+                        Label(prerequisite.title, systemImage: "arrow.turn.up.left")
+                            .foregroundStyle(prerequisite.status.isSettled ? .secondary : .primary)
+                    }
+                }
+                if !prerequisites.isEmpty {
+                    Text(
+                        prerequisites.contains { !$0.status.isSettled }
+                            // The reassurance that matters: silence here is
+                            // deliberate, not the app forgetting.
+                            ? "This is waiting. I won't chase you about it until it can be done."
+                            : "Everything this was waiting for is settled."
+                    )
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                }
+
+                ForEach(dependents) { dependent in
+                    Label("\(dependent.title) waits for this", systemImage: "arrow.turn.down.right")
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
+    /// The steps, in order, with the next one to actually do.
+    @ViewBuilder
+    private func preparationSection(for task: TaskItem) -> some View {
+        let steps = task.preparationSteps.ordered
+
+        if !steps.isEmpty {
+            Section {
+                ForEach(steps) { step in
+                    Button {
+                        Task { await model.completePreparationStep(step.id, taskID: task.id) }
+                    } label: {
+                        HStack(alignment: .firstTextBaseline, spacing: Theme.Spacing.sm) {
+                            Image(systemName: step.isCompleted ? "checkmark.circle.fill" : "circle")
+                                .foregroundStyle(step.isCompleted ? Color.green : .secondary)
+
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(step.title)
+                                    .foregroundStyle(step.isCompleted ? .secondary : .primary)
+                                    .strikethrough(step.isCompleted, color: .secondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                                    .multilineTextAlignment(.leading)
+
+                                Text(stepCaption(step))
+                                    .font(.caption)
+                                    .foregroundStyle(.tertiary)
+                            }
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(step.isCompleted)
+                }
+            } header: {
+                Text("Steps")
+            } footer: {
+                // Section 45, said out loud. Ticking off every step is not the
+                // same as the thing being done, and a footer is cheaper than a
+                // user discovering it the hard way.
+                Text("Ticking off steps doesn't complete the task itself.")
+            }
+        }
+    }
+
+    private func stepCaption(_ step: PreparationStep) -> String {
+        let minutes = Int((step.estimatedDuration / 60).rounded())
+        var parts: [String] = []
+        if minutes > 0 { parts.append("\(minutes) min") }
+        if step.necessity != .required { parts.append(step.necessity.rawValue) }
+        if let start = step.scheduledStart {
+            parts.append("from \(AppFormatters.shared.time(start))")
+        }
+        return parts.isEmpty ? "Step" : parts.joined(separator: " · ")
     }
 
     /// When the assistant next intends to come back, if it does.

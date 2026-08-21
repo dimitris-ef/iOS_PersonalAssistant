@@ -27,6 +27,8 @@ struct TodayScreen: View {
                         )
                     }
 
+                    focus
+
                     timeline
                 }
                 .padding(.horizontal, Theme.Spacing.lg)
@@ -58,6 +60,33 @@ struct TodayScreen: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.top, Theme.Spacing.xs)
         .accessibilityElement(children: .combine)
+    }
+
+    /// The ranked list: what to do now, and why each row is there.
+    ///
+    /// Ordering comes from `DailyPriorityRanker` through the presenter. This
+    /// view sorts nothing.
+    @ViewBuilder
+    private var focus: some View {
+        let items = viewModel.focus(for: model)
+
+        if !items.isEmpty {
+            VStack(alignment: .leading, spacing: Theme.Spacing.md) {
+                SectionHeading(text: "What to do now")
+
+                VStack(spacing: 0) {
+                    ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+                        TodayFocusRow(
+                            item: item,
+                            isLast: index == items.count - 1,
+                            onOpen: { viewModel.open(.task(item.id)) },
+                            onStart: { Task { await model.helpMeStart(item.id) } }
+                        )
+                    }
+                }
+                .cardSurface(padding: Theme.Spacing.lg)
+            }
+        }
     }
 
     @ViewBuilder

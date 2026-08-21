@@ -198,6 +198,39 @@ struct ConversationPresenter {
                 )
             )
 
+        case .createRoutine:
+            return .unsupported(
+                GenericActionModel(
+                    id: action.id,
+                    title: "Routine set up",
+                    // The rule, not just the name. "Every Thursday at 20:00" is
+                    // the part a user needs to check, and getting it wrong is
+                    // the mistake that repeats.
+                    detail: result?.message ?? action.request.summary,
+                    fidelity: fidelity
+                )
+            )
+
+        case .addTaskDependency:
+            return .unsupported(
+                GenericActionModel(
+                    id: action.id,
+                    title: "Order recorded",
+                    detail: result?.message ?? action.request.summary,
+                    fidelity: fidelity
+                )
+            )
+
+        case .startTask:
+            return .unsupported(
+                GenericActionModel(
+                    id: action.id,
+                    title: "Started — not done",
+                    detail: result?.message ?? action.request.summary,
+                    fidelity: fidelity
+                )
+            )
+
         case .getUpcomingSchedule, .askClarification:
             // Neither produces a card. A read's answer is the assistant's text,
             // and a clarification *is* the assistant's text — it is not an

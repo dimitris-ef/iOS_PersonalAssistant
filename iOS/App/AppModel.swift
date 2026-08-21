@@ -30,6 +30,8 @@ final class AppModel {
     private(set) var memories: [MemoryItem] = []
     private(set) var events: [CalendarItem] = []
     private(set) var reminderPlans: [ReminderPlan] = []
+    /// The recurring responsibilities themselves, not their occurrences.
+    private(set) var routines: [Routine] = []
     private(set) var settings = AssistantSettings()
     private(set) var profile = UserProfile()
     private(set) var providerOptions: [ProviderOption] = []
@@ -232,6 +234,7 @@ final class AppModel {
             settings = try await environment.repositories.settings.settings()
             profile = try await environment.repositories.profile.profile()
             reminderPlans = try await loadReminderPlans()
+            routines = try await environment.repositories.routines.routines(activeOnly: false)
         } catch {
             banner = BannerMessage(text: "Couldn't refresh.", style: .warning)
         }
@@ -370,6 +373,15 @@ final class AppModel {
 
     func task(id: TaskItem.ID) -> TaskItem? {
         tasks.first { $0.id == id }
+    }
+
+    func routine(id: Routine.ID) -> Routine? {
+        routines.first { $0.id == id }
+    }
+
+    /// The routine an occurrence belongs to, if it is one.
+    func routine(forTask task: TaskItem) -> Routine? {
+        task.routineID.flatMap { routine(id: $0) }
     }
 
     func event(id: CalendarItem.ID) -> CalendarItem? {
@@ -550,6 +562,58 @@ final class AppModel {
         task.completedAt = nil
         task.updatedAt = now
         await save(task, banner: "Reopened.")
+    }
+
+    /// "Help me start."
+    ///
+    /// Distinct from ``startTask(_:stageID:)``, which records that the user has
+    /// already begun. This one is for the person who has not, and cannot: it
+    /// hands back one concrete first step and *then* moves the task into
+    /// progress. Encouragement is not what is missing; a next physical action
+    /// is.
+    ///
+    /// It never completes anything, and the banner shows the step rather than a
+    /// congratulation.
+    func helpMeStart(_ id: TaskItem.ID) async {
+        do {
+            let support = try await environment.engine.startSupport.start(taskID: id)
+            await reload()
+            banner = BannerMessage(text: support.summary, style: .success)
+        } catch {
+            banner = BannerMessage(text: "Couldn't work out a first step for that.", style: .warning)
+        }
+    }
+
+    /// Ticks off one preparation step. Never the task itself — section 45.
+    func completePreparationStep(_ stepID: PreparationStep.ID, taskID: TaskItem.ID) async {
+        do {
+            let outcome = try await environment.engine.startSupport.completeStep(stepID, taskID: taskID)
+            await reload()
+            banner = BannerMessage(
+                text: outcome.next.map { "Done. Next: \($0.title)." }
+                    ?? "That's all the steps — the task itself is still open.",
+                style: .success
+            )
+        } catch {
+            banner = BannerMessage(text: "Couldn't update that step.", style: .warning)
+        }
+    }
+
+    /// Resolves one occurrence of a routine without touching the routine.
+    ///
+    /// "Skip the gym today" means today, not forever — section 105. Cancelling
+    /// would read everywhere else as calling off the responsibility itself.
+    func skipOccurrence(_ id: TaskItem.ID) async {
+        do {
+            let skipped = try await environment.engine.routines.skipOccurrence(id)
+            await reload()
+            banner = BannerMessage(
+                text: "Skipped \(skipped.title) for today. The routine carries on.",
+                style: .neutral
+            )
+        } catch {
+            banner = BannerMessage(text: "Couldn't skip that one.", style: .warning)
+        }
     }
 
     func updateTask(_ task: TaskItem) async {
