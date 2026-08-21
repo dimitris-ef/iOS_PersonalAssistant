@@ -118,7 +118,8 @@ final class TaskPersistenceTests: PersistenceTestCase {
 
         try relaunch()
 
-        let loaded = try XCTUnwrap(try await repositories.tasks.task(id: task.id))
+        let stored = try await repositories.tasks.task(id: task.id)
+        let loaded = try XCTUnwrap(stored)
         XCTAssertEqual(loaded, task)
         XCTAssertTrue(loaded.isRoutineOccurrence)
     }

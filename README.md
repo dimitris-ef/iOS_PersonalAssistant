@@ -163,6 +163,7 @@ PhonePersonalAI/
     ├── REMOTE-AI.md         The cloud provider and its credentials
     ├── PERSISTENCE.md       SwiftData schema and migration
     ├── FOLLOW-UP.md         The escalation ladder
+    ├── EXECUTIVE-SUPPORT.md Routines, dependencies, preparation, starting
     └── MEMORY.md            Retrieval, ranking, deduplication
 ```
 

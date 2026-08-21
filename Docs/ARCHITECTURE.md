@@ -251,6 +251,26 @@ order and `FollowUpService` persists the result and calls the platform layer.
 A reminder being dismissed, snoozed or ignored never ends support — only a
 terminal task status does. See [`FOLLOW-UP.md`](FOLLOW-UP.md).
 
+## Executive support
+
+Repeating things, order between things, getting ready for things, and starting
+them.
+
+The design decision the rest follows from: **a routine occurrence is an ordinary
+`TaskItem`**, carrying `routineID` and `occurrenceDate`. This morning's
+medication therefore gets the existing status machine, reminder plan,
+escalation, Today list and follow-up, with no branch anywhere asking whether a
+task repeats. `Routine` holds the rule; `RoutineScheduler` decides which
+occurrences exist and whether a late one is still worth doing;
+`PreparationPlanner` turns "work starts at four" into "start getting ready at
+2:35"; `DailyPriorityRanker` answers what to do now, in one place rather than in
+a view.
+
+None of it consults a model. Occurrence generation, recovery, unblocking,
+preparation timing, escalation and ranking are deterministic and work with no
+network — a person who is already late does not need the answer to depend on a
+round trip. See [`EXECUTIVE-SUPPORT.md`](EXECUTIVE-SUPPORT.md).
+
 ## Extension points
 
 Each of these is an implementation task, not a redesign:
