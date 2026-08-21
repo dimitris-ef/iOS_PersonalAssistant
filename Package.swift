@@ -158,7 +158,10 @@ let package = Package(
 
         .target(
             name: "DevSupport",
-            dependencies: ["AssistantDomain", "AssistantAI", "AssistantTools"]
+            // `AssistantCore` is here for `ConsoleAgentLogger` alone, which
+            // implements the engine's `AgentLogger`. The dependency runs this
+            // way round on purpose: the core knows nothing about a console.
+            dependencies: ["AssistantDomain", "AssistantAI", "AssistantTools", "AssistantCore"]
         ),
 
         .executableTarget(

@@ -278,6 +278,57 @@ final class RemoteAIProviderTests: XCTestCase {
         XCTAssertEqual(tool["content"] as? String, "Done.")
     }
 
+    /// A structured result becomes this protocol's own shape.
+    ///
+    /// The engine hands every adapter the same `AIToolResult`; what a model
+    /// actually reads is decided here. For an HTTP JSON API that means compact
+    /// JSON with named fields, which a model parses far more reliably than a
+    /// sentence — and, crucially, which cannot be misread as a success when it
+    /// carries an `error`.
+    func testAStructuredToolResultIsSentAsJSON() async throws {
+        let transport = StubTransport(response: .success(Fixtures.textResponse))
+        let provider = makeProvider(transport: transport)
+
+        let callID = ToolCallID()
+        let result = AIToolResult(
+            callID: callID,
+            toolName: "createCalendarEvent",
+            status: .failed,
+            payload: ["title": "Dentist"],
+            failure: .permissionDenied,
+            message: "Cannot calendar: access was declined."
+        )
+        let request = AIRequest(
+            systemPrompt: "sys",
+            messages: [
+                AIMessage(role: .user, content: "Add my appointment"),
+                AIMessage(
+                    role: .tool,
+                    content: result.renderedForModel,
+                    toolCallID: callID,
+                    toolResult: result
+                ),
+            ]
+        )
+
+        _ = try await provider.respond(to: request)
+
+        let body = try XCTUnwrap(transport.sentRequests.last?.body)
+        let json = try XCTUnwrap(try JSONSerialization.jsonObject(with: body) as? [String: Any])
+        let messages = try XCTUnwrap(json["messages"] as? [[String: Any]])
+        let tool = try XCTUnwrap(messages.first { $0["role"] as? String == "tool" })
+        let content = try XCTUnwrap(tool["content"] as? String)
+
+        let decoded = try XCTUnwrap(
+            try JSONSerialization.jsonObject(with: Data(content.utf8)) as? [String: Any]
+        )
+        XCTAssertEqual(decoded["status"] as? String, "failed")
+        XCTAssertEqual(decoded["error"] as? String, "permissionDenied")
+        XCTAssertEqual(decoded["recovery"] as? String, "terminal")
+        XCTAssertEqual(decoded["tool"] as? String, "createCalendarEvent")
+        XCTAssertEqual(decoded["title"] as? String, "Dentist")
+    }
+
     // MARK: Configuration
 
     func testRefusesToCallOutWithoutCredentials() async throws {

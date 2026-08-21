@@ -30,6 +30,7 @@ public enum ToolRequest: Hashable, Codable, Sendable {
     case completeTask(CompleteTaskInput)
     case createFollowUp(CreateFollowUpInput)
     case getUpcomingSchedule(GetUpcomingScheduleInput)
+    case askClarification(AskClarificationInput)
 
     public var kind: ToolKind {
         switch self {
@@ -48,6 +49,7 @@ public enum ToolRequest: Hashable, Codable, Sendable {
         case .completeTask: return .completeTask
         case .createFollowUp: return .createFollowUp
         case .getUpcomingSchedule: return .getUpcomingSchedule
+        case .askClarification: return .askClarification
         }
     }
 
@@ -84,6 +86,8 @@ public enum ToolRequest: Hashable, Codable, Sendable {
             return "Follow up on \(input.taskID) at \(Self.format(input.checkBackAt))"
         case .getUpcomingSchedule:
             return "Read upcoming schedule"
+        case .askClarification(let input):
+            return "Ask: \(input.question)"
         }
     }
 

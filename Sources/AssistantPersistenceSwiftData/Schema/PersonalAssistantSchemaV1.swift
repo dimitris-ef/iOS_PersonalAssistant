@@ -206,6 +206,13 @@ public final class SDToolResult {
     public var message: String
     public var producedAt: Date
     public var sequence: Int
+    /// Added in schema V5: which kind of failure this was.
+    ///
+    /// Optional, and nil for every successful result and every row written
+    /// before V5. `outcomeDetail` already carried a sentence; this carries the
+    /// category the sentence describes, so a restored card can say "Calendar
+    /// access is off" rather than only "it failed".
+    public var failureRaw: String?
 
     public var plan: SDActionPlan?
 
@@ -217,7 +224,8 @@ public final class SDToolResult {
         outcomeDetail: String?,
         message: String,
         producedAt: Date,
-        sequence: Int
+        sequence: Int,
+        failureRaw: String? = nil
     ) {
         self.id = id
         self.actionID = actionID
@@ -227,6 +235,7 @@ public final class SDToolResult {
         self.message = message
         self.producedAt = producedAt
         self.sequence = sequence
+        self.failureRaw = failureRaw
     }
 }
 

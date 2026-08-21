@@ -198,8 +198,11 @@ struct ConversationPresenter {
                 )
             )
 
-        case .getUpcomingSchedule:
-            // A read produces no card; the answer is the assistant's text.
+        case .getUpcomingSchedule, .askClarification:
+            // Neither produces a card. A read's answer is the assistant's text,
+            // and a clarification *is* the assistant's text — it is not an
+            // action, and showing it as one would put an empty result row under
+            // a question.
             return nil
 
         default:

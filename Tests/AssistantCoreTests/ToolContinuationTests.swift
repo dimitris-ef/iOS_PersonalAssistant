@@ -98,33 +98,36 @@ final class ToolContinuationTests: XCTestCase {
         XCTAssertEqual(memories.count, 1, "One round means one memory, not two")
     }
 
-    func testStopsAtTheRoundLimitEvenIfTheModelKeepsCallingTools() async throws {
-        // A model that never stops proposing actions must not loop forever.
+    func testAModelThatKeepsProposingTheSameActionIsStopped() async throws {
+        // A model that never stops proposing actions must not loop forever, and
+        // must not do the action again each time round.
         let provider = ScriptedRoundsProvider(
             id: "test.looping",
             supportsContinuation: true,
             rounds: [
-                .init(text: "", toolCalls: [try memoryCall()]),
-                .init(text: "", toolCalls: [try memoryCall()]),
-                .init(text: "", toolCalls: [try memoryCall()]),
-                .init(text: "", toolCalls: [try memoryCall()]),
+                .init(toolCalls: [try memoryCall()]),
+                .init(toolCalls: [try memoryCall()]),
+                .init(toolCalls: [try memoryCall()]),
+                .init(toolCalls: [try memoryCall()]),
+                .init(toolCalls: [try memoryCall()]),
+                .init(toolCalls: [try memoryCall()]),
+                .init(toolCalls: [try memoryCall()]),
             ]
         )
         let (engine, repositories, conversationID) = try await makeEngine(provider: provider)
 
         let result = try await engine.send("Remember that", in: conversationID)
 
-        // The default maximumToolRounds is 2.
-        XCTAssertEqual(provider.requestCount, 2)
-        // Both rounds really executed — this is the evidence the loop ran
-        // twice, and it is what the memory count used to stand in for.
-        XCTAssertEqual(result.plan.actions.count, 2)
+        // Stated as the rule rather than as a number, so tightening a limit
+        // does not silently make this test about nothing.
+        XCTAssertLessThanOrEqual(provider.requestCount, AgentLimits.default.maximumRounds)
+        XCTAssertEqual(result.diagnostics.stopReason, .repeatedProposals)
 
-        // But only one memory exists. Both rounds proposed the *same* content,
-        // and since `storeMemory` began going through `MemoryService` an
-        // identical write is recognised as a duplicate and folded into the
-        // existing record rather than added beside it. Two stored memories
-        // here would now be the bug.
+        // Only the first round produced an action at all: every later proposal
+        // was recognised as the same call and answered with the first result.
+        XCTAssertEqual(result.plan.actions.count, 1)
+        XCTAssertGreaterThan(result.diagnostics.duplicateCount, 0)
+
         let memories = try await repositories.memories.all()
         XCTAssertEqual(memories.count, 1)
     }
@@ -143,9 +146,15 @@ final class ToolContinuationTests: XCTestCase {
         // The follow-up failed, but the action already happened and the turn
         // still reports it rather than throwing the work away.
         XCTAssertEqual(result.plan.actions.count, 1)
-        XCTAssertEqual(result.assistantMessage.text, "Working on it.")
+        XCTAssertEqual(result.diagnostics.stopReason, .providerFailed)
         let memories = try await repositories.memories.all()
         XCTAssertEqual(memories.count, 1)
+
+        // What the user is told is *not* "Working on it." — that sentence was
+        // written before the tool ran and describes an intention, not a result.
+        // The deterministic summary replaces it and says what really happened.
+        XCTAssertNotEqual(result.assistantMessage.text, "Working on it.")
+        XCTAssertTrue(result.assistantMessage.text.contains("storeMemory"))
     }
 
     func testRejectedToolCallsAreReportedBackToTheModel() async throws {
@@ -176,78 +185,5 @@ final class ToolContinuationTests: XCTestCase {
         let followUp = try XCTUnwrap(provider.receivedRequests.last)
         let toolMessages = followUp.messages.filter { $0.role == .tool }
         XCTAssertTrue(toolMessages.contains { $0.content.contains("Rejected") })
-    }
-}
-
-// MARK: - Stub
-
-/// Replays a scripted sequence of responses, one per round.
-private final class ScriptedRoundsProvider: AIProvider, @unchecked Sendable {
-    struct Round {
-        let text: String
-        let toolCalls: [AIToolCall]
-    }
-
-    let metadata: AIProviderMetadata
-    private let rounds: [Round]
-    private let failAfterRounds: Int?
-    private let lock = NSLock()
-    private var calls = 0
-    private var requests: [AIRequest] = []
-
-    init(
-        id: AIProviderIdentifier,
-        supportsContinuation: Bool,
-        rounds: [Round],
-        failAfterRounds: Int? = nil
-    ) {
-        self.metadata = AIProviderMetadata(
-            id: id,
-            displayName: "Scripted \(id)",
-            kind: .development,
-            requiresNetwork: false,
-            requiresCredentials: false,
-            capabilityRank: 10,
-            supportsToolResultContinuation: supportsContinuation
-        )
-        self.rounds = rounds
-        self.failAfterRounds = failAfterRounds
-    }
-
-    var requestCount: Int {
-        lock.lock()
-        defer { lock.unlock() }
-        return calls
-    }
-
-    var receivedRequests: [AIRequest] {
-        lock.lock()
-        defer { lock.unlock() }
-        return requests
-    }
-
-    func availability() async -> AIProviderAvailability { .available }
-
-    func availableModels() async throws -> [AIModel] { [] }
-
-    func respond(to request: AIRequest) async throws -> AIResponse {
-        lock.lock()
-        let index = calls
-        calls += 1
-        requests.append(request)
-        let shouldFail = failAfterRounds.map { index >= $0 } ?? false
-        lock.unlock()
-
-        if shouldFail {
-            throw AIProviderError.transport("scripted failure")
-        }
-
-        let round = rounds[min(index, rounds.count - 1)]
-        return AIResponse(
-            text: round.text,
-            toolCalls: round.toolCalls,
-            stopReason: round.toolCalls.isEmpty ? .endTurn : .toolCalls,
-            providerID: metadata.id
-        )
     }
 }

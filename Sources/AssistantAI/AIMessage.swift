@@ -23,17 +23,26 @@ public struct AIMessage: Hashable, Codable, Sendable {
     /// follow-up request can show the model what it asked for before showing
     /// it the results.
     public var toolCalls: [AIToolCall]
+    /// Present on `.tool` messages: the structured result behind `content`.
+    ///
+    /// `content` is the rendering an adapter can use unchanged; this is the same
+    /// information still in fields, for an adapter whose protocol can carry
+    /// structure. Both describe one outcome — the engine writes them together
+    /// and nothing else sets either.
+    public var toolResult: AIToolResult?
 
     public init(
         role: AIMessageRole,
         content: String,
         toolCallID: ToolCallID? = nil,
-        toolCalls: [AIToolCall] = []
+        toolCalls: [AIToolCall] = [],
+        toolResult: AIToolResult? = nil
     ) {
         self.role = role
         self.content = content
         self.toolCallID = toolCallID
         self.toolCalls = toolCalls
+        self.toolResult = toolResult
     }
 }
 

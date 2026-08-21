@@ -32,7 +32,7 @@ public enum AssistantPersistenceContainer {
     /// This is always the *newest* version. The migration plan is what knows
     /// how to get an older store here.
     public static var schema: Schema {
-        Schema(PersonalAssistantSchemaV4.models, version: PersonalAssistantSchemaV4.versionIdentifier)
+        Schema(PersonalAssistantSchemaV5.models, version: PersonalAssistantSchemaV5.versionIdentifier)
     }
 
     /// Opens the store.

@@ -273,6 +273,38 @@ public enum ToolCatalog {
                     required: []
                 )
             )
+
+        case .askClarification:
+            return ToolSpecification(
+                kind: kind,
+                // The wording is doing real work. Left to itself a model asks
+                // for confirmation constantly — "how long before?", "should I
+                // remind you?" — for things the app already has a policy about,
+                // and every one of those questions is a step someone with a
+                // depleted executive function has to climb. The description
+                // therefore names the one case that justifies asking: two or
+                // more real candidates and no way to choose.
+                summary: """
+                    Ask the user one question, and only when acting would \
+                    otherwise be materially ambiguous — for example when several \
+                    existing events or tasks match what they said and picking \
+                    the wrong one would change or delete the wrong thing. Do not \
+                    use it for anything the app already decides: reminder \
+                    timing, how far in advance to warn, escalation or follow-up \
+                    all have defaults. When you call this, nothing else you \
+                    proposed in the same turn will be carried out.
+                    """,
+                parameters: .object(
+                    properties: [
+                        "question": .string(description: "One short question, in the second person."),
+                        "options": .array(
+                            items: .string(),
+                            description: "The candidates to choose between, when there is a small set."
+                        ),
+                    ],
+                    required: ["question"]
+                )
+            )
         }
     }
 

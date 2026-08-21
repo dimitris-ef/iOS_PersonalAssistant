@@ -13,19 +13,37 @@ public struct AssistantTurnResult: Sendable {
     public let plan: AssistantActionPlan
     public let results: [ToolResult]
     public let providerID: AIProviderIdentifier
+    /// What the turn amounted to, read off the results rather than off intent.
+    ///
+    /// `partialSuccess` is the one that earns its keep: a compound request where
+    /// the calendar was refused and the task was created is neither a success
+    /// nor a failure, and the UI needs to be able to say so.
+    public let status: AgentTurnStatus
+    /// Set when the assistant asked something instead of acting. The question is
+    /// also the assistant message, so a UI that ignores this still shows it.
+    public let clarification: ClarificationRequest?
+    /// Rounds, tool names, statuses, retries. No arguments and no prose — see
+    /// ``AgentDiagnostics``.
+    public let diagnostics: AgentDiagnostics
 
     public init(
         conversation: Conversation,
         assistantMessage: Message,
         plan: AssistantActionPlan,
         results: [ToolResult],
-        providerID: AIProviderIdentifier
+        providerID: AIProviderIdentifier,
+        status: AgentTurnStatus = .success,
+        clarification: ClarificationRequest? = nil,
+        diagnostics: AgentDiagnostics = AgentDiagnostics()
     ) {
         self.conversation = conversation
         self.assistantMessage = assistantMessage
         self.plan = plan
         self.results = results
         self.providerID = providerID
+        self.status = status
+        self.clarification = clarification
+        self.diagnostics = diagnostics
     }
 }
 
@@ -50,6 +68,14 @@ public final class AssistantEngine: Sendable {
     private let promptBuilder: SystemPromptBuilder
     private let decoder: ToolRequestDecoder
     private let dateProvider: any DateProvider
+    /// The bounds on one turn: rounds, tool calls, retries, repetition.
+    private let limits: AgentLimits
+    /// What has already been executed, and the reason it cannot happen twice.
+    /// Owned by the engine rather than made per turn, so a confirmation
+    /// answered just after the turn that proposed it still finds its entry.
+    private let ledger: ToolExecutionLedger
+    private let summarizer = TurnSummarizer()
+    private let logger: any AgentLogger
 
     /// The support lifecycle: what happens after a reminder is shown.
     ///
@@ -66,13 +92,18 @@ public final class AssistantEngine: Sendable {
         planner: (any ActionPlanner)? = nil,
         executor: (any ToolExecutor)? = nil,
         promptBuilder: SystemPromptBuilder = SystemPromptBuilder(),
-        timing: FollowUpTiming = .default
+        timing: FollowUpTiming = .default,
+        limits: AgentLimits = .default,
+        logger: any AgentLogger = SilentAgentLogger()
     ) {
         self.providers = providers
         self.repositories = repositories
         self.services = services
         self.dateProvider = dateProvider
         self.router = router
+        self.limits = limits
+        self.logger = logger
+        self.ledger = ToolExecutionLedger()
         self.planner = planner ?? DefaultActionPlanner()
         let followUp = FollowUpService(
             repositories: repositories,
@@ -132,9 +163,15 @@ public final class AssistantEngine: Sendable {
             calendarIsReadable: schedule.isReadable
         )
 
-        // 2. Ask whichever provider settings point at.
+        // 2. Ask whichever provider settings point at, and let the agent loop
+        //    run for as many rounds as the request needs — bounded, and with
+        //    every round's proposals validated and authorized from scratch.
         let provider = try await router.selectProvider(from: providers, settings: context.settings)
-        let turn = try await runTurn(with: provider, context: context)
+        let turn = try await agentRunner().run(
+            provider: provider,
+            context: context,
+            conversationID: conversation.id
+        )
 
         // 3. Record the turn.
         let assistantMessage = Message(
@@ -165,26 +202,33 @@ public final class AssistantEngine: Sendable {
             assistantMessage: assistantMessage,
             plan: turn.plan,
             results: turn.results,
-            providerID: turn.providerID
+            providerID: turn.providerID,
+            status: turn.status,
+            clarification: turn.clarification,
+            diagnostics: turn.diagnostics
         )
     }
 
-    /// What one turn produced, possibly across more than one provider round.
-    private struct TurnOutcome {
-        var text: String
-        var plan: AssistantActionPlan
-        var results: [ToolResult]
-        var reminderPlans: [ReminderPlan]
-        var providerID: AIProviderIdentifier
+    /// The loop, built from the pieces the engine already owns.
+    ///
+    /// Made per turn and thrown away; the one thing it does not own is the
+    /// ledger, which outlives the turn so that a repeated call cannot be a
+    /// duplicate to one runner and a novelty to the next.
+    private func agentRunner() -> AgentRunner {
+        AgentRunner(
+            repositories: repositories,
+            planner: planner,
+            executor: executor,
+            promptBuilder: promptBuilder,
+            decoder: decoder,
+            dateProvider: dateProvider,
+            ledger: ledger,
+            limits: limits,
+            summarizer: summarizer,
+            logger: logger
+        )
     }
 
-    /// Asks the provider, executes what it proposed, and — for providers that
-    /// support it — shows it the results and asks for a closing reply.
-    ///
-    /// The loop is bounded by `maximumToolRounds` and by the provider's own
-    /// `supportsToolResultContinuation` flag. A provider that cannot read tool
-    /// results gets exactly one round, so it can never be re-asked the same
-    /// question and duplicate the actions it already proposed.
     /// Runs one tool request the app already decided on, with no model involved.
     ///
     /// ## Why this exists
@@ -204,11 +248,59 @@ public final class AssistantEngine: Sendable {
     /// `origin` records who asked. A structured request from a person is
     /// `.user`, which is what distinguishes it in the action history from
     /// something a model proposed.
+    ///
+    /// `idempotencyKey` makes the call safe to deliver twice. A confirmation tap
+    /// that reaches the app twice, a Shortcut that fires on a double press, an
+    /// intent the system replays — all of them arrive as a second call with the
+    /// same key, and all of them should produce one calendar event. Given a key,
+    /// the request goes through the same execution ledger the agent loop uses:
+    /// the first call runs, and a repeat returns a `.duplicate` result without
+    /// executing anything. Callers that genuinely want a second copy simply pass
+    /// no key, which is the default.
     @discardableResult
     public func perform(
         _ request: ToolRequest,
-        origin: ActionOrigin = .user
+        origin: ActionOrigin = .user,
+        idempotencyKey: String? = nil
     ) async throws -> (plan: AssistantActionPlan, results: [ToolResult]) {
+        let callID = ToolCallID()
+
+        if let idempotencyKey {
+            let claim = await ledger.claim(
+                callID: callID,
+                toolName: request.kind.rawValue,
+                fingerprint: ToolFingerprint(scope: idempotencyKey, request: request),
+                scope: idempotencyKey,
+                now: dateProvider.now
+            )
+            if case .granted = claim {
+                // Ours to run.
+            } else {
+                // Somebody already has it. Report that truthfully rather than
+                // doing it a second time — the plan says what was asked for and
+                // the result says it had already happened.
+                let action = AssistantAction(
+                    request: request,
+                    origin: origin,
+                    authorization: .allowed,
+                    sourceCallID: callID
+                )
+                return (
+                    AssistantActionPlan(actions: [action], createdAt: dateProvider.now),
+                    [
+                        ToolResult(
+                            actionID: action.id,
+                            kind: request.kind,
+                            outcome: .failed(reason: "already performed"),
+                            message: "Already done — this request had been carried out already.",
+                            producedAt: dateProvider.now,
+                            failure: .duplicate
+                        ),
+                    ]
+                )
+            }
+        }
+
         let calendar = await upcomingEvents()
         let context = try await contextAssembler.assemble(
             conversation: Conversation(createdAt: dateProvider.now),
@@ -221,7 +313,7 @@ public final class AssistantEngine: Sendable {
         )
 
         let decoded = ToolDecodingOutcome(
-            accepted: [DecodedToolCall(callID: ToolCallID(), request: request)]
+            accepted: [DecodedToolCall(callID: callID, request: request)]
         )
         let planning = planner.makePlan(from: decoded, context: context)
 
@@ -252,6 +344,22 @@ public final class AssistantEngine: Sendable {
         // linked after its turn for the same reason.
         try await linkReminderPlans(planning.reminderPlans)
 
+        if idempotencyKey != nil,
+           let action = plan.actions.first(where: { $0.sourceCallID == callID }),
+           let result = results.first(where: { $0.actionID == action.id }) {
+            await ledger.finish(
+                callID: callID,
+                status: result.outcome.didChangeAnything ? .succeeded : .failed,
+                result: AgentRunner.toolResult(
+                    for: action,
+                    result: result,
+                    callID: callID,
+                    supportActions: 0
+                ),
+                now: dateProvider.now
+            )
+        }
+
         return (plan, results)
     }
 
@@ -277,141 +385,6 @@ public final class AssistantEngine: Sendable {
             // Not logged with the error's description: a platform error can
             // quote calendar or account state.
             return ([], false)
-        }
-    }
-
-    private func runTurn(
-        with provider: any AIProvider,
-        context: AssistantContext
-    ) async throws -> TurnOutcome {
-        let options = AIGenerationOptions()
-        var messages = promptBuilder.messages(for: context)
-
-        var text = ""
-        var actions: [AssistantAction] = []
-        var rejected: [RejectedToolCall] = []
-        var results: [ToolResult] = []
-        var reminderPlans: [ReminderPlan] = []
-        var providerID = provider.metadata.id
-        var round = 0
-
-        while true {
-            round += 1
-
-            let request = AIRequest(
-                model: context.settings.preferredModelID,
-                systemPrompt: promptBuilder.systemPrompt(for: context),
-                messages: messages,
-                tools: promptBuilder.toolSchemas(),
-                options: options
-            )
-
-            let response: AIResponse
-            if round == 1 {
-                response = try await provider.respond(to: request)
-            } else {
-                // A failure while asking for the closing remark must not lose
-                // the actions already taken — keep what we have and stop.
-                do {
-                    response = try await provider.respond(to: request)
-                } catch {
-                    break
-                }
-            }
-
-            providerID = response.providerID
-            if !response.text.isEmpty { text = response.text }
-
-            // Type and validate everything it asked for, discarding the rest.
-            let calls = Array(response.toolCalls.prefix(options.maximumToolCalls))
-            let decoded = decoder.decode(
-                calls.map { AIToolCallEnvelope(id: $0.id, name: $0.name, arguments: $0.arguments) }
-            )
-            rejected.append(contentsOf: decoded.rejected)
-
-            guard !decoded.accepted.isEmpty else { break }
-
-            // Plan, including the reminder support the app adds itself.
-            let planning = planner.makePlan(from: decoded, context: context)
-            for reminderPlan in planning.reminderPlans {
-                try await repositories.reminderPlans.save(reminderPlan)
-            }
-            reminderPlans.append(contentsOf: planning.reminderPlans)
-
-            // Execute what is authorized.
-            let roundResults = await executor.execute(planning.plan, context: context)
-            actions.append(contentsOf: planning.plan.actions)
-            results.append(contentsOf: roundResults)
-
-            guard
-                provider.metadata.supportsToolResultContinuation,
-                round < options.maximumToolRounds
-            else { break }
-
-            // Show the model what it asked for, then what happened.
-            messages.append(
-                AIMessage(role: .assistant, content: response.text, toolCalls: calls)
-            )
-            messages.append(
-                contentsOf: toolResultMessages(
-                    for: calls,
-                    plan: planning.plan,
-                    results: roundResults
-                )
-            )
-        }
-
-        return TurnOutcome(
-            text: text,
-            plan: AssistantActionPlan(
-                actions: actions,
-                rejected: rejected,
-                createdAt: dateProvider.now
-            ),
-            results: results,
-            reminderPlans: reminderPlans,
-            providerID: providerID
-        )
-    }
-
-    /// One `.tool` message per call, so the model sees the outcome of each.
-    private func toolResultMessages(
-        for calls: [AIToolCall],
-        plan: AssistantActionPlan,
-        results: [ToolResult]
-    ) -> [AIMessage] {
-        calls.map { call in
-            let content: String
-            if let action = plan.actions.first(where: { $0.sourceCallID == call.id }),
-               let result = results.first(where: { $0.actionID == action.id }) {
-                content = Self.describe(result)
-            } else if let rejection = plan.rejected.first(where: { $0.callID == call.id }) {
-                // Telling the model why it was rejected is how it corrects
-                // itself; it still cannot bypass the rejection.
-                content = "Rejected. \(rejection.error)"
-            } else {
-                content = "No result was produced."
-            }
-            return AIMessage(role: .tool, content: content, toolCallID: call.id)
-        }
-    }
-
-    /// Describes an outcome for the model — including, plainly, when the work
-    /// was only simulated, so it cannot tell the user their phone did something.
-    private static func describe(_ result: ToolResult) -> String {
-        switch result.outcome {
-        case .executed:
-            return "Done. \(result.message)"
-        case .simulated(let platform):
-            return "Recorded by the app's \(platform). This is simulated — nothing was scheduled on the device. \(result.message)"
-        case .awaitingConfirmation:
-            return "Prepared, but waiting for the user to approve it. \(result.message)"
-        case .denied(let reason):
-            return "Not permitted: \(reason)"
-        case .failed(let reason):
-            return "Failed: \(reason)"
-        case .unsupported(let reason):
-            return "Not supported: \(reason)"
         }
     }
 

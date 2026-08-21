@@ -66,11 +66,12 @@ public enum PersonalAssistantMigrationPlan: SchemaMigrationPlan {
             PersonalAssistantSchemaV2.self,
             PersonalAssistantSchemaV3.self,
             PersonalAssistantSchemaV4.self,
+            PersonalAssistantSchemaV5.self,
         ]
     }
 
     public static var stages: [MigrationStage] {
-        [migrateV1toV2, migrateV2toV3, migrateV3toV4]
+        [migrateV1toV2, migrateV2toV3, migrateV3toV4, migrateV4toV5]
     }
 
     /// Purely additive, all-nullable. Nothing to compute, nothing to lose.
@@ -94,6 +95,14 @@ public enum PersonalAssistantMigrationPlan: SchemaMigrationPlan {
     static let migrateV3toV4 = MigrationStage.lightweight(
         fromVersion: PersonalAssistantSchemaV3.self,
         toVersion: PersonalAssistantSchemaV4.self
+    )
+
+    /// One nullable column on tool results, holding the failure category. An
+    /// existing row keeps its outcome and its sentence and simply has no
+    /// category, which reads as "not recorded" rather than as a wrong one.
+    static let migrateV4toV5 = MigrationStage.lightweight(
+        fromVersion: PersonalAssistantSchemaV4.self,
+        toVersion: PersonalAssistantSchemaV5.self
     )
 }
 

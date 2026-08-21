@@ -86,6 +86,28 @@ public struct SystemPromptBuilder: Sendable {
             """
         )
 
+        sections.append(
+            """
+            # Requests with several parts
+            One message can need several actions. Ask for all of them — either \
+            together in one turn, or one at a time when a later action depends on \
+            what an earlier one produced.
+
+            After each action you will be shown what actually happened, including \
+            failures. Read those results before deciding what to do next, and \
+            describe only what they say. If an action failed, say so plainly and \
+            carry on with the parts that can still be done; do not repeat an action \
+            that already succeeded, and do not try again something that was refused \
+            because of permissions or settings.
+
+            Ask a question with \(ToolKind.askClarification.rawValue) only when acting \
+            would otherwise be a guess between real alternatives — several events \
+            that all match what they said, for example. Do not ask about reminder \
+            timing, how far ahead to warn, or whether to follow up: this app decides \
+            those, and asking makes the person do work they came here to avoid.
+            """
+        )
+
         return sections.joined(separator: "\n\n")
     }
 

@@ -134,7 +134,7 @@ public struct OpenAICompatibleAdapter: RemoteAPIAdapter {
                 result.append(
                     .init(
                         role: "tool",
-                        content: message.content,
+                        content: Self.toolContent(for: message),
                         toolCallID: message.toolCallID?.description
                     )
                 )
@@ -159,6 +159,50 @@ public struct OpenAICompatibleAdapter: RemoteAPIAdapter {
                 parameters: schema.parameters.jsonValue()
             )
         )
+    }
+
+    /// A tool result in this protocol's shape.
+    ///
+    /// This is the adapter half of the provider-neutral result contract: the
+    /// engine hands over an ``AIToolResult``, and turning it into something a
+    /// particular model can read is this file's business and nowhere else's.
+    /// The protocol's tool message carries a string, so the structure is
+    /// rendered as compact JSON — models parse that far more reliably than
+    /// prose, and the fields are named the same way the tool schemas are.
+    ///
+    /// The rendered sentence goes in alongside it rather than being replaced,
+    /// because it is where the plain statement of "this was only simulated"
+    /// lives, and losing that would let a model tell someone their phone did
+    /// something it did not.
+    ///
+    /// Falls back to the message's own text when there is no structured result,
+    /// which is what a caller that built the message by hand gets.
+    static func toolContent(for message: AIMessage) -> String {
+        guard let result = message.toolResult else { return message.content }
+
+        var object: [String: JSONValue] = [
+            "tool": .string(result.toolName),
+            "status": .string(result.status.rawValue),
+            "summary": .string(result.message),
+        ]
+        if let failure = result.failure {
+            object["error"] = .string(failure.rawValue)
+            object["recovery"] = .string(failure.recovery.rawValue)
+        }
+        if result.wasAlreadyPerformed {
+            object["alreadyPerformed"] = .bool(true)
+        }
+        for (key, value) in result.payload {
+            object[key] = .string(value)
+        }
+
+        guard
+            let data = try? JSONCoding.encoder.encode(JSONValue.object(object)),
+            let text = String(data: data, encoding: .utf8)
+        else {
+            return result.renderedForModel
+        }
+        return text
     }
 
     private static func encodeArguments(_ value: JSONValue) -> String {

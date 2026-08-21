@@ -142,6 +142,8 @@ public struct ToolRequestDecoder: Sendable {
             return .createFollowUp(try input(CreateFollowUpInput.self))
         case .getUpcomingSchedule:
             return .getUpcomingSchedule(try input(GetUpcomingScheduleInput.self))
+        case .askClarification:
+            return .askClarification(try input(AskClarificationInput.self))
         }
     }
 
@@ -176,6 +178,11 @@ public struct ToolRequestDecoder: Sendable {
 
         case .createFollowUp(let input):
             try requireFuture(input.checkBackAt, field: "checkBackAt", kind: request.kind)
+
+        case .askClarification(let input):
+            // An empty question would stall the turn with nothing on screen for
+            // the user to answer.
+            try requireNonEmpty(input.question, field: "question", kind: request.kind)
 
         case .updateCalendarEvent, .deleteCalendarEvent, .completeReminder,
              .updateAlarm, .cancelAlarm, .updateMemory, .completeTask,

@@ -113,6 +113,13 @@ public struct ToolResult: Identifiable, Hashable, Codable, Sendable {
     /// "Calendar event created: Haircut — Sunday 22:00".
     public var message: String
     public var producedAt: Date
+    /// Why it did not work, when it did not.
+    ///
+    /// `outcome` says *that* something failed and carries a sentence about it;
+    /// this says which kind of failure it was, which is what the retry policy
+    /// and the model's next decision are made from. Nil whenever the outcome is
+    /// a success — a category is a fact about failures only.
+    public var failure: ToolFailureCategory?
 
     public init(
         id: ID = ID(),
@@ -120,7 +127,8 @@ public struct ToolResult: Identifiable, Hashable, Codable, Sendable {
         kind: ToolKind,
         outcome: ToolOutcome,
         message: String,
-        producedAt: Date
+        producedAt: Date,
+        failure: ToolFailureCategory? = nil
     ) {
         self.id = id
         self.actionID = actionID
@@ -128,5 +136,6 @@ public struct ToolResult: Identifiable, Hashable, Codable, Sendable {
         self.outcome = outcome
         self.message = message
         self.producedAt = producedAt
+        self.failure = failure
     }
 }

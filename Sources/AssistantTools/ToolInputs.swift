@@ -306,3 +306,19 @@ public struct GetUpcomingScheduleInput: Hashable, Codable, Sendable {
         self.limit = limit
     }
 }
+
+/// One focused question, asked because guessing would be worse.
+///
+/// `options` is what makes this useful rather than annoying: "which appointment
+/// do you mean" with the two candidates listed is answerable in a word, and it
+/// keeps the assistant from modifying an arbitrary event when two of them match.
+public struct AskClarificationInput: Hashable, Codable, Sendable {
+    public var question: String
+    /// The choices, when there is a small closed set of them.
+    public var options: [String]?
+
+    public init(question: String, options: [String]? = nil) {
+        self.question = question
+        self.options = options
+    }
+}

@@ -111,6 +111,68 @@ final class ActionPlanPersistenceTests: PersistenceTestCase {
         XCTAssertEqual(platform, "MockNotifications")
     }
 
+    /// Why a thing failed has to survive a reload too.
+    ///
+    /// Added with schema V5. Before it, a reopened transcript could say "the
+    /// calendar event failed" and nothing more, so the card had no way to tell
+    /// "you have calendar access turned off" — which the user can fix — from
+    /// "the calendar was busy", which they cannot.
+    func testAFailureCategorySurvivesARelaunch() async throws {
+        let conversation = try await makeConversation()
+        let action = AssistantAction(
+            request: .createCalendarEvent(
+                CreateCalendarEventInput(title: "Dentist", start: Self.referenceDate)
+            ),
+            origin: .model,
+            authorization: .allowed
+        )
+        let plan = AssistantActionPlan(actions: [action], createdAt: Self.referenceDate)
+        let result = ToolResult(
+            actionID: action.id,
+            kind: .createCalendarEvent,
+            outcome: .denied(reason: "calendar permission is denied"),
+            message: "Cannot calendar: access was declined.",
+            producedAt: Self.referenceDate,
+            failure: .permissionDenied
+        )
+
+        try await repositories.actionPlans.save(
+            ActionPlanRecord(plan: plan, results: [result], conversationID: conversation.id)
+        )
+
+        try relaunch()
+
+        let record = try XCTUnwrap(try await repositories.actionPlans.record(id: plan.id))
+        XCTAssertEqual(try XCTUnwrap(record.results.first).failure, .permissionDenied)
+    }
+
+    /// A successful result has no category, and must not acquire one.
+    func testASuccessfulResultHasNoFailureCategory() async throws {
+        let conversation = try await makeConversation()
+        let action = AssistantAction(
+            request: .createTask(CreateTaskInput(title: "Send the paperwork")),
+            origin: .model,
+            authorization: .allowed
+        )
+        let plan = AssistantActionPlan(actions: [action], createdAt: Self.referenceDate)
+        let result = ToolResult(
+            actionID: action.id,
+            kind: .createTask,
+            outcome: .executed,
+            message: "Task tracked",
+            producedAt: Self.referenceDate
+        )
+
+        try await repositories.actionPlans.save(
+            ActionPlanRecord(plan: plan, results: [result], conversationID: conversation.id)
+        )
+
+        try relaunch()
+
+        let record = try XCTUnwrap(try await repositories.actionPlans.record(id: plan.id))
+        XCTAssertNil(try XCTUnwrap(record.results.first).failure)
+    }
+
     func testEveryOutcomeCaseRoundTrips() async throws {
         let conversation = try await makeConversation()
         let outcomes: [ToolOutcome] = [

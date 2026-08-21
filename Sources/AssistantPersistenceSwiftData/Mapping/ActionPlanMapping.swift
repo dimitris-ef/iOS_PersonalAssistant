@@ -73,7 +73,8 @@ enum ActionPlanMapper {
                 outcomeDetail: outcome.detail,
                 message: result.message,
                 producedAt: result.producedAt,
-                sequence: index
+                sequence: index,
+                failureRaw: result.failure?.rawValue
             )
             stored.plan = row
             context.insert(stored)
@@ -143,7 +144,12 @@ enum ActionPlanMapper {
             kind: try decodeEnum(ToolKind.self, from: row.kindRaw, entity: entity, field: "tool kind"),
             outcome: try decodeOutcome(row),
             message: row.message,
-            producedAt: row.producedAt
+            producedAt: row.producedAt,
+            // Unrecognised rather than rejected. A category is extra detail on
+            // top of an outcome that is already stored and already complete, so
+            // a value this build does not know — a row written by a newer
+            // version — must not make an entire conversation unreadable.
+            failure: row.failureRaw.flatMap(ToolFailureCategory.init(rawValue:))
         )
     }
 

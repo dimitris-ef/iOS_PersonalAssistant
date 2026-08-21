@@ -76,9 +76,21 @@ public struct DefaultToolExecutor: ToolExecutor {
         let authorization = authorizer.authorization(for: action.request, settings: context.settings)
         switch authorization {
         case .denied:
-            return result(action, .denied(reason: "Not permitted by settings"), "Blocked: \(action.request.summary)", context)
+            return result(
+                action,
+                .denied(reason: "Not permitted by settings"),
+                "Blocked: \(action.request.summary)",
+                context,
+                failure: .authorizationDenied
+            )
         case .requiresConfirmation:
-            return result(action, .awaitingConfirmation, "Needs your approval: \(action.request.summary)", context)
+            return result(
+                action,
+                .awaitingConfirmation,
+                "Needs your approval: \(action.request.summary)",
+                context,
+                failure: .confirmationRequired
+            )
         case .allowed:
             break
         }
@@ -99,17 +111,83 @@ public struct DefaultToolExecutor: ToolExecutor {
                     action,
                     .denied(reason: "\(capability.rawValue) permission is \(status.rawValue)"),
                     permissionMessage(capability, status),
-                    context
+                    context,
+                    // A capability this build does not have is not a permission
+                    // the user can grant, and saying "permission denied" about
+                    // it would send them to Settings for a switch that is not
+                    // there. The retry policy treats both as final either way.
+                    failure: status == .unsupported ? .unsupported : .permissionDenied
                 )
             }
         }
 
+        // The execution boundary. Anything a service throws stops here and
+        // becomes a result — one tool failing is information for the turn, not
+        // the end of it.
         do {
             return try await perform(action, context: context)
         } catch let error as PlatformError {
-            return result(action, .failed(reason: String(describing: error)), "Failed: \(action.request.summary)", context)
+            return result(
+                action,
+                .failed(reason: String(describing: error)),
+                "Failed: \(action.request.summary)",
+                context,
+                failure: Self.category(for: error)
+            )
+        } catch let error as RepositoryError {
+            return result(
+                action,
+                .failed(reason: String(describing: error)),
+                "Failed: \(action.request.summary)",
+                context,
+                failure: Self.category(for: error)
+            )
+        } catch is CancellationError {
+            return result(
+                action,
+                .failed(reason: "cancelled"),
+                "Stopped: \(action.request.summary)",
+                context,
+                failure: .cancelled
+            )
         } catch {
-            return result(action, .failed(reason: String(describing: error)), "Failed: \(action.request.summary)", context)
+            // Unrecognised, so treated as possibly transient rather than
+            // permanently broken: the caller may try once more, and the round
+            // limit stops that becoming a loop.
+            return result(
+                action,
+                .failed(reason: String(describing: error)),
+                "Failed: \(action.request.summary)",
+                context,
+                failure: .temporaryFailure
+            )
+        }
+    }
+
+    /// The platform's vocabulary in the tool layer's.
+    private static func category(for error: PlatformError) -> ToolFailureCategory {
+        switch error {
+        case .permissionDenied:
+            return .permissionDenied
+        case .notAvailable:
+            return .unsupported
+        case .notFound:
+            return .notFound
+        case .invalidRequest:
+            return .validationFailure
+        case .underlying:
+            // EventKit's save failures, an audio session that would not start:
+            // real, and often gone by the next attempt.
+            return .temporaryFailure
+        }
+    }
+
+    private static func category(for error: RepositoryError) -> ToolFailureCategory {
+        switch error {
+        case .notFound:
+            return .notFound
+        case .storageFailure:
+            return .persistenceFailure
         }
     }
 
@@ -260,7 +338,11 @@ public struct DefaultToolExecutor: ToolExecutor {
                     action,
                     .denied(reason: "Completion was not confirmed by the user"),
                     "Left open (not confirmed done): \(task.title)",
-                    context
+                    context,
+                    // The founding rule of the product, as a failure category:
+                    // only the user can say a task is done, so this is waiting
+                    // on them rather than broken.
+                    failure: .confirmationRequired
                 )
             }
             // Through the shared lifecycle, so completing a task from a
@@ -308,6 +390,20 @@ public struct DefaultToolExecutor: ToolExecutor {
             )
             let summary = "\(events.count) event(s) and \(tasks.count) open task(s) in window"
             return result(action, .executed, summary, context)
+
+        case .askClarification:
+            // Unreachable through the engine, which ends the turn on a
+            // clarification rather than planning it. Kept explicit — and kept
+            // as a refusal — so that a future caller who builds a plan by hand
+            // cannot turn a question into a silent no-op that the user never
+            // sees and the model reads as done.
+            return result(
+                action,
+                .unsupported(reason: "A clarification is asked by the assistant, not executed as an action"),
+                "Not an action: \(action.request.summary)",
+                context,
+                failure: .unsupported
+            )
         }
     }
 
@@ -371,7 +467,8 @@ public struct DefaultToolExecutor: ToolExecutor {
             return .notifications
         case .createAlarm, .updateAlarm, .cancelAlarm:
             return .alarms
-        case .storeMemory, .updateMemory, .createTask, .completeTask, .getUpcomingSchedule:
+        case .storeMemory, .updateMemory, .createTask, .completeTask,
+             .getUpcomingSchedule, .askClarification:
             return nil
         }
     }
@@ -380,14 +477,16 @@ public struct DefaultToolExecutor: ToolExecutor {
         _ action: AssistantAction,
         _ outcome: ToolOutcome,
         _ message: String,
-        _ context: AssistantContext
+        _ context: AssistantContext,
+        failure: ToolFailureCategory? = nil
     ) -> ToolResult {
         ToolResult(
             actionID: action.id,
             kind: action.kind,
             outcome: outcome,
             message: message,
-            producedAt: context.now
+            producedAt: context.now,
+            failure: failure
         )
     }
 }
