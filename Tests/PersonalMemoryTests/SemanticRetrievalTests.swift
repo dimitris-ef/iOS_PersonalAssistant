@@ -47,7 +47,11 @@ final class SemanticRetrievalTests: XCTestCase {
         return MemoryRankingContext(
             queryVector: LexiconSemanticEncoder.vector(for: query),
             memoryVectors: vectors,
-            relations: relations
+            relations: relations,
+            // The encoder's own floor, exactly as the retrieval service passes
+            // it. Testing against the policy default alone would assert a bar
+            // the shipping app never uses.
+            semanticFloor: LexiconSemanticEncoder().similarityFloor
         )
     }
 

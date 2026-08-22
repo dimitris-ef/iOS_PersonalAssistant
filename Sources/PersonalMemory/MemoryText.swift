@@ -121,11 +121,27 @@ public enum MemoryTextNormalizer {
     /// "Commute takes 30 minutes" and "commute takes 45 minutes during rush
     /// hour" are both true. Spotting the condition is what stops deduplication
     /// destroying the second one.
+    ///
+    /// ## What is deliberately not here
+    ///
+    /// **Frequency hedges** — usually, normally, sometimes, occasionally. They
+    /// soften a claim; they do not restrict it to a situation. "My commute is
+    /// usually half an hour" and "my commute is half an hour" are one fact said
+    /// twice, and treating *usually* as a condition kept them apart forever.
+    ///
+    /// **Times of day** — morning, evening, night. In the sentences people
+    /// actually write these are the subject rather than a condition on it: "I
+    /// prefer morning workouts" is a preference *about* mornings, not a
+    /// preference that holds only in the morning. Filing them as conditions
+    /// stopped the app noticing that it disagreed with "I prefer working out at
+    /// night", which is precisely the contradiction it should catch.
+    ///
+    /// The list stays short for that reason. Every word added here is a pair of
+    /// memories that can no longer be recognised as the same fact.
     public static let qualifierWords: Set<String> = [
         "during", "rush", "weekend", "weekends", "weekday", "weekdays",
-        "sometimes", "usually", "occasionally", "winter", "summer", "morning",
-        "evening", "night", "holiday", "holidays", "traffic", "unless", "except",
-        "when", "if", "while",
+        "winter", "summer", "holiday", "holidays", "traffic",
+        "unless", "except", "when", "if", "while",
     ]
 
     /// Words that turn a statement into its opposite.

@@ -41,6 +41,15 @@ public struct LexiconSemanticEncoder: SemanticEncoder {
     /// Always. That is the point of it.
     public var isAvailable: Bool { get async { true } }
 
+    /// Calibrated against this encoder's own distribution.
+    ///
+    /// Concept overlap crowds upwards: two sentences that merely both mention a
+    /// duration already share the `time` axis, and land around 0.35–0.4 without
+    /// being about anything in common. "I don't drink coffee after six" scores
+    /// that against "how long is my commute?" purely because *after* and *long*
+    /// are both time words. Half is where the pairs that share a subject start.
+    public var similarityFloor: Double { 0.5 }
+
     /// How many hashed dimensions carry words the lexicon does not know.
     ///
     /// Enough that two unrelated rare words rarely collide, small enough that a

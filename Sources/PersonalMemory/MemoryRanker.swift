@@ -80,15 +80,23 @@ public struct MemoryRankingContext: Sendable {
     public var memoryVectors: [MemoryItem.ID: SemanticVector]
     /// One-hop links between candidates.
     public var relations: [MemoryRelation]
+    /// The encoder's own view of where "about the same thing" begins.
+    ///
+    /// Nil uses the policy's floor alone. When both are present the higher wins,
+    /// so an encoder can only ever be more conservative than the product policy
+    /// — see ``SemanticEncoder/similarityFloor``.
+    public var semanticFloor: Double?
 
     public init(
         queryVector: SemanticVector? = nil,
         memoryVectors: [MemoryItem.ID: SemanticVector] = [:],
-        relations: [MemoryRelation] = []
+        relations: [MemoryRelation] = [],
+        semanticFloor: Double? = nil
     ) {
         self.queryVector = queryVector
         self.memoryVectors = memoryVectors
         self.relations = relations
+        self.semanticFloor = semanticFloor
     }
 
     /// Nothing semantic available. The lexical path, named.
@@ -324,6 +332,12 @@ public struct MemoryRanker: Sendable {
         var budget = policy.characterBudget
         var selected: [MemoryScoreBreakdown] = []
         let semanticAvailable = context.hasSemantics
+        // Whichever bar is higher. The policy owns the product's floor and the
+        // encoder owns its vector space's; neither may loosen the other.
+        let semanticFloor = max(
+            policy.minimumSemanticSimilarity,
+            context.semanticFloor ?? policy.minimumSemanticSimilarity
+        )
 
         for candidate in score(candidates, query: query, context: context) {
             guard selected.count < limit else { break }
@@ -346,7 +360,7 @@ public struct MemoryRanker: Sendable {
             // final score, so an off-topic memory can outrank a weakly relevant
             // one and must not take it down with it.
             let onTopic = candidate.lexical >= policy.minimumRelevance
-                || (semanticAvailable && candidate.semantic >= policy.minimumSemanticSimilarity)
+                || (semanticAvailable && candidate.semantic >= semanticFloor)
             guard onTopic else { continue }
 
             // Then strength. Never pad to the limit — injecting a marginal

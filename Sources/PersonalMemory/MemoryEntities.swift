@@ -61,14 +61,46 @@ public enum MemoryEntityExtractor {
         return keys.sorted()
     }
 
-    /// Whether two memories are about anything in common.
+    /// Whether two memories can be talking about the same thing.
     ///
-    /// Two memories with no keys at all are *not* declared unrelated — most
-    /// memories carry none, and treating "we recognised nothing" as "these are
-    /// different subjects" would switch consolidation off entirely.
+    /// ## Compared per namespace, and why that matters
+    ///
+    /// Requiring any shared key at all is too strict, and the failure is
+    /// invisible: "I take 30 minutes to get to work" is filed under
+    /// `place:work`, "my commute is usually half an hour" under
+    /// `routine:commute`, and a naive intersection concludes they are about
+    /// different subjects — so the two statements of one fact are never
+    /// compared. Recognising nothing in common is not the same as recognising a
+    /// difference.
+    ///
+    /// So the question asked is narrower: *where both memories name a place, is
+    /// it the same place? Where both name a person, is it the same person?* Work
+    /// and the gym are a real difference. Work and "the commute" are not; they
+    /// are two aspects of one thing, seen through different lenses.
+    ///
+    /// Two memories that share no namespace — or carry no keys at all, which is
+    /// most of them — are not blocked. Entity keys are a hint, and nothing may
+    /// depend on one having been recognised.
     public static func shareEntity(_ lhs: [String], _ rhs: [String]) -> Bool {
         guard !lhs.isEmpty, !rhs.isEmpty else { return true }
-        return !Set(lhs).isDisjoint(with: Set(rhs))
+
+        let left = grouped(lhs)
+        let right = grouped(rhs)
+        for (namespace, leftValues) in left {
+            guard let rightValues = right[namespace] else { continue }
+            if leftValues.isDisjoint(with: rightValues) { return false }
+        }
+        return true
+    }
+
+    private static func grouped(_ keys: [String]) -> [String: Set<String>] {
+        var groups: [String: Set<String>] = [:]
+        for key in keys {
+            let parts = key.split(separator: ":", maxSplits: 1)
+            guard parts.count == 2 else { continue }
+            groups[String(parts[0]), default: []].insert(String(parts[1]))
+        }
+        return groups
     }
 
     // MARK: Lexicons

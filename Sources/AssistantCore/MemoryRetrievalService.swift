@@ -236,7 +236,8 @@ public struct MemoryRetrievalService: Sendable {
             MemoryRankingContext(
                 queryVector: queryVector,
                 memoryVectors: memoryVectors,
-                relations: edges
+                relations: edges,
+                semanticFloor: encoder?.similarityFloor
             ),
             cacheHits
         )

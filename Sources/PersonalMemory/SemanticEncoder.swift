@@ -71,6 +71,22 @@ public protocol SemanticEncoder: Sendable {
     /// Identity and version, for cache validity.
     var identity: SemanticEncoderIdentity { get }
 
+    /// Below this cosine, two texts are not about the same thing.
+    ///
+    /// ## Why the threshold belongs to the encoder
+    ///
+    /// Because it is a property of the vector space, not of the product. Every
+    /// encoder has its own distribution: one may put unrelated sentences near
+    /// 0.1 and related ones near 0.9, another may crowd everything above 0.5. A
+    /// single number applied to both would be too strict for one and useless for
+    /// the other — and "useless" here means every memory clearing the bar, which
+    /// is exactly the failure the threshold exists to prevent.
+    ///
+    /// `MemoryRelevancePolicy` still owns the *product* floor, and the effective
+    /// threshold is whichever is higher. So tuning stays in one place and an
+    /// encoder can only ever be more conservative than the policy, never less.
+    var similarityFloor: Double { get }
+
     /// Whether encoding is expected to work right now.
     ///
     /// Cheap and advisory. A `true` here does not promise `embedding(for:)`
@@ -80,6 +96,13 @@ public protocol SemanticEncoder: Sendable {
 
     /// The vector for a piece of text.
     func embedding(for text: String) async throws -> SemanticVector
+}
+
+extension SemanticEncoder {
+    /// A deliberately cautious default for an encoder that has not calibrated
+    /// itself. Too high costs a recall the lexical channel usually still
+    /// catches; too low fills every prompt with near-misses.
+    public var similarityFloor: Double { 0.5 }
 }
 
 /// A stable fingerprint of what a memory says.

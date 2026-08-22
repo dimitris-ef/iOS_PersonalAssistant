@@ -42,6 +42,15 @@ public struct AppleNaturalLanguageEncoder: SemanticEncoder {
     /// start ranking the wrong memories.
     public let identity = SemanticEncoderIdentity(providerID: "apple.nl.sentence", version: 1)
 
+    /// Not calibrated against a device, and said so plainly.
+    ///
+    /// Sentence embeddings from a trained model sit higher than concept overlap
+    /// does — unrelated English sentences are routinely above 0.3 — so the
+    /// default would let too much through. This is a conservative starting
+    /// point; tuning it needs the one thing this project has never had, which is
+    /// a device to measure on. Recorded in `Docs/OPEN-ITEMS.md`.
+    public var similarityFloor: Double { 0.6 }
+
     #if canImport(NaturalLanguage)
     private let language: NLLanguage
     #endif
