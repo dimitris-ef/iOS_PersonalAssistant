@@ -99,11 +99,11 @@ struct LocalModelDetailView: View {
                 Section {
                     if !status.isSelected {
                         Button("Use This Model") {
-                            Task { await viewModel.use(status, manager: model.environment.localModels) }
+                            Task { await viewModel.use(status, manager: model.localModels) }
                         }
                     } else if status.lifecycle.isLoaded {
                         Button("Unload from memory") {
-                            Task { await viewModel.unload(model.environment.localModels) }
+                            Task { await viewModel.unload(model.localModels) }
                         }
                         Text(
                             "Frees the memory it is using. It loads again the next time you "
@@ -113,7 +113,7 @@ struct LocalModelDetailView: View {
                         .foregroundStyle(.secondary)
                     } else {
                         Button("Load") {
-                            Task { await viewModel.use(status, manager: model.environment.localModels) }
+                            Task { await viewModel.use(status, manager: model.localModels) }
                         }
                     }
 
@@ -134,7 +134,7 @@ struct LocalModelDetailView: View {
             titleVisibility: .visible
         ) {
             Button("Delete", role: .destructive) {
-                Task { await viewModel.delete(status, manager: model.environment.localModels) }
+                Task { await viewModel.delete(status, manager: model.localModels) }
             }
             Button("Cancel", role: .cancel) { viewModel.pendingDeletion = nil }
         } message: {

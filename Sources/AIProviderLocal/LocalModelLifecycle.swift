@@ -114,7 +114,11 @@ extension LocalModelRecord {
     /// back through the wrapper wherever the code wants to compare it against a
     /// named family rather than print it.
     public var typedQuantization: LocalModelQuantization? {
-        quantization.map(LocalModelQuantization.init)
+        // Spelled out rather than `map(LocalModelQuantization.init)`: the type
+        // has three initialisers taking a single argument — the plain one, the
+        // string-literal one and `init(from:)` — and an unapplied `.init` is
+        // ambiguous between them.
+        quantization.map { LocalModelQuantization($0) }
     }
 }
 

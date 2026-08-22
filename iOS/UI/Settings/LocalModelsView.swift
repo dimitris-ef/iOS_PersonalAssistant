@@ -26,7 +26,7 @@ struct LocalModelsView: View {
                 Section {
                     FailureRow(failure: failure) {
                         guard let status = viewModel.status(for: failure.modelID) else { return }
-                        Task { await viewModel.download(status, manager: model.environment.localModels) }
+                        Task { await viewModel.download(status, manager: model.localModels) }
                     }
                 }
             }
@@ -39,13 +39,13 @@ struct LocalModelsView: View {
                         isDownloading: viewModel.isDownloading(status.id),
                         progress: viewModel.progress,
                         onDownload: {
-                            Task { await viewModel.download(status, manager: model.environment.localModels) }
+                            Task { await viewModel.download(status, manager: model.localModels) }
                         },
                         onCancel: {
-                            Task { await viewModel.cancelDownload(model.environment.localModels) }
+                            Task { await viewModel.cancelDownload(model.localModels) }
                         },
                         onUse: {
-                            Task { await viewModel.use(status, manager: model.environment.localModels) }
+                            Task { await viewModel.use(status, manager: model.localModels) }
                         }
                     )
                 }
@@ -66,10 +66,10 @@ struct LocalModelsView: View {
         }
         .navigationTitle("Manage Models")
         .navigationBarTitleDisplayMode(.inline)
-        .task { await viewModel.refresh(model.environment.localModels) }
+        .task { await viewModel.refresh(model.localModels) }
         // Refreshed on every appearance rather than once: free space and the
         // loaded model both change while this screen is off screen.
-        .refreshable { await viewModel.refresh(model.environment.localModels) }
+        .refreshable { await viewModel.refresh(model.localModels) }
     }
 }
 

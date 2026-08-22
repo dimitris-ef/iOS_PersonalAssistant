@@ -1,3 +1,4 @@
+import AIProviderLocal
 import AIProviderRemote
 import AssistantAI
 import AssistantCore
@@ -95,6 +96,15 @@ final class AppModel {
     /// consulting the wrong thing. `PlatformFidelity` travels with the service
     /// exactly so this question has one answer.
     var calendarIsLive: Bool { environment.services.calendar.fidelity == .live }
+
+    /// Downloading, verifying, loading and deleting local models.
+    ///
+    /// Exposed rather than reaching through `environment`, which stays private:
+    /// the model-management screen genuinely drives this service directly —
+    /// downloads outlive the screen and cancellation has to reach the one that
+    /// is running — and routing every call through a wrapper method here would
+    /// be a second API to keep in step for no benefit.
+    var localModels: LocalModelManager { environment.localModels }
 
     init(environment: AppEnvironment) {
         self.environment = environment

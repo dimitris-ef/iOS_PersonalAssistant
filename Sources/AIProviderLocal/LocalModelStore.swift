@@ -30,12 +30,20 @@ import Foundation
 public struct LocalModelStore: Sendable {
     /// The directory holding model files. Resolved once per process.
     public let directory: URL
-    private let fileManager: FileManager
 
-    public init(directory: URL, fileManager: FileManager = .default) {
+    public init(directory: URL) {
         self.directory = directory
-        self.fileManager = fileManager
     }
+
+    /// `FileManager` is not `Sendable`, so it is reached rather than stored.
+    ///
+    /// Storing one would make this whole type non-`Sendable` — it is passed to
+    /// an actor and captured in async work — and the only thing an injected
+    /// file manager would buy is a mocking seam that no test here wants: the
+    /// tests use a real temporary directory, which exercises the real
+    /// filesystem behaviour that matters (atomic moves, cross-volume copies,
+    /// a file already at the destination).
+    private var fileManager: FileManager { .default }
 
     /// The production location: `Application Support/Models`.
     public static func applicationSupport(
