@@ -13,6 +13,10 @@ struct MemoryRowView: View {
     /// "Likely" / "Inferred", or nil when the app is confident. Nil is the
     /// common case, so most rows carry no badge and the list stays quiet.
     let confidenceLabel: String?
+    /// "Superseded" / "Archived" / "Unresolved", or nil for a current memory.
+    let lifecycleLabel: String?
+    /// "Based on 3 similar memories", for a consolidated fact.
+    let provenanceLabel: String?
     let onOpen: () -> Void
 
     var body: some View {
@@ -27,9 +31,18 @@ struct MemoryRowView: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(memory.content)
                         .font(.body)
-                        .foregroundStyle(.primary)
+                        // Dimmed rather than hidden. A memory the assistant has
+                        // stopped using is still something the user told it, and
+                        // it stays legible — it just stops looking current.
+                        .foregroundStyle(memory.isRetrievable ? .primary : .secondary)
                         .multilineTextAlignment(.leading)
                         .fixedSize(horizontal: false, vertical: true)
+
+                    if let provenanceLabel {
+                        Text(provenanceLabel)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
 
                     HStack(spacing: Theme.Spacing.sm) {
                         Text(sourceLabel)
@@ -37,12 +50,11 @@ struct MemoryRowView: View {
                             .foregroundStyle(.tertiary)
 
                         if let confidenceLabel {
-                            Text(confidenceLabel)
-                                .font(.caption2.weight(.medium))
-                                .foregroundStyle(.secondary)
-                                .padding(.horizontal, Theme.Spacing.sm)
-                                .padding(.vertical, 1)
-                                .background(Capsule().fill(Color.secondary.opacity(0.14)))
+                            badge(confidenceLabel)
+                        }
+
+                        if let lifecycleLabel {
+                            badge(lifecycleLabel)
                         }
                     }
                 }
@@ -55,5 +67,14 @@ struct MemoryRowView: View {
         .buttonStyle(.plain)
         .accessibilityElement(children: .combine)
         .accessibilityHint("Opens for editing")
+    }
+
+    private func badge(_ text: String) -> some View {
+        Text(text)
+            .font(.caption2.weight(.medium))
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, Theme.Spacing.sm)
+            .padding(.vertical, 1)
+            .background(Capsule().fill(Color.secondary.opacity(0.14)))
     }
 }

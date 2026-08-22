@@ -48,6 +48,54 @@ struct MemoryEditorView: View {
                         "Added",
                         value: AppFormatters.shared.dayAndMonth(memory.createdAt)
                     )
+                    if let status = presenter.lifecycleLabel(for: memory) {
+                        LabeledContent("Status", value: status)
+                    }
+                } footer: {
+                    // Said in plain words rather than left as a badge. "Superseded"
+                    // means nothing to somebody who did not design this.
+                    if let explanation = presenter.lifecycleExplanation(for: memory) {
+                        Text(explanation)
+                    }
+                }
+
+                // Provenance, for a fact assembled from several statements. The
+                // sources themselves, not a count and not an audit log — the
+                // question a user actually has is "what did I say that made you
+                // think this?".
+                let sources = model.sourceMemories(of: memory)
+                if !sources.isEmpty {
+                    Section {
+                        ForEach(sources) { source in
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(source.content)
+                                    .font(.subheadline)
+                                Text(presenter.sourceLabel(for: source))
+                                    .font(.caption)
+                                    .foregroundStyle(.tertiary)
+                            }
+                        }
+                    } header: {
+                        Text("Based on")
+                    } footer: {
+                        Text(
+                            "I combined these into one. They are kept here, and no longer "
+                                + "used separately."
+                        )
+                    }
+                }
+
+                if memory.lifecycle.isRestorable {
+                    Section {
+                        Button {
+                            Task {
+                                await model.restoreMemory(memory.id)
+                                dismiss()
+                            }
+                        } label: {
+                            Label("Use this again", systemImage: "arrow.uturn.backward")
+                        }
+                    }
                 }
 
                 Section {

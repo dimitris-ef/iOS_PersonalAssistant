@@ -20,6 +20,8 @@ final class MemoryViewModel {
 
     var editor: Editor?
     var searchText = ""
+    /// What the screen is showing: what the assistant uses, or the history.
+    var scope: MemoryScope = .current
 
     private let presenter = MemoryPresenter()
 
@@ -29,7 +31,27 @@ final class MemoryViewModel {
             ? model.memories
             : model.memories.filter { $0.content.lowercased().contains(query) }
 
-        return presenter.sections(from: memories)
+        return presenter.sections(from: memories, scope: scope)
+    }
+
+    /// Whether the "Set aside" tab is worth showing at all.
+    ///
+    /// Hidden until something is actually set aside. A permanently empty tab is
+    /// a question the user has to answer — "what is this for?" — for no benefit.
+    func hasSetAsideMemories(in model: AppModel) -> Bool {
+        presenter.count(of: .setAside, in: model.memories) > 0
+    }
+
+    func lifecycleLabel(for memory: MemoryItem) -> String? {
+        presenter.lifecycleLabel(for: memory)
+    }
+
+    func lifecycleExplanation(for memory: MemoryItem) -> String? {
+        presenter.lifecycleExplanation(for: memory)
+    }
+
+    func provenanceLabel(for memory: MemoryItem) -> String? {
+        presenter.provenanceLabel(for: memory)
     }
 
     func sourceLabel(for memory: MemoryItem) -> String {

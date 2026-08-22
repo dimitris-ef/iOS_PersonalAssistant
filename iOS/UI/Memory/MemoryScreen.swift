@@ -56,14 +56,40 @@ struct MemoryScreen: View {
 
     private var list: some View {
         List {
-            ForEach(viewModel.sections(for: model)) { section in
+            // The filter, shown only once something has actually been set aside.
+            // Archiving is only defensible if the user can see what was archived
+            // and put it back, and this is the way back.
+            if viewModel.hasSetAsideMemories(in: model) {
+                Section {
+                    Picker("Show", selection: $viewModel.scope) {
+                        ForEach(MemoryScope.allCases) { scope in
+                            Text(scope.title).tag(scope)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                }
+                .listRowBackground(Color.clear)
+            }
+
+            let sections = viewModel.sections(for: model)
+            if sections.isEmpty {
+                Section {
+                    Text(viewModel.scope.emptyMessage)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            ForEach(sections) { section in
                 Section {
                     ForEach(section.memories) { memory in
                         MemoryRowView(
                             memory: memory,
                             symbol: viewModel.symbol(for: memory.kind),
                             sourceLabel: viewModel.sourceLabel(for: memory),
-                            confidenceLabel: viewModel.confidenceLabel(for: memory)
+                            confidenceLabel: viewModel.confidenceLabel(for: memory),
+                            lifecycleLabel: viewModel.lifecycleLabel(for: memory),
+                            provenanceLabel: viewModel.provenanceLabel(for: memory)
                         ) {
                             viewModel.editor = .existing(memory)
                         }
@@ -72,6 +98,20 @@ struct MemoryScreen: View {
                                 Task { await model.deleteMemory(memory.id) }
                             } label: {
                                 Label("Forget", systemImage: "trash")
+                            }
+                        }
+                        .swipeActions(edge: .leading) {
+                            // Only where there is something to restore *to*. A
+                            // superseded memory has been replaced by a newer
+                            // one, and the way back is to edit or delete that —
+                            // a decision, not an undo.
+                            if memory.lifecycle.isRestorable {
+                                Button {
+                                    Task { await model.restoreMemory(memory.id) }
+                                } label: {
+                                    Label("Use again", systemImage: "arrow.uturn.backward")
+                                }
+                                .tint(.accentColor)
                             }
                         }
                     }
