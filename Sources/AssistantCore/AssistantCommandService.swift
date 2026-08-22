@@ -438,6 +438,11 @@ public struct AssistantCommandService: Sendable {
         switch error {
         case .emptyContent:
             return "There was nothing to remember."
+        case .notFound:
+            // Reachable only through restore, which Siri has no route to today.
+            // Stated anyway rather than left to a `default`, so adding one later
+            // is a compiler error instead of a sentence nobody wrote.
+            return "I couldn't find that memory."
         }
     }
 }

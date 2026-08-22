@@ -2,6 +2,12 @@
 
 What the assistant remembers, and how it decides what to bring back.
 
+> **Part 9 extended this.** Retrieval now ranks by meaning as well as by wording,
+> repeated facts are consolidated, contradictions are held as state rather than
+> as two equal rows, and low-value memories fade instead of being deleted. The
+> chain and the principles below are unchanged — see
+> [`SEMANTIC-MEMORY.md`](SEMANTIC-MEMORY.md) for what was added.
+
 ## The problem this solves
 
 Memory used to be retrieved by keyword overlap and capped by a settings number.

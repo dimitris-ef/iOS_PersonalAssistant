@@ -164,7 +164,8 @@ PhonePersonalAI/
     ├── PERSISTENCE.md       SwiftData schema and migration
     ├── FOLLOW-UP.md         The escalation ladder
     ├── EXECUTIVE-SUPPORT.md Routines, dependencies, preparation, starting
-    └── MEMORY.md            Retrieval, ranking, deduplication
+    ├── MEMORY.md            Retrieval, ranking, deduplication
+    └── SEMANTIC-MEMORY.md   Meaning, consolidation, aging, lifecycle
 ```
 
 Dependencies point one way: `AssistantDomain` ← everything else, and the engine

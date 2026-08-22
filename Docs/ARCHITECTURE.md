@@ -212,9 +212,19 @@ A provider is given a selection from these as rendered context. It never holds
 them, which is the mechanism behind the provider-swap guarantee.
 
 Which memories make it into that selection is decided locally by `MemoryRanker`
-— relevance, salience, confidence, category and recency, bounded by a count and
-a character budget. No model is asked what to recall. See
+— meaning, wording, salience, confidence, source, category and recency, bounded
+by a count and a character budget. No model is asked what to recall. See
 [`MEMORY.md`](MEMORY.md).
+
+Meaning comes from `SemanticEncoder`, which is deliberately **not** the selected
+AI provider: using the conversational model to index memories would mean
+uploading the user's entire store to search it, and would make recall depend on
+which model happened to be chosen. Apple's on-device sentence encoder where the
+device has one, the app's own lexicon encoder everywhere else, and lexical
+ranking if both fail — memory never stops working because encoding did.
+Repeated facts are consolidated, contradictions are held as state, and low-value
+memories fade rather than being deleted. See
+[`SEMANTIC-MEMORY.md`](SEMANTIC-MEMORY.md).
 
 `UserProfile` is separate from `MemoryItem` because a few facts — preparation
 time, wake time, quiet hours — are read directly by planning code and need to be
