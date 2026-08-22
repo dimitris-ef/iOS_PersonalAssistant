@@ -138,7 +138,7 @@ final class LocalProviderIntegrationTests: XCTestCase {
         XCTAssertEqual(tasks.first?.title, "Call the dentist")
         XCTAssertEqual(turn.providerID, LocalModelProvider.providerID)
         XCTAssertFalse(turn.results.isEmpty)
-        XCTAssertTrue(turn.results.allSatisfy { $0.status.didAct })
+        XCTAssertTrue(turn.results.allSatisfy(\.outcome.didChangeAnything))
     }
 
     /// Section 52 and 58, stated as an assertion rather than as a comment: the
@@ -285,7 +285,8 @@ final class LocalProviderIntegrationTests: XCTestCase {
         XCTAssertTrue(tasks.isEmpty, "nothing may execute from output that did not parse")
         // The turn either failed or produced no actions; both are acceptable,
         // and neither is "a task appeared".
-        XCTAssertTrue(turn?.results.contains { $0.status.didAct } != true)
+        let acted = turn?.results.contains { $0.outcome.didChangeAnything } ?? false
+        XCTAssertFalse(acted)
     }
 
     // MARK: Provider independence
