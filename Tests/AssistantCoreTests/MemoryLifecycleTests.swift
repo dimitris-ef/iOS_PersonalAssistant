@@ -42,6 +42,13 @@ final class MemoryLifecycleTests: XCTestCase {
     /// Sections 81 and 120. A new explicit statement supersedes an older
     /// inference about the same thing — and retrieval uses the new one, not both
     /// values without explanation.
+    ///
+    /// The two statements deliberately differ only in the number. Adding a
+    /// condition word — "in traffic", "during rush hour" — would make them
+    /// describe *different situations*, and the deduplicator would rightly keep
+    /// both: thirty minutes normally and forty-five in traffic are two facts,
+    /// not a correction. That guard is tested separately; what is under test
+    /// here is the unconditional correction.
     func testANewExplicitStatementReplacesAnOlderInference() async throws {
         let repositories = AssistantRepositories.ephemeral()
         let service = makeService(repositories)
@@ -50,7 +57,7 @@ final class MemoryLifecycleTests: XCTestCase {
             memory("My commute takes about 30 minutes.", source: .assistant, confidence: 0.5)
         )
         let result = try await service.remember(
-            memory("Traffic has changed and my commute takes about 45 minutes.", source: .user)
+            memory("My commute takes about 45 minutes.", source: .user)
         )
 
         XCTAssertTrue(result.memory.content.contains("45"))
