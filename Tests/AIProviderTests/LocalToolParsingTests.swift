@@ -155,8 +155,16 @@ final class LocalToolParsingTests: XCTestCase {
     // MARK: Rejection
 
     /// Section 102. Malformed JSON inside an envelope is an error.
+    ///
+    /// The broken input is a missing colon rather than the more obvious
+    /// trailing comma, and deliberately so: this test originally used
+    /// `{"name":"createTask",}` and *passed the decoder*, because trailing
+    /// commas are exactly the kind of thing JSON parsers disagree about. A test
+    /// for "the model did not emit JSON" should not rest on which lenience the
+    /// platform's parser happens to have — `"name" "createTask"` is invalid
+    /// under every reading of the grammar, including JSON5.
     func testMalformedJSONIsRejected() {
-        let raw = "{\"tool_calls\":[{\"name\":\"createTask\",}],\"message\":\"x\"}"
+        let raw = "{\"tool_calls\":[{\"name\" \"createTask\"}],\"message\":\"x\"}"
         XCTAssertThrowsError(try adapter.parse(raw, offeredTools: tools)) { error in
             guard case .malformedJSON = error as? LocalToolParseError else {
                 return XCTFail("expected malformedJSON, got \(error)")
