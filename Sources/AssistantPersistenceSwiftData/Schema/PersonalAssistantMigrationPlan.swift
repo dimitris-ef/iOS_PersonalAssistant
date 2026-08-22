@@ -69,13 +69,14 @@ public enum PersonalAssistantMigrationPlan: SchemaMigrationPlan {
             PersonalAssistantSchemaV5.self,
             PersonalAssistantSchemaV6.self,
             PersonalAssistantSchemaV7.self,
+            PersonalAssistantSchemaV8.self,
         ]
     }
 
     public static var stages: [MigrationStage] {
         [
             migrateV1toV2, migrateV2toV3, migrateV3toV4, migrateV4toV5,
-            migrateV5toV6, migrateV6toV7,
+            migrateV5toV6, migrateV6toV7, migrateV7toV8,
         ]
     }
 
@@ -159,6 +160,25 @@ public enum PersonalAssistantMigrationPlan: SchemaMigrationPlan {
     static let migrateV6toV7 = MigrationStage.lightweight(
         fromVersion: PersonalAssistantSchemaV6.self,
         toVersion: PersonalAssistantSchemaV7.self
+    )
+
+    /// Downloadable local models.
+    ///
+    /// One new entity — `SDLocalModel` — and one optional column on
+    /// `SDAssistantSettings` naming the selected model. Nothing renamed,
+    /// retyped or removed.
+    ///
+    /// **What an existing store becomes.** Itself, with no models installed and
+    /// none selected, which is the literal truth: before this version there was
+    /// no way to download one.
+    ///
+    /// **Nothing large moves.** The row describes a file; the file is on the
+    /// filesystem. That is what keeps this migration a metadata change rather
+    /// than something that has to copy gigabytes — and it is the reason section
+    /// 26 rules out putting weights in the store in the first place.
+    static let migrateV7toV8 = MigrationStage.lightweight(
+        fromVersion: PersonalAssistantSchemaV7.self,
+        toVersion: PersonalAssistantSchemaV8.self
     )
 }
 

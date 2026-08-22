@@ -1,0 +1,89 @@
+{
+  "version": 1,
+  "models": [
+    {
+      "id": "qwen3-0.6b-q4-k-m",
+      "displayName": "Qwen3 0.6B",
+      "architecture": "qwen3",
+      "parameterCount": 596049920,
+      "quantization": "Q4_K_M",
+      "format": "gguf",
+      "fileSizeBytes": 484000000,
+      "downloadURL": "https://huggingface.co/Qwen/Qwen3-0.6B-GGUF/resolve/main/Qwen3-0.6B-Q4_K_M.gguf?download=true",
+      "defaultContextLength": 4096,
+      "maximumContextLength": 32768,
+      "toolSupport": "experimental",
+      "chatTemplate": "modelDefault",
+      "license": {
+        "identifier": "Apache-2.0",
+        "displayName": "Apache 2.0",
+        "url": "https://huggingface.co/Qwen/Qwen3-0.6B-GGUF",
+        "isRedistributable": true
+      },
+      "summary": "Smallest and fastest. Good for quick questions; less reliable at actions."
+    },
+    {
+      "id": "qwen3-1.7b-q4-k-m",
+      "displayName": "Qwen3 1.7B",
+      "architecture": "qwen3",
+      "parameterCount": 1720000000,
+      "quantization": "Q4_K_M",
+      "format": "gguf",
+      "fileSizeBytes": 1110000000,
+      "downloadURL": "https://huggingface.co/Qwen/Qwen3-1.7B-GGUF/resolve/main/Qwen3-1.7B-Q4_K_M.gguf?download=true",
+      "defaultContextLength": 4096,
+      "maximumContextLength": 32768,
+      "toolSupport": "supported",
+      "chatTemplate": "modelDefault",
+      "license": {
+        "identifier": "Apache-2.0",
+        "displayName": "Apache 2.0",
+        "url": "https://huggingface.co/Qwen/Qwen3-1.7B-GGUF",
+        "isRedistributable": true
+      },
+      "summary": "The balanced choice. Handles conversation and assistant actions."
+    },
+    {
+      "id": "qwen3-4b-q4-k-m",
+      "displayName": "Qwen3 4B",
+      "architecture": "qwen3",
+      "parameterCount": 4022000000,
+      "quantization": "Q4_K_M",
+      "format": "gguf",
+      "fileSizeBytes": 2500000000,
+      "downloadURL": "https://huggingface.co/Qwen/Qwen3-4B-GGUF/resolve/main/Qwen3-4B-Q4_K_M.gguf?download=true",
+      "defaultContextLength": 4096,
+      "maximumContextLength": 32768,
+      "toolSupport": "supported",
+      "chatTemplate": "modelDefault",
+      "license": {
+        "identifier": "Apache-2.0",
+        "displayName": "Apache 2.0",
+        "url": "https://huggingface.co/Qwen/Qwen3-4B-GGUF",
+        "isRedistributable": true
+      },
+      "summary": "Best quality of the three. Needs a recent phone with plenty of memory."
+    },
+    {
+      "id": "smollm2-1.7b-instruct-q4-k-m",
+      "displayName": "SmolLM2 1.7B Instruct",
+      "architecture": "llama",
+      "parameterCount": 1711000000,
+      "quantization": "Q4_K_M",
+      "format": "gguf",
+      "fileSizeBytes": 1060000000,
+      "downloadURL": "https://huggingface.co/HuggingFaceTB/SmolLM2-1.7B-Instruct-GGUF/resolve/main/smollm2-1.7b-instruct-q4_k_m.gguf?download=true",
+      "defaultContextLength": 4096,
+      "maximumContextLength": 8192,
+      "toolSupport": "experimental",
+      "chatTemplate": "chatML",
+      "license": {
+        "identifier": "Apache-2.0",
+        "displayName": "Apache 2.0",
+        "url": "https://huggingface.co/HuggingFaceTB/SmolLM2-1.7B-Instruct",
+        "isRedistributable": true
+      },
+      "summary": "An alternative 1.7B. Conversational; actions are hit and miss."
+    }
+  ]
+}

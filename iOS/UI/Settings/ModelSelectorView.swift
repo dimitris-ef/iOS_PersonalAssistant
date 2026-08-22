@@ -53,10 +53,18 @@ struct ModelSelectorView: View {
         model.providerOptions.contains { $0.isAvailable }
     }
 
-    /// Only the remote provider has somewhere to go and fix itself.
+    /// Where a provider's own setup lives, for the two that have one.
+    ///
+    /// The cloud model needs an endpoint and a key; Local AI needs a model
+    /// file. Both are things the user can go and fix, which is exactly what
+    /// `configurationRequired` means and why selecting Local AI with nothing
+    /// downloaded leads here rather than to a dead end (section 63).
     private func configureRoute(for option: ProviderOption) -> SettingsViewModel.Route? {
-        guard option.metadata.kind == .remoteAPI else { return nil }
-        return .remoteAI
+        switch option.metadata.kind {
+        case .remoteAPI: return .remoteAI
+        case .downloadedLocalModel: return .localModels
+        case .appleFoundationModels, .development: return nil
+        }
     }
 }
 
@@ -115,12 +123,22 @@ private struct ModelOptionRow: View {
 
             if let configureAction {
                 NavigationLink(value: configureAction) {
-                    Text(option.isAvailable ? "Edit configuration" : "Set up")
+                    Text(configureLabel)
                         .font(.subheadline)
                 }
             }
         }
         .padding(.vertical, Theme.Spacing.xs)
+    }
+
+    /// What the link under a provider says.
+    ///
+    /// "Manage Models" rather than "Set up" for Local AI: the screen it opens is
+    /// where models are downloaded, chosen and deleted, and it stays useful long
+    /// after the first one is installed.
+    private var configureLabel: String {
+        if option.metadata.kind == .downloadedLocalModel { return "Manage Models" }
+        return option.isAvailable ? "Edit configuration" : "Set up"
     }
 
     private var symbol: String {
@@ -142,7 +160,10 @@ private struct ModelOptionRow: View {
             // particular phone qualifies.
             return "Private · Runs on this device · No API key"
         case .downloadedLocalModel:
-            return "Runs on this device · Downloaded separately"
+            // Not "works offline" flatly, for the same reason as Apple's above:
+            // it needs a model downloaded first, and the status line says
+            // whether this phone has one.
+            return "Private · Runs on this device · No API key"
         case .remoteAPI:
             return "Most capable · Needs internet · Your messages go to the service"
         case .development:

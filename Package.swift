@@ -12,6 +12,59 @@
 // `iOS/` and are added to an Xcode project later — see `iOS/README.md`.
 
 import PackageDescription
+import Foundation
+
+// MARK: The llama.cpp runtime
+//
+// Local inference is powered by llama.cpp, pinned to a specific upstream build
+// and consumed as the XCFramework that build publishes. Two facts about that
+// artifact shape everything below, and neither is a preference:
+//
+//  1. **It has no iOS Simulator slice.** `llama-b10506-xcframework.zip` ships
+//     `ios-arm64` and `macos-arm64_x86_64` and nothing else. An app target that
+//     links it cannot be built for the simulator at all — the linker fails
+//     outright — which would take the simulator CI lane and every SwiftUI
+//     preview down with it.
+//  2. **It is Apple-only, and 80 MB.** Adding it unconditionally would make
+//     `swift build` on Linux or Windows fail to resolve, and would make every
+//     CI run download it whether or not that run touches inference.
+//
+// So the binary dependency is opt-in, through an environment variable read at
+// manifest evaluation. `AIProviderLocalLlama` is *always* a target and always
+// compiles; what changes is whether it has the `llama` module to import, which
+// it detects with `#if canImport(llama)`. With the flag off it builds to a
+// runtime that reports itself unavailable — the same graceful path a device
+// with no downloaded model already takes.
+//
+//     PPAI_LLAMA_RUNTIME=1 swift build          # links llama.cpp
+//     PPAI_LLAMA_RUNTIME=1 xcodegen generate    # device builds get it too
+//     swift build                               # everything else, no download
+//
+// The `Local model runtime` CI workflow builds with the flag on, so the
+// integration is compiled and linked on every change rather than only when
+// somebody remembers.
+//
+// Pinning: an upstream build tag, never a branch. Section 83 — `master` moves
+// several times a day, and a dependency that changes underneath CI is a
+// dependency that fails for reasons nobody in this repository can reproduce.
+let llamaVersion = "b10506"
+let llamaChecksum = "4a8ce464f3743d5035906ed1f5d7e3474b086ee1e082779be2268510cdcddf7c"
+let llamaRuntimeEnabled = ProcessInfo.processInfo.environment["PPAI_LLAMA_RUNTIME"] == "1"
+
+let llamaBinaryTargets: [Target] = llamaRuntimeEnabled
+    ? [
+        .binaryTarget(
+            name: "llama",
+            url: "https://github.com/ggml-org/llama.cpp/releases/download/"
+                + "\(llamaVersion)/llama-\(llamaVersion)-xcframework.zip",
+            checksum: llamaChecksum
+        ),
+    ]
+    : []
+
+let llamaRuntimeDependencies: [Target.Dependency] = llamaRuntimeEnabled
+    ? ["AIProviderLocal", "llama"]
+    : ["AIProviderLocal"]
 
 let package = Package(
     name: "PhonePersonalAI",
@@ -63,13 +116,16 @@ let package = Package(
         .library(name: "AIProviderRemote", targets: ["AIProviderRemote"]),
         .library(name: "AIProviderApple", targets: ["AIProviderApple"]),
         .library(name: "AIProviderLocal", targets: ["AIProviderLocal"]),
+        // The llama.cpp adapter, alone in its own target so the model system
+        // above it stays buildable — and testable — where llama.cpp is not.
+        .library(name: "AIProviderLocalLlama", targets: ["AIProviderLocalLlama"]),
         // Development-only. Exposed as a product so the iOS app target can use
         // the scripted stand-in while no real provider is implemented; drop it
         // from the app's dependencies once one is.
         .library(name: "DevSupport", targets: ["DevSupport"]),
         .executable(name: "assistant-dev", targets: ["DevHarness"]),
     ],
-    targets: [
+    targets: llamaBinaryTargets + [
         // MARK: Core
 
         .target(name: "AssistantDomain"),
@@ -165,7 +221,27 @@ let package = Package(
 
         .target(name: "AIProviderRemote", dependencies: ["AssistantDomain", "AssistantAI"]),
         .target(name: "AIProviderApple", dependencies: ["AssistantDomain", "AssistantAI"]),
-        .target(name: "AIProviderLocal", dependencies: ["AssistantDomain", "AssistantAI"]),
+        // The local-model system: catalog, compatibility, downloads,
+        // verification, storage, the runtime abstraction and the provider.
+        // Everything except inference, and therefore everything that can be
+        // tested without a GPU or a two-gigabyte file.
+        //
+        // Depends on `AssistantPersistence` for the installed-model rows. That
+        // is one-way: persistence knows nothing about providers, and the record
+        // it stores lives in `AssistantDomain`.
+        .target(
+            name: "AIProviderLocal",
+            dependencies: ["AssistantDomain", "AssistantAI", "AssistantPersistence"],
+            resources: [.process("Resources")]
+        ),
+
+        // The only place `llama` is imported.
+        //
+        // Always compiled, so the adapter cannot silently rot; linked against
+        // the real runtime only when `PPAI_LLAMA_RUNTIME=1` puts the binary
+        // target in the graph. See the note at the top of this file for why
+        // that is opt-in rather than always on.
+        .target(name: "AIProviderLocalLlama", dependencies: llamaRuntimeDependencies),
 
         // MARK: Development-only
 
@@ -239,6 +315,11 @@ let package = Package(
                 // property of the whole app, so it is asserted here rather
                 // than inside the Apple provider's own tests.
                 "AIProviderApple",
+                // For the local-provider integration tests: the claim Part 10
+                // makes is about everything *above* the provider being
+                // unchanged, and only a test that can see the engine, the tool
+                // pipeline and the local provider at once can assert it.
+                "AIProviderLocal",
                 // For the voice-pipeline tests. `AssistantVoice` cannot import
                 // the engine — it depends on nothing in this package — so the
                 // only place "a spoken sentence gets the whole pipeline" can be
@@ -268,6 +349,8 @@ let package = Package(
                 "AIProviderRemote",
                 "AIProviderApple",
                 "AIProviderLocal",
+                "AIProviderLocalLlama",
+                "AssistantPersistence",
                 // For the Apple tool-safety tests: they assert that invoking a
                 // Foundation Models tool adapter leaves the platform services
                 // untouched, which needs something whose calls can be counted.

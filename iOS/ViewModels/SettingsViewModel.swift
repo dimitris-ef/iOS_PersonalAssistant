@@ -14,12 +14,14 @@ final class SettingsViewModel {
     enum Route: Identifiable, Hashable {
         case modelSelector
         case remoteAI
+        case localModels
         case privacy(PrivacyTopic)
 
         var id: String {
             switch self {
             case .modelSelector: return "model"
             case .remoteAI: return "remote-ai"
+            case .localModels: return "local-models"
             case .privacy(let topic): return "privacy-\(topic.rawValue)"
             }
         }

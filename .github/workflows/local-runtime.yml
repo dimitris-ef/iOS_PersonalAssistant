@@ -1,0 +1,137 @@
+name: Local model runtime
+
+# Resolves the pinned llama.cpp XCFramework and compiles the adapter against it.
+#
+# ## Why this is a separate workflow
+#
+# `AIProviderLocalLlama` compiles in every other lane, but with no `llama`
+# module to import — the real bridging code is behind `#if canImport(llama)`,
+# which the compiler does not type-check when the condition is false. So without
+# this workflow the one file in the repository that touches C pointers, sampler
+# chains and chat templates would be reviewed and never compiled.
+#
+# ## Why it cannot simply be folded into the other lanes
+#
+# The published artifact — `llama-b10506-xcframework.zip` — contains exactly two
+# slices: `ios-arm64` and `macos-arm64_x86_64`. There is **no iOS Simulator
+# slice**. An app target that links it cannot be built for the simulator at all,
+# so putting it in the default graph would break the simulator preview lane and
+# every SwiftUI preview with it. It is also an 80 MB download that every other
+# run would pay for and none of them would use.
+#
+# Hence `PPAI_LLAMA_RUNTIME=1`, read by `Package.swift` at manifest evaluation.
+# This lane sets it; nothing else does.
+#
+# ## What this proves and what it does not
+#
+# Proves: the pin resolves, the checksum matches, `import llama` works, and
+# every call this adapter makes exists in that build's `llama.h` with the
+# signature the Swift code assumes. That last one is the real value — llama.cpp
+# renames functions between builds, and a mismatch is a compile error here
+# rather than a broken device build later.
+#
+# Does not prove: that a model loads, that Metal is used, or anything about
+# speed. Those need a real iPhone. **This workflow never downloads a model**
+# (section 88).
+
+on:
+  push:
+    paths:
+      - "Sources/AIProviderLocal/**"
+      - "Sources/AIProviderLocalLlama/**"
+      - "Package.swift"
+      - ".github/workflows/local-runtime.yml"
+  pull_request:
+    paths:
+      - "Sources/AIProviderLocal/**"
+      - "Sources/AIProviderLocalLlama/**"
+      - "Package.swift"
+      - ".github/workflows/local-runtime.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: local-runtime-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Compile the llama.cpp adapter
+    runs-on: macos-26
+    timeout-minutes: 30
+
+    env:
+      PPAI_LLAMA_RUNTIME: "1"
+      BUILD_LOG: ${{ github.workspace }}/artifacts/llama-build.log
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Show toolchain
+        run: |
+          set -euo pipefail
+          mkdir -p "$(dirname "$BUILD_LOG")"
+          sw_vers
+          swift --version
+
+      - name: Resolve the pinned runtime
+        # Separate from the build so a checksum mismatch or a yanked release is
+        # reported as what it is — a dependency problem — rather than as a
+        # compile failure in a file that never got as far as compiling.
+        run: |
+          set -euo pipefail
+          swift package resolve 2>&1 | tee -a "$BUILD_LOG"
+
+      - name: Confirm the framework arrived
+        # A binary target that silently failed to unpack would otherwise show up
+        # as `canImport(llama)` being false — which compiles perfectly, and
+        # would make this whole workflow a green light for nothing.
+        run: |
+          set -euo pipefail
+          FRAMEWORK=$(find .build -name "llama.xcframework" -maxdepth 6 | head -n 1)
+          if [ -z "$FRAMEWORK" ]; then
+            echo "llama.xcframework was not resolved — the binary target is missing"
+            exit 1
+          fi
+          echo "Found $FRAMEWORK"
+          echo "Slices:"
+          ls -1 "$FRAMEWORK"
+
+      - name: Build the adapter against it
+        run: |
+          set -euo pipefail
+          swift build --target AIProviderLocalLlama 2>&1 | tee -a "$BUILD_LOG"
+
+      - name: Confirm the real bridging code was compiled, not the stub
+        # The adapter compiles either way — that is the whole point of the
+        # `#if canImport(llama)` guard — so a build succeeding proves nothing on
+        # its own. `PPAI_REQUIRE_LLAMA` turns "llama is missing" into a
+        # `#error` in `LocalRuntimeResolver`, which makes this step fail loudly
+        # rather than pass having compiled a stub.
+        run: |
+          set -euo pipefail
+          swift build --target AIProviderLocalLlama -Xswiftc -DPPAI_REQUIRE_LLAMA 2>&1 \
+            | tee -a "$BUILD_LOG"
+
+      - name: Summarise failures
+        if: failure()
+        run: |
+          set -uo pipefail
+          if [ -f "$BUILD_LOG" ]; then
+            echo "===== errors ====="
+            grep -E "error:|warning: .*llama" "$BUILD_LOG" | sort -u | head -n 60 \
+              || echo "(nothing matched)"
+            echo "===== end ====="
+          fi
+
+      - name: Upload logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: local-runtime-logs
+          path: artifacts/*.log
+          retention-days: 7
+          if-no-files-found: ignore

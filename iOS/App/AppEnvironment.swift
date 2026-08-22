@@ -1,5 +1,6 @@
 import AIProviderApple
 import AIProviderLocal
+import AIProviderLocalLlama
 import AIProviderRemote
 import AssistantAI
 import AssistantCore
@@ -51,6 +52,12 @@ final class AppEnvironment: Sendable {
     /// same repositories, the same providers, the same database. See
     /// `AppIntentDependencies`.
     let commands: AssistantCommandService
+    /// Downloading, verifying, loading and deleting local models.
+    ///
+    /// Held here because the Settings screen drives it directly and the
+    /// provider reads from it — one manager, one view of what is installed. It
+    /// owns no inference: that is the runtime's, behind `LocalModelRuntime`.
+    let localModels: LocalModelManager
     /// Speech recognition and synthesis.
     ///
     /// Always present — on a platform without the Speech framework the input
@@ -72,6 +79,7 @@ final class AppEnvironment: Sendable {
         remoteConfiguration: RemoteAIConfigurationStore,
         launch: AppLaunchConfiguration,
         memory: MemoryService,
+        localModels: LocalModelManager,
         notificationCoordinator: AppleNotificationCoordinator?,
         voice: VoiceServices?,
         commands: AssistantCommandService
@@ -85,6 +93,7 @@ final class AppEnvironment: Sendable {
         self.remoteConfiguration = remoteConfiguration
         self.launch = launch
         self.memory = memory
+        self.localModels = localModels
         self.notificationCoordinator = notificationCoordinator
         self.voice = voice
         self.commands = commands
@@ -196,9 +205,39 @@ final class AppEnvironment: Sendable {
             logger: ConsoleRemoteAILogger()
         )
 
+        // Local AI: a downloaded GGUF model, run by llama.cpp on this device.
+        //
+        // The runtime is chosen once, here, exactly like the semantic encoder
+        // below — never from settings and never from which conversational
+        // provider is selected. A build without the llama.cpp binary linked
+        // gets a runtime that reports itself unavailable, and Local AI shows as
+        // unsupported rather than the app failing to start.
+        //
+        // Model files go under Application Support/Models. A seeded launch gets
+        // a throwaway directory for the same reason it gets mock platform
+        // services: a CI screenshot run and a SwiftUI preview must not be able
+        // to touch — or fill — a real device's storage.
+        let modelStore = launch.seedsDemoData
+            ? LocalModelStore.temporary()
+            : ((try? LocalModelStore.applicationSupport()) ?? LocalModelStore.temporary())
+        // One runtime instance, shared. Two would mean the manager loading a
+        // model into one and the provider generating from the other, which
+        // presents as "Ready" followed by "no model is loaded" — the manager
+        // decides what is resident, and the provider must be asking the same
+        // object about it.
+        let localRuntime = LocalRuntimeResolver.best()
+        let localModels = LocalModelManager(
+            catalog: LocalModelCatalog.bundled(),
+            repository: repositories.localModels,
+            settings: repositories.settings,
+            store: modelStore,
+            runtime: localRuntime,
+            dateProvider: dateProvider
+        )
+
         let providers = AIProviderRegistry(providers: [
             AppleFoundationModelsProvider(),
-            LocalModelProvider(),
+            LocalModelProvider(manager: localModels, runtime: localRuntime),
             remoteProvider,
             ScriptedDevProvider(dateProvider: dateProvider),
         ])
@@ -236,6 +275,7 @@ final class AppEnvironment: Sendable {
             remoteConfiguration: remoteConfiguration,
             launch: launch,
             memory: memory,
+            localModels: localModels,
             notificationCoordinator: platform?.notifications,
             voice: voice,
             commands: AssistantCommandService(

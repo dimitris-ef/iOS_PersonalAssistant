@@ -48,7 +48,8 @@ enum SettingsMapper {
             supportCompletionMarkMissedAfter: support.completion.markMissedAfter,
             voiceSpeaksReplies: settings.voice.speaksReplies,
             voiceSpeaksTypedReplies: settings.voice.speaksTypedReplies,
-            voiceLocaleIdentifier: settings.voice.localeIdentifier
+            voiceLocaleIdentifier: settings.voice.localeIdentifier,
+            selectedLocalModelID: settings.selectedLocalModelID?.rawValue
         )
     }
 
@@ -87,12 +88,14 @@ enum SettingsMapper {
         row.voiceSpeaksReplies = settings.voice.speaksReplies
         row.voiceSpeaksTypedReplies = settings.voice.speaksTypedReplies
         row.voiceLocaleIdentifier = settings.voice.localeIdentifier
+        row.selectedLocalModelID = settings.selectedLocalModelID?.rawValue
     }
 
     static func makeDomain(from row: SDAssistantSettings) throws -> AssistantSettings {
         AssistantSettings(
             preferredProviderID: row.preferredProviderID.map { AIProviderIdentifier($0) },
             preferredModelID: row.preferredModelID.map { AIModelIdentifier($0) },
+            selectedLocalModelID: row.selectedLocalModelID.map { AIModelIdentifier($0) },
             routingPolicy: try decodeEnum(
                 ModelRoutingPolicy.self,
                 from: row.routingPolicyRaw,

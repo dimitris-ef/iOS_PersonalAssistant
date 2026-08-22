@@ -139,6 +139,18 @@ public enum MessageInputSource: String, Hashable, Codable, Sendable {
 public struct AssistantSettings: Hashable, Codable, Sendable {
     public var preferredProviderID: AIProviderIdentifier?
     public var preferredModelID: AIModelIdentifier?
+    /// Which downloaded model Local AI should use.
+    ///
+    /// Separate from ``preferredModelID`` on purpose. That one names the model
+    /// for whichever provider is selected — a cloud model name, say. This one
+    /// survives switching away to the cloud and back, so a user who tries the
+    /// remote model for an afternoon does not come back to Local AI having lost
+    /// which of their downloaded models they were using.
+    ///
+    /// Section 64: it holds the model's *logical identifier* and nothing about
+    /// the loaded runtime. There is no native state that can be persisted, and
+    /// pretending otherwise would mean storing a pointer.
+    public var selectedLocalModelID: AIModelIdentifier?
     public var routingPolicy: ModelRoutingPolicy
     /// Per-tool authorization. Anything absent falls back to `defaultAuthorization`.
     public var toolAuthorizations: [ToolKind: ToolAuthorization]
@@ -152,6 +164,7 @@ public struct AssistantSettings: Hashable, Codable, Sendable {
     public init(
         preferredProviderID: AIProviderIdentifier? = nil,
         preferredModelID: AIModelIdentifier? = nil,
+        selectedLocalModelID: AIModelIdentifier? = nil,
         routingPolicy: ModelRoutingPolicy = .preferOnDevice,
         toolAuthorizations: [ToolKind: ToolAuthorization] = AssistantSettings.defaultToolAuthorizations,
         defaultAuthorization: ToolAuthorization = .allowed,
@@ -162,6 +175,7 @@ public struct AssistantSettings: Hashable, Codable, Sendable {
     ) {
         self.preferredProviderID = preferredProviderID
         self.preferredModelID = preferredModelID
+        self.selectedLocalModelID = selectedLocalModelID
         self.routingPolicy = routingPolicy
         self.toolAuthorizations = toolAuthorizations
         self.defaultAuthorization = defaultAuthorization

@@ -160,6 +160,7 @@ PhonePersonalAI/
     ├── VOICE.md             Speech in, speech out
     ├── SYSTEM-INTENTS.md    Siri, Shortcuts and the Action Button
     ├── APPLE-ON-DEVICE.md   Foundation Models
+    ├── LOCAL-MODELS.md      Downloadable GGUF models and llama.cpp
     ├── REMOTE-AI.md         The cloud provider and its credentials
     ├── PERSISTENCE.md       SwiftData schema and migration
     ├── FOLLOW-UP.md         The escalation ladder

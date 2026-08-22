@@ -42,12 +42,30 @@ struct HarnessSession {
             try await repositories.profile.update(profile)
         }
 
+        // Local AI, wired to the mock runtime and a throwaway models
+        // directory. The harness is a terminal tool on a developer's machine:
+        // it should be able to exercise the local-model *pipeline* without
+        // downloading gigabytes or needing a GPU, and the mock runtime is
+        // exactly that (section 89).
+        // One runtime instance, shared by the manager and the provider — two
+        // would mean the manager loading into one and the provider generating
+        // from the other.
+        let localRuntime = MockLocalModelRuntime()
+        let localModels = LocalModelManager(
+            catalog: LocalModelCatalog.bundled(),
+            repository: repositories.localModels,
+            settings: repositories.settings,
+            store: LocalModelStore.temporary(name: "dev-harness"),
+            runtime: localRuntime,
+            dateProvider: dateProvider
+        )
+
         // Every provider is registered; only the scripted one is actually
         // usable here, and routing settles on it because the others report
         // themselves unavailable.
         let registry = AIProviderRegistry(providers: [
             AppleFoundationModelsProvider(),
-            LocalModelProvider(),
+            LocalModelProvider(manager: localModels, runtime: localRuntime),
             ScriptedDevProvider(dateProvider: dateProvider),
         ])
 

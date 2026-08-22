@@ -57,6 +57,8 @@ struct SettingsScreen: View {
                     ModelSelectorView()
                 case .remoteAI:
                     RemoteAISettingsView()
+                case .localModels:
+                    LocalModelsView()
                 case .privacy(let topic):
                     PrivacyDetailView(topic: topic)
                 }

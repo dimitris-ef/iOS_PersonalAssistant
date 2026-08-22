@@ -95,6 +95,14 @@ targets:
         product: AIProviderApple
       - package: PhonePersonalAI
         product: AIProviderLocal
+      # The llama.cpp adapter. Linking the actual llama.cpp binary is opt-in:
+      # generate the project with PPAI_LLAMA_RUNTIME=1 for a device build that
+      # can run downloaded models. Without it this product still builds and
+      # links — it just reports the runtime unavailable, which is what keeps
+      # the simulator lane working, since the published llama.cpp XCFramework
+      # has no simulator slice. See the note at the top of Package.swift.
+      - package: PhonePersonalAI
+        product: AIProviderLocalLlama
       - package: PhonePersonalAI
         product: AIProviderRemote
       # Development-only: the scripted stand-in that drives the assistant while

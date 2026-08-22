@@ -18,6 +18,7 @@ private enum SnapshotKey {
     static let reminderPlans = "reminder-plans"
     static let settings = "settings"
     static let profile = "profile"
+    static let localModels = "local-models"
 }
 
 public actor SnapshotConversationRepository: ConversationRepository {
@@ -335,6 +336,58 @@ public actor SnapshotSettingsRepository: SettingsRepository {
     }
 }
 
+/// Installed-model rows, snapshotted like everything else.
+///
+/// Note what this stores and what it does not: the row, never the weights. In
+/// an ephemeral store the rows vanish on restart while any files on disk do
+/// not, which is the correct asymmetry — a test's repositories are disposable
+/// and a two-gigabyte file is not, and the manager reconciles the two on the
+/// next scan by noticing a row whose file is missing (or a file no row claims).
+public actor SnapshotLocalModelRepository: LocalModelRepository {
+    private let store: any SnapshotStore
+    private var storage: [AIModelIdentifier: LocalModelRecord] = [:]
+    private var isLoaded = false
+
+    public init(store: any SnapshotStore) {
+        self.store = store
+    }
+
+    public func installedModels() async throws -> [LocalModelRecord] {
+        try await loadIfNeeded()
+        return storage.values.sorted { $0.installedAt > $1.installedAt }
+    }
+
+    public func model(id: AIModelIdentifier) async throws -> LocalModelRecord? {
+        try await loadIfNeeded()
+        return storage[id]
+    }
+
+    public func save(_ model: LocalModelRecord) async throws {
+        try await loadIfNeeded()
+        storage[model.id] = model
+        try await persist()
+    }
+
+    public func delete(id: AIModelIdentifier) async throws {
+        try await loadIfNeeded()
+        storage.removeValue(forKey: id)
+        try await persist()
+    }
+
+    private func loadIfNeeded() async throws {
+        guard !isLoaded else { return }
+        isLoaded = true
+        guard let data = try await store.read(key: SnapshotKey.localModels) else { return }
+        let decoded = try JSONCoding.decoder.decode([LocalModelRecord].self, from: data)
+        storage = Dictionary(uniqueKeysWithValues: decoded.map { ($0.id, $0) })
+    }
+
+    private func persist() async throws {
+        let data = try JSONCoding.encoder.encode(Array(storage.values))
+        try await store.write(data, key: SnapshotKey.localModels)
+    }
+}
+
 public actor SnapshotUserProfileRepository: UserProfileRepository {
     private let store: any SnapshotStore
     private var cached: UserProfile?
@@ -422,6 +475,7 @@ extension AssistantRepositories {
             reminderPlans: SnapshotReminderPlanRepository(store: store),
             settings: SnapshotSettingsRepository(store: store),
             profile: SnapshotUserProfileRepository(store: store),
+            localModels: SnapshotLocalModelRepository(store: store),
             actionPlans: SnapshotActionPlanRepository(store: store)
         )
     }

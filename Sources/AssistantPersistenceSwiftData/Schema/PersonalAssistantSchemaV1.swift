@@ -687,6 +687,10 @@ public final class SDAssistantSettings {
     public var voiceSpeaksTypedReplies: Bool = false
     public var voiceLocaleIdentifier: String?
 
+    // Downloadable local models, added in V8. Optional: an existing store has
+    // no downloaded model, and nil is exactly what "none selected" means.
+    public var selectedLocalModelID: String?
+
     public init(
         id: UUID,
         preferredProviderID: String?,
@@ -715,7 +719,8 @@ public final class SDAssistantSettings {
         supportCompletionMarkMissedAfter: Double?,
         voiceSpeaksReplies: Bool = false,
         voiceSpeaksTypedReplies: Bool = false,
-        voiceLocaleIdentifier: String? = nil
+        voiceLocaleIdentifier: String? = nil,
+        selectedLocalModelID: String? = nil
     ) {
         self.id = id
         self.preferredProviderID = preferredProviderID
@@ -745,6 +750,7 @@ public final class SDAssistantSettings {
         self.voiceSpeaksReplies = voiceSpeaksReplies
         self.voiceSpeaksTypedReplies = voiceSpeaksTypedReplies
         self.voiceLocaleIdentifier = voiceLocaleIdentifier
+        self.selectedLocalModelID = selectedLocalModelID
     }
 }
 

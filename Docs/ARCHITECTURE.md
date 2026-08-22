@@ -30,8 +30,11 @@ learn.
               MockPlatform    AssistantPlatformApple
 
   AIProviderApple ┐
-  AIProviderLocal ├── depend on AssistantDomain + AssistantAI only
-  AIProviderRemote┘
+  AIProviderRemote├── depend on AssistantDomain + AssistantAI only
+  AIProviderLocal ┘   (Local also uses AssistantPersistence, for the rows
+                       describing which model files are installed)
+
+  AIProviderLocalLlama ── the only target that imports llama.cpp
 ```
 
 Two properties are load-bearing:
@@ -39,10 +42,12 @@ Two properties are load-bearing:
 - **`AssistantDomain` depends on nothing.** Enums like `ToolKind` and
   `TaskStatus` live there rather than in the modules that act on them, so
   settings can reference a tool without the domain depending on the tool system.
-- **Providers depend on `AssistantAI` only.** A provider cannot reach the
-  repositories, the platform services or the tool implementations even by
-  accident, because those modules are not in its dependency list. This is what
-  makes the Apple provider's tool adapter safe by construction: it *cannot*
+- **Providers cannot reach the platform.** A provider's dependency list
+  contains no platform module and no tool implementation, so it cannot call
+  `EventKit`, `UserNotifications` or `AlarmKit` even by accident. This is what
+  makes the Apple provider's tool adapter safe by construction — and the local
+  model's, which is the same argument applied to a model running inside the
+  process: it *cannot*
   create a calendar event, because EventKit is not reachable from where it
   lives.
 

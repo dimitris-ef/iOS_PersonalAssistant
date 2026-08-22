@@ -97,6 +97,33 @@ public protocol RoutineRepository: Sendable {
     func delete(id: Routine.ID) async throws
 }
 
+/// Which model files are installed on this device.
+///
+/// ## What is in here and what is not
+///
+/// Rows describing files: an identifier, a relative path, a size, a checksum, a
+/// context length. The *weights themselves are on the filesystem*, and section
+/// 26 is emphatic about why — a database designed for rows should not be asked
+/// to load, copy and migrate two gigabytes of tensors.
+///
+/// Nor is anything runtime-shaped stored here. A loaded model is a native
+/// allocation that cannot outlive the process; persisting a handle to one would
+/// be persisting a pointer.
+///
+/// ## Why this is separate from settings
+///
+/// Because "which models exist" and "which one the user picked" answer to
+/// different things. Deleting a model removes a row here; it does not reset the
+/// user's provider choice, their conversations or anything else (section 67).
+public protocol LocalModelRepository: Sendable {
+    func installedModels() async throws -> [LocalModelRecord]
+    func model(id: AIModelIdentifier) async throws -> LocalModelRecord?
+    /// Insert or update, keyed by the logical model identifier.
+    func save(_ model: LocalModelRecord) async throws
+    /// Forgets the row. The file is the store's business, not this one's.
+    func delete(id: AIModelIdentifier) async throws
+}
+
 public protocol SettingsRepository: Sendable {
     func settings() async throws -> AssistantSettings
     func update(_ settings: AssistantSettings) async throws
@@ -123,6 +150,9 @@ public struct AssistantRepositories: Sendable {
     public let reminderPlans: any ReminderPlanRepository
     public let settings: any SettingsRepository
     public let profile: any UserProfileRepository
+    /// Model files the user has downloaded. Rows only — the weights live on
+    /// the filesystem.
+    public let localModels: any LocalModelRepository
     /// What the assistant did, so a loaded conversation still shows its cards.
     public let actionPlans: any ActionPlanRepository
 
@@ -136,6 +166,7 @@ public struct AssistantRepositories: Sendable {
         reminderPlans: any ReminderPlanRepository,
         settings: any SettingsRepository,
         profile: any UserProfileRepository,
+        localModels: any LocalModelRepository,
         actionPlans: any ActionPlanRepository
     ) {
         self.conversations = conversations
@@ -147,6 +178,7 @@ public struct AssistantRepositories: Sendable {
         self.reminderPlans = reminderPlans
         self.settings = settings
         self.profile = profile
+        self.localModels = localModels
         self.actionPlans = actionPlans
     }
 }
