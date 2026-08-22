@@ -100,7 +100,7 @@ final class MemoryRankerTests: XCTestCase {
         let request = query("when do I leave for work")
 
         let scored = try XCTUnwrap(MemoryRanker().score([irrelevant], query: request).first)
-        XCTAssertEqual(scored.relevance, 0, "it shares no content word with the request")
+        XCTAssertEqual(scored.lexical, 0, "it shares no content word with the request")
         // The weighted score is comfortably above the threshold on the strength
         // of everything else — which is precisely why the threshold alone
         // cannot be trusted with this.
@@ -361,7 +361,7 @@ final class MemoryRankerTests: XCTestCase {
         XCTAssertEqual(scored.first?.memory.id, routine.id)
         // But the preference is still ranked, not filtered out — it matches.
         XCTAssertEqual(scored.count, 2)
-        XCTAssertGreaterThan(scored[1].relevance, 0)
+        XCTAssertGreaterThan(scored[1].lexical, 0)
     }
 
     // MARK: Determinism
@@ -378,7 +378,7 @@ final class MemoryRankerTests: XCTestCase {
         let library = MemoryLibrary(now: now)
         let scored = MemoryRanker().score(library.all, query: MemoryQuery(text: "", now: now))
         XCTAssertEqual(scored.count, library.all.count)
-        XCTAssertEqual(scored.map(\.relevance).max(), 0.5)
+        XCTAssertEqual(scored.map(\.lexical).max(), 0.5)
     }
 
     func testEmptyMemoriesAreIgnored() {

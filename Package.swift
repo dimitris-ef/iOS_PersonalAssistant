@@ -47,6 +47,9 @@ let package = Package(
         .library(name: "AssistantPersistenceSwiftData", targets: ["AssistantPersistenceSwiftData"]),
         .library(name: "ExecutiveSupport", targets: ["ExecutiveSupport"]),
         .library(name: "PersonalMemory", targets: ["PersonalMemory"]),
+        // Apple's on-device sentence embeddings, alone in their own target so
+        // the memory architecture stays buildable where NaturalLanguage is not.
+        .library(name: "PersonalMemoryApple", targets: ["PersonalMemoryApple"]),
         .library(name: "AssistantCore", targets: ["AssistantCore"]),
         .library(name: "MockPlatform", targets: ["MockPlatform"]),
         // The real iPhone: EventKit, UserNotifications, AlarmKit. Apple-only
@@ -105,6 +108,16 @@ let package = Package(
         // providers, no network. That is what lets retrieval be exhaustively
         // tested and lets it run offline before every turn.
         .target(name: "PersonalMemory", dependencies: ["AssistantDomain"]),
+
+        // The only place `NaturalLanguage` is imported.
+        //
+        // Nothing in the core depends on this target; the app composes it in at
+        // launch and everything below sees only `SemanticEncoder`. That is what
+        // keeps ranking, consolidation, aging and every memory test running on
+        // Linux, on Windows and in CI, where the framework does not exist — and
+        // what makes swapping in a Core ML model later a new conformance rather
+        // than a change to the memory system.
+        .target(name: "PersonalMemoryApple", dependencies: ["PersonalMemory"]),
 
         .target(
             name: "AssistantCore",
@@ -189,6 +202,10 @@ let package = Package(
         .testTarget(
             name: "PersonalMemoryTests",
             dependencies: ["PersonalMemory", "AssistantDomain"]
+        ),
+        .testTarget(
+            name: "PersonalMemoryAppleTests",
+            dependencies: ["PersonalMemoryApple", "PersonalMemory"]
         ),
         .testTarget(
             name: "AssistantPersistenceTests",

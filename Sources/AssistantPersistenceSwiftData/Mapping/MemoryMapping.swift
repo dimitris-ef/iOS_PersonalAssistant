@@ -20,7 +20,11 @@ enum MemoryMapper {
             updatedAt: item.updatedAt,
             lastUsedAt: item.lastUsedAt,
             sourceRaw: item.source.rawValue,
-            confidenceValue: item.confidence
+            confidenceValue: item.confidence,
+            lifecycleRaw: item.lifecycle.rawValue,
+            entityKeys: item.entityKeys,
+            consolidatedFrom: item.consolidatedFrom.map(\.rawValue),
+            isProtected: item.isProtected
         )
     }
 
@@ -34,6 +38,10 @@ enum MemoryMapper {
         row.lastUsedAt = item.lastUsedAt
         row.sourceRaw = item.source.rawValue
         row.confidenceValue = item.confidence
+        row.lifecycleRaw = item.lifecycle.rawValue
+        row.entityKeys = item.entityKeys
+        row.consolidatedFrom = item.consolidatedFrom.map(\.rawValue)
+        row.isProtected = item.isProtected
     }
 
     static func makeDomain(from row: SDMemory) throws -> MemoryItem {
@@ -61,7 +69,14 @@ enum MemoryMapper {
             // explicit statement stays trusted, an inference stays less so —
             // and passing nil lets `MemoryItem` apply that default in the one
             // place it is defined.
-            confidence: row.confidenceValue
+            confidence: row.confidenceValue,
+            // Nil on rows predating V7. An unrecognised value gets the same
+            // treatment as an unrecognised source: read as the safe state
+            // rather than refusing to load someone's memory over a label.
+            lifecycle: row.lifecycleRaw.flatMap(MemoryLifecycle.init(rawValue:)) ?? .active,
+            entityKeys: row.entityKeys ?? [],
+            consolidatedFrom: (row.consolidatedFrom ?? []).map(MemoryItem.ID.init),
+            isProtected: row.isProtected
         )
     }
 }

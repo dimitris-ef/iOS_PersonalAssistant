@@ -19,8 +19,22 @@ public struct MemoryTextProfile: Hashable, Sendable {
     /// weekends". Two otherwise-similar sentences that differ here are talking
     /// about different situations.
     public let qualifiers: Set<String>
+    /// Whether the statement denies something.
+    ///
+    /// The single most important thing an embedding cannot see. "I like coffee"
+    /// and "I don't like coffee" are, to any bag-of-concepts or sentence
+    /// encoder, nearly the same sentence — negation is one small word and it
+    /// reverses the meaning entirely. Vectors alone would happily merge them
+    /// into one cheerful preference. This flag is what stops that, and it is
+    /// checked *before* similarity anywhere a merge could happen.
+    public let isNegated: Bool
 
     public var isEmpty: Bool { terms.isEmpty }
+
+    /// True when the two statements point in opposite directions.
+    public func disagreesInPolarity(with other: MemoryTextProfile) -> Bool {
+        isNegated != other.isNegated
+    }
 
     public init(_ text: String) {
         let normalized = MemoryTextNormalizer.normalize(text)
@@ -42,6 +56,10 @@ public struct MemoryTextProfile: Hashable, Sendable {
 
         self.durations = MemoryTextNormalizer.durations(in: normalized)
         self.qualifiers = Set(tokens.filter { MemoryTextNormalizer.qualifierWords.contains($0) })
+        // From the raw tokens, not the content words: "not" and "no" carry no
+        // retrieval signal and would ordinarily be dropped, but they are the
+        // entire meaning of a denial.
+        self.isNegated = tokens.contains { MemoryTextNormalizer.negationWords.contains($0) }
     }
 }
 
@@ -108,6 +126,26 @@ public enum MemoryTextNormalizer {
         "sometimes", "usually", "occasionally", "winter", "summer", "morning",
         "evening", "night", "holiday", "holidays", "traffic", "unless", "except",
         "when", "if", "while",
+    ]
+
+    /// Words that turn a statement into its opposite.
+    ///
+    /// Contractions appear in the split forms normalisation leaves behind:
+    /// stripping punctuation turns "don't" into "don t", so `don` is the token
+    /// that survives, and listing only `dont` would catch nothing. The stray
+    /// halves are harmless as words in their own right — nobody writes "don" or
+    /// "isn" meaning anything else.
+    ///
+    /// Kept tight. Over-eager negation detection would split two statements that
+    /// agree, which costs a duplicate; the failure in the other direction merges
+    /// "I like coffee" with "I don't", which is worse.
+    public static let negationWords: Set<String> = [
+        "not", "no", "never", "none", "neither", "nor", "without",
+        "dont", "don", "doesnt", "doesn", "didnt", "didn", "cant", "cannot",
+        "wont", "won", "isnt", "isn", "arent", "aren", "wasnt", "wasn",
+        "hasnt", "hasn", "havent", "haven", "shouldnt", "shouldn",
+        "avoid", "avoids", "avoiding", "stopped", "quit", "anymore", "longer",
+        "dislike", "dislikes", "hate", "hates",
     ]
 
     // MARK: Durations

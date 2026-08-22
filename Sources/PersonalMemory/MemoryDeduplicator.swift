@@ -30,15 +30,30 @@ public enum MemoryDuplication: Hashable, Sendable {
 /// minutes" and "commute takes 45 minutes during rush hour" are both true, and
 /// a deduplicator eager enough to collapse them is worse than none.
 ///
-/// Three guards, in order:
+/// Four guards, in order, and the order is the design:
 ///
-/// 1. **Qualifiers.** If one statement is conditional — during rush hour, at
+/// 1. **Polarity.** "I like coffee" and "I don't like coffee" are one small word
+///    apart and mean opposite things. No embedding can see that — negation is a
+///    function word, and a vector model puts the two sentences almost on top of
+///    each other. So polarity is checked *first*, before any similarity is
+///    consulted, and a disagreement here can only ever become a conflict.
+/// 2. **Qualifiers.** If one statement is conditional — during rush hour, at
 ///    weekends — and the other is not, they describe different situations and
 ///    are left alone whatever their word overlap.
-/// 2. **Quantities.** Same subject, different duration, means the facts
+/// 3. **Quantities.** Same subject, different duration, means the facts
 ///    disagree. That is a conflict to resolve, never a duplicate to discard.
-/// 3. **Similarity.** Only then does strong overlap mean "the same thing said
-///    twice".
+/// 4. **Similarity.** Only then does strong overlap — lexical *or* semantic —
+///    mean "the same thing said twice".
+///
+/// ## Why semantic similarity is added here rather than substituted
+///
+/// Because meaning is the one thing lexical matching could not do and the one
+/// thing vectors cannot be trusted alone to do. "It takes me 30 minutes to drive
+/// to work" and "my commute is roughly half an hour" share a single content
+/// word; only a vector sees they are one statement. And "I like coffee" and "I
+/// don't" share every content word; only the guards above see they are two. Each
+/// covers the other's blind spot, which is why both are here and why neither
+/// gets a veto over the guards.
 public struct MemoryDeduplicator: Sendable {
     /// How alike two memories must be before they are considered the same fact.
     ///
@@ -54,22 +69,55 @@ public struct MemoryDeduplicator: Sendable {
     /// decide, which is where an uncertain call should land.
     public var conflictThreshold: Double
 
+    /// How alike two memories must *mean* before that counts as saying the same
+    /// thing. Only ever consulted after the polarity, qualifier and quantity
+    /// guards have passed.
+    public var semanticDuplicateThreshold: Double
+
+    /// The meaning overlap at which a differing number becomes a disagreement
+    /// about one subject rather than two unrelated facts.
+    public var semanticConflictThreshold: Double
+
     private let matcher: any MemorySemanticMatcher
 
     public init(
         nearDuplicateThreshold: Double = 0.62,
         conflictThreshold: Double = 0.45,
+        semanticDuplicateThreshold: Double = 0.9,
+        semanticConflictThreshold: Double = 0.75,
         matcher: any MemorySemanticMatcher = LexicalSemanticMatcher()
     ) {
         self.nearDuplicateThreshold = nearDuplicateThreshold
         self.conflictThreshold = conflictThreshold
+        self.semanticDuplicateThreshold = semanticDuplicateThreshold
+        self.semanticConflictThreshold = semanticConflictThreshold
         self.matcher = matcher
     }
 
+    /// The same thresholds, taken from a retrieval policy.
+    ///
+    /// So that the numbers live in one place. A duplicate threshold tuned here
+    /// and a semantic threshold tuned in the policy would drift apart, and the
+    /// symptom — memories merging in one code path and not another — is
+    /// miserable to diagnose.
+    public init(policy: MemoryRelevancePolicy, matcher: any MemorySemanticMatcher = LexicalSemanticMatcher()) {
+        self.init(
+            semanticDuplicateThreshold: policy.semanticDuplicateThreshold,
+            semanticConflictThreshold: policy.semanticConflictThreshold,
+            matcher: matcher
+        )
+    }
+
     /// Classifies `candidate` against everything already stored.
+    ///
+    /// `vectors` is optional throughout. When it is empty — no encoder on this
+    /// device, or a memory whose vector has not been generated yet — every
+    /// decision falls back to the lexical path, which is the behaviour this had
+    /// before Part 9 and is still correct, merely blinder.
     public func classify(
         _ candidate: MemoryItem,
-        against existing: [MemoryItem]
+        against existing: [MemoryItem],
+        vectors: [MemoryItem.ID: SemanticVector] = [:]
     ) -> MemoryDuplication {
         let candidateProfile = MemoryTextProfile(candidate.content)
         guard !candidateProfile.isEmpty else { return .distinct }
@@ -90,12 +138,49 @@ public struct MemoryDeduplicator: Sendable {
             // place to a preference invites nonsense matches.
             guard stored.kind == candidate.kind else { continue }
 
-            // Guard 1: a condition on one side and not the other. "During rush
+            let lexicalSimilarity = matcher.similarity(
+                query: candidateProfile,
+                memory: storedProfile
+            )
+            let semanticSimilarity: Double = {
+                guard
+                    let candidateVector = vectors[candidate.id],
+                    let storedVector = vectors[stored.id]
+                else { return 0 }
+                return candidateVector.normalizedSimilarity(to: storedVector)
+            }()
+            let sharedSubject = !storedProfile.terms.isDisjoint(with: candidateProfile.terms)
+            let sameEntities = MemoryEntityExtractor.shareEntity(
+                candidate.entityKeys,
+                stored.entityKeys
+            )
+
+            // Guard 1: polarity. Before similarity of any kind is looked at,
+            // because this is precisely where similarity lies. Two statements
+            // about the same subject that point opposite ways are a conflict —
+            // never a duplicate, and never merged.
+            if candidateProfile.disagreesInPolarity(with: storedProfile) {
+                let related = sharedSubject
+                    && sameEntities
+                    && (lexicalSimilarity >= conflictThreshold
+                        || semanticSimilarity >= semanticConflictThreshold)
+                if related, lexicalSimilarity > bestSimilarity {
+                    best = .conflicting(existing: stored, similarity: lexicalSimilarity)
+                    bestSimilarity = lexicalSimilarity
+                }
+                continue
+            }
+
+            // Guard 2: a condition on one side and not the other. "During rush
             // hour" describes a different situation, whatever the word overlap.
             guard storedProfile.qualifiers == candidateProfile.qualifiers else { continue }
 
-            let similarity = matcher.similarity(query: candidateProfile, memory: storedProfile)
-            let sharedSubject = !storedProfile.terms.isDisjoint(with: candidateProfile.terms)
+            // Guard 2b: different subjects, when both memories name one. Stops
+            // "the commute to work" being compared with "the walk to the gym"
+            // on the strength of both being journeys.
+            guard sameEntities else { continue }
+
+            let similarity = max(lexicalSimilarity, semanticSimilarity)
             let bothQuantified =
                 !storedProfile.durations.isEmpty && !candidateProfile.durations.isEmpty
             let quantitiesAgree =
@@ -103,11 +188,20 @@ public struct MemoryDeduplicator: Sendable {
             let quantitiesDisagree =
                 bothQuantified && storedProfile.durations.isDisjoint(with: candidateProfile.durations)
 
-            // Guard 2: the same subject with a different number is a
+            // Guard 3: the same subject with a different number is a
             // disagreement, not a repetition. Someone's commute changed, or one
             // of the two is wrong — either way, discarding one silently is the
             // wrong answer.
-            if quantitiesDisagree, sharedSubject, similarity >= conflictThreshold {
+            //
+            // This is also the guard that most needs to survive semantic
+            // matching. "Normal commute is 30 minutes" and "rush-hour commute is
+            // 45 minutes" are, in vector terms, nearly identical sentences —
+            // the number is the entire distinction, and it is the part a bag of
+            // concepts throws away first. Quantities are compared as numbers,
+            // before similarity is allowed to conclude anything.
+            if quantitiesDisagree,
+               sharedSubject || semanticSimilarity >= semanticConflictThreshold,
+               similarity >= conflictThreshold || semanticSimilarity >= semanticConflictThreshold {
                 if similarity > bestSimilarity {
                     best = .conflicting(existing: stored, similarity: similarity)
                     bestSimilarity = similarity
@@ -115,18 +209,17 @@ public struct MemoryDeduplicator: Sendable {
                 continue
             }
 
-            // Two ways to be the same fact.
+            // Three ways to be the same fact, having survived every guard.
             //
-            // The first is strong word overlap. The second exists because
-            // lexical matching genuinely cannot see that "it takes me 30
-            // minutes to drive to work" and "my commute to work is roughly half
-            // an hour" are one statement — they share a single content word.
-            // What connects them is that they are the same category, about the
-            // same subject, and name the same quantity. Requiring all three
-            // keeps the rule conservative; it is a stand-in for the semantic
-            // matching a real embedding model would do, and it is the first
-            // thing that should be replaced when one exists.
+            // Strong word overlap; strong meaning overlap; or the older
+            // stand-in for meaning — same category, same subject, same quantity
+            // — which is what caught "it takes me 30 minutes to drive to work"
+            // and "my commute is roughly half an hour" before there were
+            // vectors. The stand-in stays: it costs nothing, it works when no
+            // encoder is available, and it is stricter than the semantic path
+            // rather than looser, so it can only agree.
             let isSameFact = similarity >= nearDuplicateThreshold
+                || semanticSimilarity >= semanticDuplicateThreshold
                 || (quantitiesAgree && sharedSubject)
             guard isSameFact else { continue }
 

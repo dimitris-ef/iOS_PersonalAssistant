@@ -49,6 +49,44 @@ public struct MemoryItem: Identifiable, Hashable, Codable, Sendable {
     /// much to trust it.
     public var confidence: Double
 
+    /// Where this stands: in use, fading, archived, superseded, unresolved.
+    ///
+    /// Only ``MemoryLifecycle/active`` memories reach a prompt. Everything else
+    /// stays in the store and stays visible to the user — see
+    /// ``MemoryLifecycle``.
+    public var lifecycle: MemoryLifecycle
+
+    /// Coarse handles for the recurring things a memory is about.
+    ///
+    /// Strings like `place:work` or `person:dr_smith`, normalised at the point
+    /// they are derived. They are a *hint*, never a requirement: retrieval works
+    /// on memories that carry none, and nothing may depend on an entity having
+    /// been recognised. What they buy is grouping — two memories about work can
+    /// be told apart from two memories that merely both mention Tuesday — which
+    /// helps consolidation and conflict detection avoid comparing unrelated
+    /// things.
+    ///
+    /// Not an address book. There is no `Person` record behind `person:dr_smith`
+    /// and there is not meant to be.
+    public var entityKeys: [String]
+
+    /// The memories this one was consolidated from, if it was.
+    ///
+    /// Provenance, kept on the item as well as in the relation graph, because
+    /// "based on 3 similar memories" is something the Memory screen shows and
+    /// should not need a graph query to render. The relations carry the same
+    /// facts for anything that needs to walk them.
+    public var consolidatedFrom: [MemoryItem.ID]
+
+    /// True when the user has taken ownership of this exact wording.
+    ///
+    /// Set when someone edits a memory by hand. Maintenance leaves protected
+    /// memories alone: consolidation will not rewrite them from their old
+    /// sources, and aging will not fade them. Editing a fact is the clearest
+    /// statement of interest a user can make, and a maintenance pass that
+    /// overwrote it on the next launch would be the app arguing with them.
+    public var isProtected: Bool
+
     public init(
         id: ID = ID(),
         kind: MemoryKind,
@@ -59,7 +97,11 @@ public struct MemoryItem: Identifiable, Hashable, Codable, Sendable {
         updatedAt: Date? = nil,
         lastUsedAt: Date? = nil,
         source: MemorySource = .assistant,
-        confidence: Double? = nil
+        confidence: Double? = nil,
+        lifecycle: MemoryLifecycle = .active,
+        entityKeys: [String] = [],
+        consolidatedFrom: [MemoryItem.ID] = [],
+        isProtected: Bool = false
     ) {
         self.id = id
         self.kind = kind
@@ -71,7 +113,17 @@ public struct MemoryItem: Identifiable, Hashable, Codable, Sendable {
         self.lastUsedAt = lastUsedAt
         self.source = source
         self.confidence = min(max(confidence ?? source.defaultConfidence, 0), 1)
+        self.lifecycle = lifecycle
+        self.entityKeys = entityKeys
+        self.consolidatedFrom = consolidatedFrom
+        self.isProtected = isProtected
     }
+
+    /// True when this memory may be sent to a model.
+    public var isRetrievable: Bool { lifecycle.isRetrievable }
+
+    /// True when this was produced by consolidating others.
+    public var isConsolidated: Bool { !consolidatedFrom.isEmpty }
 }
 
 /// Where a memory came from.
@@ -126,6 +178,13 @@ public struct MemoryQuery: Hashable, Sendable {
     public var text: String?
     public var kinds: Set<MemoryKind>
     public var tags: [String]
+    /// Which lifecycle states may be returned.
+    ///
+    /// Defaults to `[.active]`, so every existing caller keeps archived and
+    /// superseded memories out of prompts without knowing the concept exists.
+    /// The Memory screen widens it deliberately — that is what makes history
+    /// inspectable rather than merely retained.
+    public var lifecycles: Set<MemoryLifecycle>
     public var limit: Int
     /// The moment to measure recency against.
     ///
@@ -138,13 +197,18 @@ public struct MemoryQuery: Hashable, Sendable {
         text: String? = nil,
         kinds: Set<MemoryKind> = [],
         tags: [String] = [],
+        lifecycles: Set<MemoryLifecycle> = [.active],
         limit: Int = 10,
         now: Date? = nil
     ) {
         self.text = text
         self.kinds = kinds
         self.tags = tags
+        self.lifecycles = lifecycles
         self.limit = limit
         self.now = now
     }
+
+    /// Every state, for the Memory screen and for maintenance.
+    public static let everyLifecycle = Set(MemoryLifecycle.allCases)
 }

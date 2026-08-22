@@ -15,11 +15,48 @@ public struct MemoryRelevancePolicy: Hashable, Sendable {
     // an unrelated memory into the prompt on its own, which is exactly the
     // failure this milestone exists to fix.
 
+    /// Lexical overlap: shared words, phrases and durations.
     public var relevanceWeight: Double
+    /// Meaning: cosine between the query's vector and the memory's.
+    ///
+    /// The heaviest single weight, because it is the signal that answers the
+    /// question this milestone was set — "how long should I allow for my
+    /// commute?" finding "it takes me half an hour to drive to work" — and the
+    /// one the lexical score structurally cannot produce.
+    ///
+    /// It does not get a veto, though. Cosine says two sentences are *about* the
+    /// same thing; it says nothing about whether either is true, whether the
+    /// user said it or the app guessed it, or whether one negates the other.
+    /// Those are what the rest of these weights are for, and handing meaning the
+    /// whole decision is how a memory system starts confidently recalling the
+    /// opposite of what somebody told it.
+    public var semanticWeight: Double
     public var salienceWeight: Double
     public var recencyWeight: Double
     public var confidenceWeight: Double
     public var categoryWeight: Double
+    /// How the memory was learned: said, typed, observed, inferred.
+    ///
+    /// Separate from `confidence`, which starts from the source but then moves
+    /// with corroboration and correction. This is the standing preference for
+    /// what a person told you over what you worked out about them, and it is
+    /// what stops a well-phrased inference outranking a plain statement.
+    public var sourceTrustWeight: Double
+    /// A nudge for a memory linked to one that already scored well.
+    ///
+    /// Small, and deliberately the smallest weight here. A related memory is a
+    /// suggestion, not evidence: "you need 45 minutes to get ready" belongs
+    /// beside "work is 30 minutes away" often enough to be worth a thumb on the
+    /// scale, and not nearly often enough to earn a place in the prompt on the
+    /// strength of the link alone.
+    public var relationWeight: Double
+    /// Subtracted from a memory that disagrees with something better-evidenced.
+    ///
+    /// A penalty rather than exclusion, because the losing side of a
+    /// disagreement is still about the subject and the user can still see it in
+    /// the Memory screen. What it must not do is arrive in a prompt beside the
+    /// memory that supersedes it.
+    public var conflictPenalty: Double
 
     // MARK: Selection
 
@@ -45,6 +82,20 @@ public struct MemoryRelevancePolicy: Hashable, Sendable {
     /// is ``minimumScore``'s job, weighed against everything else.
     public var minimumRelevance: Double
 
+    /// The meaning-overlap a memory must reach when semantic encoding worked.
+    ///
+    /// The other half of the gate, and the one that keeps "what's the weather?"
+    /// from pulling in the user's commute. A vector model always returns *some*
+    /// similarity, so "the top three matches" is never a selection criterion —
+    /// there are always three. This is the number that says whether the best
+    /// match is actually about anything.
+    ///
+    /// Applied as an alternative to ``minimumRelevance`` rather than on top of
+    /// it: a memory passes the gate if it shares words with the request **or**
+    /// means the same thing. Requiring both would throw away exactly the case
+    /// semantic retrieval was added for.
+    public var minimumSemanticSimilarity: Double
+
     /// The most memories injected into any one request.
     public var maximumMemories: Int
 
@@ -68,33 +119,96 @@ public struct MemoryRelevancePolicy: Hashable, Sendable {
     /// ineligible.
     public var recencyFloor: Double
 
+    /// How alike two memories must *mean* before they may be treated as one
+    /// fact.
+    ///
+    /// High, and it is only ever one of several conditions. Vectors put "I like
+    /// coffee" and "I don't like coffee" almost on top of each other — negation
+    /// is a word, and a bag of concepts does not have one. So this number never
+    /// decides a merge by itself: polarity, quantities and qualifiers are all
+    /// checked first, and this asks the remaining question of whether two
+    /// sentences that survived those checks are saying the same thing.
+    public var semanticDuplicateThreshold: Double
+
+    /// How alike two memories must mean before a differing number counts as a
+    /// disagreement rather than two unrelated facts.
+    public var semanticConflictThreshold: Double
+
     public init(
-        relevanceWeight: Double = 1.0,
+        relevanceWeight: Double = 0.7,
+        semanticWeight: Double = 1.0,
         salienceWeight: Double = 0.25,
         recencyWeight: Double = 0.15,
         confidenceWeight: Double = 0.2,
         categoryWeight: Double = 0.2,
+        sourceTrustWeight: Double = 0.3,
+        relationWeight: Double = 0.1,
+        conflictPenalty: Double = 0.5,
         minimumScore: Double = 0.18,
         minimumRelevance: Double = 0.05,
+        minimumSemanticSimilarity: Double = 0.34,
         maximumMemories: Int = 5,
         characterBudget: Int = 600,
         recencyHalfLife: TimeInterval = TimeSpan.days(180),
-        recencyFloor: Double = 0.25
+        recencyFloor: Double = 0.25,
+        semanticDuplicateThreshold: Double = 0.9,
+        semanticConflictThreshold: Double = 0.75
     ) {
         self.relevanceWeight = relevanceWeight
+        self.semanticWeight = semanticWeight
         self.salienceWeight = salienceWeight
         self.recencyWeight = recencyWeight
         self.confidenceWeight = confidenceWeight
         self.categoryWeight = categoryWeight
+        self.sourceTrustWeight = sourceTrustWeight
+        self.relationWeight = relationWeight
+        self.conflictPenalty = conflictPenalty
         self.minimumScore = minimumScore
         self.minimumRelevance = minimumRelevance
+        self.minimumSemanticSimilarity = minimumSemanticSimilarity
         self.maximumMemories = maximumMemories
         self.characterBudget = characterBudget
         self.recencyHalfLife = recencyHalfLife
         self.recencyFloor = recencyFloor
+        self.semanticDuplicateThreshold = semanticDuplicateThreshold
+        self.semanticConflictThreshold = semanticConflictThreshold
     }
 
     public static let `default` = MemoryRelevancePolicy()
+
+    /// The policy with semantic retrieval switched off.
+    ///
+    /// What the system falls back to when no encoder is available — and a
+    /// useful thing for a test to name, because "does this still work without
+    /// vectors?" is a question worth asking directly rather than by deleting a
+    /// dependency.
+    public var withoutSemantics: MemoryRelevancePolicy {
+        var copy = self
+        copy.semanticWeight = 0
+        // Lexical overlap carries the whole load again, so it gets the weight
+        // meaning would have had. Without this the fallback would not merely be
+        // weaker — every score would drop by the semantic share and the
+        // strength threshold would start rejecting memories that are perfectly
+        // relevant.
+        copy.relevanceWeight = 1.0
+        return copy
+    }
+
+    /// How much to trust a memory purely because of how it was learned.
+    ///
+    /// Explicit statements sit clearly above inferences, with a gap wide enough
+    /// to matter and small enough that a much better semantic and lexical match
+    /// can still win. Section 9's rule, as a number: authority is a strong
+    /// preference, not an override.
+    public func sourceTrust(of source: MemorySource) -> Double {
+        switch source {
+        case .manual: return 1.0
+        case .user: return 0.95
+        case .legacy: return 0.6
+        case .observation: return 0.5
+        case .assistant: return 0.35
+        }
+    }
 
     /// Recency as a 0...1 factor, halving every `recencyHalfLife`.
     public func recency(of date: Date, now: Date) -> Double {

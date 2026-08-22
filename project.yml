@@ -75,6 +75,11 @@ targets:
       # Memory relevance: ranking, deduplication, prompt formatting.
       - package: PhonePersonalAI
         product: PersonalMemory
+      # Apple's on-device sentence embeddings. The only place NaturalLanguage is
+      # linked; removing this product drops the app to the lexicon encoder with
+      # no other change, which is the fallback the memory layer already handles.
+      - package: PhonePersonalAI
+        product: PersonalMemoryApple
       - package: PhonePersonalAI
         product: MockPlatform
       # The real iPhone: EventKit, UserNotifications, AlarmKit. Adding this

@@ -5,6 +5,7 @@ import AssistantPlatform
 import AssistantTools
 import ExecutiveSupport
 import Foundation
+import PersonalMemory
 
 /// Everything one turn produced.
 public struct AssistantTurnResult: Sendable {
@@ -94,6 +95,15 @@ public final class AssistantEngine: Sendable {
     /// "Help me start", shared by the Today screen, Siri and the tool layer.
     public let startSupport: StartSupportService
 
+    /// Vectors, consolidation and aging.
+    ///
+    /// Exposed for the same reason `followUp` is: the app runs a pass on
+    /// foreground, and there must be exactly one route into it. Nothing here is
+    /// required for correctness — retrieval works with no vectors at all — so a
+    /// composition that never calls it still has a working assistant, just a
+    /// blunter one.
+    public let memoryMaintenance: MemoryMaintenanceService
+
     public init(
         providers: AIProviderRegistry,
         repositories: AssistantRepositories,
@@ -105,6 +115,14 @@ public final class AssistantEngine: Sendable {
         promptBuilder: SystemPromptBuilder = SystemPromptBuilder(),
         timing: FollowUpTiming = .default,
         limits: AgentLimits = .default,
+        /// The memory encoder, if this build has one.
+        ///
+        /// Deliberately a parameter of the engine rather than something read
+        /// from settings or derived from the selected provider. Which model
+        /// answers the user has nothing to do with how their memories are
+        /// indexed, and wiring the two together would mean switching to the
+        /// remote provider changed what the assistant could recall.
+        semanticEncoder: (any SemanticEncoder)? = nil,
         logger: any AgentLogger = SilentAgentLogger()
     ) {
         self.providers = providers
@@ -133,18 +151,25 @@ public final class AssistantEngine: Sendable {
             followUp: followUp,
             dateProvider: dateProvider
         )
+        self.memoryMaintenance = MemoryMaintenanceService(
+            repositories: repositories,
+            encoder: semanticEncoder,
+            dateProvider: dateProvider
+        )
         self.executor = executor
             ?? DefaultToolExecutor(
                 services: services,
                 repositories: repositories,
                 followUp: followUp,
+                semanticEncoder: semanticEncoder,
                 dateProvider: dateProvider
             )
         self.promptBuilder = promptBuilder
         self.decoder = ToolRequestDecoder(dateProvider: dateProvider)
         self.contextAssembler = ContextAssembler(
             repositories: repositories,
-            dateProvider: dateProvider
+            dateProvider: dateProvider,
+            semanticEncoder: semanticEncoder
         )
     }
 

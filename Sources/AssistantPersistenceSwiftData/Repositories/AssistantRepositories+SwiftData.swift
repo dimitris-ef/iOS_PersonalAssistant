@@ -8,7 +8,7 @@ import SwiftData
 extension AssistantRepositories {
     /// The production repository set: every store backed by SwiftData.
     ///
-    /// All eight share one `AssistantPersistenceActor`, and therefore one
+    /// All ten share one `AssistantPersistenceActor`, and therefore one
     /// context over one container. Giving each repository its own would give
     /// each its own cache of the same rows, and a task completed through one
     /// would be invisible to another until something forced a refetch.
@@ -20,6 +20,8 @@ extension AssistantRepositories {
         AssistantRepositories(
             conversations: SwiftDataConversationRepository(persistence: persistence),
             memories: SwiftDataMemoryRepository(persistence: persistence),
+            memoryRelations: SwiftDataMemoryRelationRepository(persistence: persistence),
+            memoryEmbeddings: SwiftDataMemoryEmbeddingStore(persistence: persistence),
             tasks: SwiftDataTaskRepository(persistence: persistence),
             routines: SwiftDataRoutineRepository(persistence: persistence),
             reminderPlans: SwiftDataReminderPlanRepository(persistence: persistence),

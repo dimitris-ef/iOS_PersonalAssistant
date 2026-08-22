@@ -1,5 +1,6 @@
 import AssistantDomain
 import Foundation
+import PersonalMemory
 
 public enum RepositoryError: Error, Hashable, Sendable {
     case notFound(String)
@@ -21,6 +22,47 @@ public protocol MemoryRepository: Sendable {
     func all() async throws -> [MemoryItem]
     func search(_ query: MemoryQuery) async throws -> [MemoryItem]
     func delete(id: MemoryItem.ID) async throws
+}
+
+/// Typed links between memories.
+///
+/// Separate from ``MemoryRepository`` because edges and nodes have different
+/// lifetimes: deleting a memory removes its edges, but editing one does not, and
+/// consolidation writes edges without writing every memory they touch. Folding
+/// them together would mean a relation could only be saved by saving a memory.
+public protocol MemoryRelationRepository: Sendable {
+    /// Insert or update. Relation identity is derived from source, target and
+    /// type, so writing the same edge twice updates one row — which is what
+    /// makes repeated maintenance passes idempotent.
+    func save(_ relations: [MemoryRelation]) async throws
+    /// Every edge touching this memory, in either direction.
+    func relations(for memoryID: MemoryItem.ID) async throws -> [MemoryRelation]
+    func all() async throws -> [MemoryRelation]
+    /// Removes every edge touching this memory. Called when one is deleted, so
+    /// the graph never points at something that is gone.
+    func deleteRelations(touching memoryID: MemoryItem.ID) async throws
+}
+
+/// Cached embeddings for memories.
+///
+/// ## Why this is a cache and not a column
+///
+/// A vector is derived data: it can always be recomputed from the text that
+/// produced it. Treating it as durable state would put a kilobyte of floats on
+/// the domain model, through `Codable`, through every test fixture and every
+/// SwiftUI update, for one subsystem's benefit — and would still need
+/// invalidating whenever the text or the encoder changed. Storing it beside the
+/// memories, keyed by content hash and encoder identity, keeps the domain clean
+/// and makes "is this still valid?" a question with a real answer.
+///
+/// Losing this store costs time, never information: the next retrieval finds
+/// nothing cached, falls back to lexical ranking, and maintenance regenerates.
+public protocol MemoryEmbeddingStore: Sendable {
+    func embedding(for memoryID: MemoryItem.ID) async throws -> MemoryEmbedding?
+    func embeddings(for memoryIDs: [MemoryItem.ID]) async throws -> [MemoryItem.ID: MemoryEmbedding]
+    func store(_ embedding: MemoryEmbedding, for memoryID: MemoryItem.ID) async throws
+    /// Drops one vector — after an edit, or when the memory is deleted.
+    func invalidate(memoryID: MemoryItem.ID) async throws
 }
 
 /// Things the user needs to do, and their engagement state.
@@ -72,6 +114,10 @@ public protocol UserProfileRepository: Sendable {
 public struct AssistantRepositories: Sendable {
     public let conversations: any ConversationRepository
     public let memories: any MemoryRepository
+    /// Typed links between memories: what supports what, what refines what.
+    public let memoryRelations: any MemoryRelationRepository
+    /// Cached vectors. Derived data — losing it costs time, never information.
+    public let memoryEmbeddings: any MemoryEmbeddingStore
     public let tasks: any TaskRepository
     public let routines: any RoutineRepository
     public let reminderPlans: any ReminderPlanRepository
@@ -83,6 +129,8 @@ public struct AssistantRepositories: Sendable {
     public init(
         conversations: any ConversationRepository,
         memories: any MemoryRepository,
+        memoryRelations: any MemoryRelationRepository,
+        memoryEmbeddings: any MemoryEmbeddingStore,
         tasks: any TaskRepository,
         routines: any RoutineRepository,
         reminderPlans: any ReminderPlanRepository,
@@ -92,6 +140,8 @@ public struct AssistantRepositories: Sendable {
     ) {
         self.conversations = conversations
         self.memories = memories
+        self.memoryRelations = memoryRelations
+        self.memoryEmbeddings = memoryEmbeddings
         self.tasks = tasks
         self.routines = routines
         self.reminderPlans = reminderPlans

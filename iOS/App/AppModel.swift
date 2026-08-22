@@ -527,8 +527,17 @@ final class AppModel {
             // reminders means a routine whose moment passed while the app was
             // closed is caught in the same pass, rather than appearing an hour
             // later once something else happened to trigger a reload.
+            // Memory maintenance rides along on the same foreground pass:
+            // vectors for anything new or edited, repeated facts collapsed,
+            // stale guesses moved out of the way. Bounded, deterministic and
+            // offline — and entirely optional, which is why its failure is
+            // swallowed separately below rather than being allowed to stop the
+            // reconciliation the user can actually see.
+            async let maintenance = try? environment.engine.memoryMaintenance.run()
+
             let recurring = try await environment.engine.routines.reconcileAll()
             let results = try await environment.engine.followUp.reconcile()
+            _ = await maintenance
             guard !results.isEmpty || recurring.didChange else { return }
             await reload()
 
@@ -737,6 +746,33 @@ final class AppModel {
         } catch {
             banner = BannerMessage(text: "Couldn't delete that memory.", style: .warning)
         }
+    }
+
+    /// Brings an archived or fading memory back into use.
+    ///
+    /// The point of archiving rather than deleting: aging is the app's guess
+    /// about what stopped mattering, and a guess the user can reverse in one tap
+    /// is a very different thing from data quietly disposed of.
+    func restoreMemory(_ id: MemoryItem.ID) async {
+        do {
+            let restored = try await environment.memory.restore(id: id)
+            await reload()
+            banner = BannerMessage(
+                text: "Back in use: \(restored.content)",
+                style: .success
+            )
+        } catch {
+            banner = BannerMessage(text: "Couldn't restore that memory.", style: .warning)
+        }
+    }
+
+    /// The memories a consolidated fact was built from.
+    ///
+    /// Read from what is already loaded rather than queried, because the Memory
+    /// screen has the whole store in hand and "based on 3 similar memories"
+    /// should not cost a round trip to render.
+    func sourceMemories(of memory: MemoryItem) -> [MemoryItem] {
+        memory.consolidatedFrom.compactMap { id in memories.first { $0.id == id } }
     }
 
     // MARK: Settings

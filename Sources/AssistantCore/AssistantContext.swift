@@ -63,17 +63,30 @@ public struct ContextAssembler: Sendable {
     private let upcomingWindow: TimeInterval
     private let memories: MemoryRetrievalService
 
+    /// `encoder` is optional and stays that way.
+    ///
+    /// Semantic retrieval is an improvement to ranking, not a dependency of it.
+    /// A composition that passes nothing here — a test, a preview, a platform
+    /// with no encoder — gets lexical ranking and a working assistant, which is
+    /// exactly what section 5 asks for and is why this parameter has a default.
+    ///
+    /// Note what is *not* a parameter: which AI provider is selected. Nothing
+    /// about memory retrieval reads it.
     public init(
         repositories: AssistantRepositories,
         dateProvider: any DateProvider,
         upcomingWindow: TimeInterval = TimeSpan.days(14),
-        memoryPolicy: MemoryRelevancePolicy = .default
+        memoryPolicy: MemoryRelevancePolicy = .default,
+        semanticEncoder: (any SemanticEncoder)? = nil
     ) {
         self.repositories = repositories
         self.dateProvider = dateProvider
         self.upcomingWindow = upcomingWindow
         self.memories = MemoryRetrievalService(
             repository: repositories.memories,
+            relations: repositories.memoryRelations,
+            embeddings: repositories.memoryEmbeddings,
+            encoder: semanticEncoder,
             policy: memoryPolicy
         )
     }

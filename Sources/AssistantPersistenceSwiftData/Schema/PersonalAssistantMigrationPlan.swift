@@ -68,11 +68,15 @@ public enum PersonalAssistantMigrationPlan: SchemaMigrationPlan {
             PersonalAssistantSchemaV4.self,
             PersonalAssistantSchemaV5.self,
             PersonalAssistantSchemaV6.self,
+            PersonalAssistantSchemaV7.self,
         ]
     }
 
     public static var stages: [MigrationStage] {
-        [migrateV1toV2, migrateV2toV3, migrateV3toV4, migrateV4toV5, migrateV5toV6]
+        [
+            migrateV1toV2, migrateV2toV3, migrateV3toV4, migrateV4toV5,
+            migrateV5toV6, migrateV6toV7,
+        ]
     }
 
     /// Purely additive, all-nullable. Nothing to compute, nothing to lose.
@@ -129,6 +133,32 @@ public enum PersonalAssistantMigrationPlan: SchemaMigrationPlan {
     static let migrateV5toV6 = MigrationStage.lightweight(
         fromVersion: PersonalAssistantSchemaV5.self,
         toVersion: PersonalAssistantSchemaV6.self
+    )
+
+    /// Semantic memory: lifecycle, relations and the vector cache.
+    ///
+    /// Two new entities — `SDMemoryRelation` and `SDMemoryEmbedding` — and four
+    /// added properties on `SDMemory`, three optional and one carrying a
+    /// declared default of `false`.
+    ///
+    /// **What an existing memory becomes.** Active, with no entity keys, no
+    /// consolidation provenance, unprotected, and no vector. Every one of those
+    /// is the honest reading of a row written before the feature existed rather
+    /// than a downgrade: `lifecycleRaw` nil means nobody has decided this memory
+    /// is stale, not that it is suspect. Section 104 — confidence, salience and
+    /// source are untouched, so a memory the user stated two years ago is still
+    /// a memory the user stated, with the same standing it had yesterday.
+    ///
+    /// **No embeddings are generated here.** Section 105, and it is the right
+    /// instruction: a migration that has to encode every memory in the store is
+    /// one that can be slow on a large store, can fail halfway, and turns a
+    /// version bump into a data-loss risk. A missing vector is already the
+    /// cache's "not computed yet", retrieval already falls back to lexical
+    /// ranking when one is absent, and `MemoryMaintenanceService` fills them in
+    /// afterwards a few at a time.
+    static let migrateV6toV7 = MigrationStage.lightweight(
+        fromVersion: PersonalAssistantSchemaV6.self,
+        toVersion: PersonalAssistantSchemaV7.self
     )
 }
 

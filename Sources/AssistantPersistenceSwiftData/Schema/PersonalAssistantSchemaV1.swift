@@ -264,6 +264,30 @@ public final class SDMemory {
     /// predating schema V3.
     public var confidenceValue: Double?
 
+    // MARK: Schema V7 — semantic memory
+    //
+    // All optional or defaulted, so the V6 → V7 migration stays inferrable and
+    // a row written before this feature loads as exactly what it was: an active
+    // memory, no entity keys, no provenance, unprotected. Section 104 — nothing
+    // here downgrades an existing memory's confidence or source for having
+    // predated the feature.
+
+    /// `MemoryLifecycle`. Nil on rows predating V7, read as `active`.
+    public var lifecycleRaw: String?
+
+    /// Coarse handles for what the memory is about — `place:work`,
+    /// `person:dr_smith`. A hint for grouping, never a requirement.
+    public var entityKeys: [String]?
+
+    /// The memories this one was consolidated from, if it was.
+    public var consolidatedFrom: [UUID]?
+
+    /// True once the user has edited this exact wording.
+    ///
+    /// Maintenance leaves protected memories alone: consolidation will not
+    /// rewrite them from their old sources and aging will not fade them.
+    public var isProtected: Bool = false
+
     public init(
         id: UUID,
         kindRaw: String,
@@ -274,7 +298,11 @@ public final class SDMemory {
         updatedAt: Date,
         lastUsedAt: Date?,
         sourceRaw: String,
-        confidenceValue: Double? = nil
+        confidenceValue: Double? = nil,
+        lifecycleRaw: String? = nil,
+        entityKeys: [String]? = nil,
+        consolidatedFrom: [UUID]? = nil,
+        isProtected: Bool = false
     ) {
         self.id = id
         self.kindRaw = kindRaw
@@ -286,6 +314,10 @@ public final class SDMemory {
         self.lastUsedAt = lastUsedAt
         self.sourceRaw = sourceRaw
         self.confidenceValue = confidenceValue
+        self.lifecycleRaw = lifecycleRaw
+        self.entityKeys = entityKeys
+        self.consolidatedFrom = consolidatedFrom
+        self.isProtected = isProtected
     }
 }
 

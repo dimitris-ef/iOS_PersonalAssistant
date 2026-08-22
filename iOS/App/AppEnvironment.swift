@@ -12,6 +12,8 @@ import AssistantVoice
 import DevSupport
 import Foundation
 import MockPlatform
+import PersonalMemory
+import PersonalMemoryApple
 
 /// The composition root: the one place concrete implementations are chosen.
 ///
@@ -201,8 +203,18 @@ final class AppEnvironment: Sendable {
             ScriptedDevProvider(dateProvider: dateProvider),
         ])
 
+        // Chosen once, here, and never from settings or from which AI provider
+        // is selected. Apple's on-device sentence encoder where the device has
+        // it, the app's own lexicon encoder where it does not — never neither,
+        // and never a remote embedding API. The user's memories are not sent
+        // anywhere to be indexed.
+        let semanticEncoder = SemanticEncoderResolver.best()
+
         let memory = MemoryService(
             repository: repositories.memories,
+            relations: repositories.memoryRelations,
+            embeddings: repositories.memoryEmbeddings,
+            encoder: semanticEncoder,
             dateProvider: dateProvider
         )
 
@@ -210,7 +222,8 @@ final class AppEnvironment: Sendable {
             providers: providers,
             repositories: repositories,
             services: services,
-            dateProvider: dateProvider
+            dateProvider: dateProvider,
+            semanticEncoder: semanticEncoder
         )
 
         return AppEnvironment(

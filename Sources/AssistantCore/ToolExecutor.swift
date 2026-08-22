@@ -48,6 +48,10 @@ public struct DefaultToolExecutor: ToolExecutor {
         statusMachine: TaskStatusMachine = TaskStatusMachine(),
         authorizer: any ToolAuthorizing = SettingsToolAuthorizer(),
         followUp: FollowUpService? = nil,
+        /// Optional, like everywhere else it appears. A memory stored without
+        /// an encoder is a memory that ranks on words — never a memory that
+        /// fails to store.
+        semanticEncoder: (any SemanticEncoder)? = nil,
         dateProvider: any DateProvider = SystemDateProvider()
     ) {
         self.services = services
@@ -55,6 +59,9 @@ public struct DefaultToolExecutor: ToolExecutor {
         self.authorizer = authorizer
         self.memory = MemoryService(
             repository: repositories.memories,
+            relations: repositories.memoryRelations,
+            embeddings: repositories.memoryEmbeddings,
+            encoder: semanticEncoder,
             dateProvider: dateProvider
         )
         self.dateProvider = dateProvider

@@ -12,6 +12,7 @@ import PersonalMemory
 private enum SnapshotKey {
     static let conversations = "conversations"
     static let memories = "memories"
+    static let memoryRelations = "memory-relations"
     static let tasks = "tasks"
     static let routines = "routines"
     static let reminderPlans = "reminder-plans"
@@ -113,6 +114,103 @@ public actor SnapshotMemoryRepository: MemoryRepository {
     private func persist() async throws {
         let data = try JSONCoding.encoder.encode(Array(items.values))
         try await backing.write(data, key: SnapshotKey.memories)
+    }
+}
+
+/// Memory relations, snapshotted.
+///
+/// Keyed by the relation's derived identity, so saving the same edge twice
+/// replaces one row rather than adding a second — the property that makes a
+/// repeated maintenance pass a no-op.
+public actor SnapshotMemoryRelationRepository: MemoryRelationRepository {
+    private let backing: any SnapshotStore
+    private var edges: [MemoryRelation.ID: MemoryRelation] = [:]
+    private var isLoaded = false
+
+    public init(store: any SnapshotStore) {
+        self.backing = store
+    }
+
+    public func save(_ relations: [MemoryRelation]) async throws {
+        guard !relations.isEmpty else { return }
+        try await loadIfNeeded()
+        for relation in relations {
+            edges[relation.id] = relation
+        }
+        try await persist()
+    }
+
+    public func relations(for memoryID: MemoryItem.ID) async throws -> [MemoryRelation] {
+        try await loadIfNeeded()
+        return edges.values
+            .filter { $0.source == memoryID || $0.target == memoryID }
+            .sorted { $0.id.rawValue.uuidString < $1.id.rawValue.uuidString }
+    }
+
+    public func all() async throws -> [MemoryRelation] {
+        try await loadIfNeeded()
+        return edges.values.sorted { $0.id.rawValue.uuidString < $1.id.rawValue.uuidString }
+    }
+
+    public func deleteRelations(touching memoryID: MemoryItem.ID) async throws {
+        try await loadIfNeeded()
+        let before = edges.count
+        edges = edges.filter { $0.value.source != memoryID && $0.value.target != memoryID }
+        guard edges.count != before else { return }
+        try await persist()
+    }
+
+    private func loadIfNeeded() async throws {
+        guard !isLoaded else { return }
+        isLoaded = true
+        guard let data = try await backing.read(key: SnapshotKey.memoryRelations) else { return }
+        let decoded = try JSONCoding.decoder.decode([MemoryRelation].self, from: data)
+        edges = Dictionary(decoded.map { ($0.id, $0) }, uniquingKeysWith: { _, last in last })
+    }
+
+    private func persist() async throws {
+        let data = try JSONCoding.encoder.encode(Array(edges.values))
+        try await backing.write(data, key: SnapshotKey.memoryRelations)
+    }
+}
+
+/// Embeddings, in memory only.
+///
+/// Deliberately *not* snapshotted, even in the persisted configuration. Vectors
+/// are derived data and this backend is the development one: writing a few
+/// thousand floats through JSON on every memory write would dominate the store
+/// for something the next launch can recompute in milliseconds. The SwiftData
+/// backend does persist them, because there the cost is a blob column and the
+/// benefit is not re-encoding a real user's whole memory store on every cold
+/// start.
+///
+/// Losing the cache costs time, never information — which is what makes this a
+/// legitimate choice rather than a corner cut.
+public actor EphemeralMemoryEmbeddingStore: MemoryEmbeddingStore {
+    private var cache: [MemoryItem.ID: MemoryEmbedding] = [:]
+
+    public init() {}
+
+    public func embedding(for memoryID: MemoryItem.ID) async throws -> MemoryEmbedding? {
+        cache[memoryID]
+    }
+
+    public func embeddings(
+        for memoryIDs: [MemoryItem.ID]
+    ) async throws -> [MemoryItem.ID: MemoryEmbedding] {
+        var found: [MemoryItem.ID: MemoryEmbedding] = [:]
+        for id in memoryIDs {
+            if let embedding = cache[id] { found[id] = embedding }
+        }
+        return found
+    }
+
+    public func store(_ embedding: MemoryEmbedding, for memoryID: MemoryItem.ID) async throws {
+        cache[memoryID] = embedding
+    }
+
+    public func invalidate(memoryID: MemoryItem.ID) async throws {
+        cache.removeValue(forKey: memoryID)
     }
 }
 
@@ -317,6 +415,8 @@ extension AssistantRepositories {
         AssistantRepositories(
             conversations: SnapshotConversationRepository(store: store),
             memories: SnapshotMemoryRepository(store: store),
+            memoryRelations: SnapshotMemoryRelationRepository(store: store),
+            memoryEmbeddings: EphemeralMemoryEmbeddingStore(),
             tasks: SnapshotTaskRepository(store: store),
             routines: SnapshotRoutineRepository(store: store),
             reminderPlans: SnapshotReminderPlanRepository(store: store),
