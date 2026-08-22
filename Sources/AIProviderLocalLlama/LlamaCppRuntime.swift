@@ -538,7 +538,12 @@ extension LlamaCppRuntime {
     /// distribution sampler picks from what is left, so `dist` is last.
     /// Temperature before top-k and top-p would rescale probabilities that are
     /// about to be discarded.
-    func makeSampler(options: LocalGenerationOptions) -> OpaquePointer? {
+    /// - Note: the return type is a typed pointer rather than `OpaquePointer`.
+    ///   `llama_model`, `llama_context` and `llama_vocab` are forward-declared
+    ///   in `llama.h` and import as opaque; `llama_sampler` is a *complete*
+    ///   struct with `iface` and `ctx` fields, so it imports as
+    ///   `UnsafeMutablePointer<llama_sampler>`. They are not interchangeable.
+    func makeSampler(options: LocalGenerationOptions) -> UnsafeMutablePointer<llama_sampler>? {
         var params = llama_sampler_chain_default_params()
         params.no_perf = true
         guard let chain = llama_sampler_chain_init(params) else { return nil }

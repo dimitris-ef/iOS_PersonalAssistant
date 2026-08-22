@@ -1,5 +1,6 @@
 import AssistantAI
 import AssistantDomain
+import AssistantPersistence
 import XCTest
 @testable import AIProviderApple
 @testable import AIProviderLocal
@@ -48,45 +49,65 @@ final class ProviderStubTests: XCTestCase {
         }
     }
 
-    func testLocalProviderIsUnavailableUntilARuntimeIsChosen() async throws {
+    /// The local provider's identity, which is written into the user's
+    /// settings and must not drift.
+    ///
+    /// Part 10 replaced everything behind this provider — the runtime, the
+    /// catalog, the download and verification pipeline — and changing the
+    /// identifier along the way would have silently reset the provider choice
+    /// of anyone who had selected it.
+    func testLocalProviderKeepsItsIdentityAndNeedsNothingFromTheNetwork() async throws {
         let provider = LocalModelProvider(
-            catalog: LocalModelCatalog(descriptors: [
-                LocalModelDescriptor(
-                    id: "example.model",
-                    displayName: "Example",
-                    format: .gguf
-                )
-            ])
+            manager: LocalModelManager(
+                catalog: LocalModelCatalog(),
+                repository: SnapshotLocalModelRepository(store: EphemeralSnapshotStore()),
+                settings: SnapshotSettingsRepository(store: EphemeralSnapshotStore()),
+                store: LocalModelStore.temporary(),
+                device: FixedDeviceResources.largePhone
+            )
+        )
+
+        XCTAssertEqual(provider.metadata.id, "local.downloaded-model")
+        XCTAssertEqual(provider.metadata.kind, .downloadedLocalModel)
+        XCTAssertFalse(provider.metadata.requiresNetwork)
+        XCTAssertFalse(provider.metadata.requiresCredentials)
+        // Section 59: the engine may send tool results back and ask it to
+        // carry on, which is what makes a multi-step local turn possible.
+        XCTAssertTrue(provider.metadata.supportsToolResultContinuation)
+    }
+
+    /// A build with no inference runtime says so and refuses to answer — it
+    /// never fabricates a reply, and it never reaches for the network instead
+    /// (section 128).
+    func testLocalProviderWithNoRuntimeRefusesRatherThanFabricating() async throws {
+        let provider = LocalModelProvider(
+            manager: LocalModelManager(
+                catalog: LocalModelCatalog(),
+                repository: SnapshotLocalModelRepository(store: EphemeralSnapshotStore()),
+                settings: SnapshotSettingsRepository(store: EphemeralSnapshotStore()),
+                store: LocalModelStore.temporary(),
+                runtime: nil,
+                device: FixedDeviceResources.largePhone
+            ),
+            runtime: nil
         )
 
         let availability = await provider.availability()
         guard case .unsupported(let reason) = availability else {
-            return XCTFail("Expected unsupported without a runtime")
+            return XCTFail("expected unsupported without a runtime, got \(availability)")
         }
         XCTAssertTrue(reason.contains("runtime"))
 
-        // Model metadata is still browsable, so a download UI can be built now.
-        let models = try await provider.availableModels()
-        XCTAssertEqual(models.map(\.id), ["example.model"])
-        XCTAssertTrue(models.allSatisfy(\.isOnDevice))
-    }
-
-    func testLocalProviderUsesWhateverRuntimeIsInjected() async throws {
-        let runtime = StubLocalRuntime()
-        let descriptor = LocalModelDescriptor(id: "example.model", displayName: "Example", format: .mlx)
-        let provider = LocalModelProvider(
-            catalog: LocalModelCatalog(descriptors: [descriptor]),
-            runtime: runtime,
-            defaultModelID: descriptor.id
-        )
-
-        let availability = await provider.availability()
-        XCTAssertTrue(availability.isAvailable)
-
-        let response = try await provider.respond(
-            to: AIRequest(systemPrompt: "", messages: [AIMessage(role: .user, content: "hi")])
-        )
-        XCTAssertEqual(response.text, "from the stub runtime")
+        do {
+            _ = try await provider.respond(
+                to: AIRequest(systemPrompt: "", messages: [AIMessage(role: .user, content: "hi")])
+            )
+            XCTFail("a provider with no runtime must throw, never return a fake answer")
+        } catch let error as AIProviderError {
+            guard case .unavailable = error else {
+                return XCTFail("expected .unavailable, got \(error)")
+            }
+        }
     }
 
     func testRemoteProviderIsUnavailableWithoutACredential() async {
@@ -161,18 +182,6 @@ final class ProviderStubTests: XCTestCase {
 }
 
 // MARK: - Stubs
-
-private struct StubLocalRuntime: LocalModelRuntime {
-    var supportedFormats: [LocalModelFormat] { [.mlx, .gguf] }
-
-    func state(of model: LocalModelDescriptor) async -> LocalModelState { .ready }
-    func load(_ model: LocalModelDescriptor) async throws {}
-    func unload(_ model: LocalModelDescriptor) async {}
-
-    func generate(_ request: AIRequest, model: LocalModelDescriptor) async throws -> AIResponse {
-        AIResponse(text: "from the stub runtime", providerID: LocalModelProvider.providerID)
-    }
-}
 
 private struct StubRemoteAdapter: RemoteAPIAdapter {
     var providerID: AIProviderIdentifier { "remote.stub" }

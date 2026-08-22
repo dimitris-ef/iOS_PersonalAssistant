@@ -51,7 +51,8 @@ final class LocalModelPersistenceTests: PersistenceTestCase {
         try await repositories.localModels.save(record())
         try relaunch()
 
-        let loaded = try XCTUnwrap(try await repositories.localModels.model(id: "qwen3-1.7b-q4-k-m"))
+        let stored = try await repositories.localModels.model(id: "qwen3-1.7b-q4-k-m")
+        let loaded = try XCTUnwrap(stored)
         XCTAssertFalse(loaded.relativePath.hasPrefix("/"))
         XCTAssertFalse(loaded.relativePath.contains("Application Support"))
         XCTAssertFalse(loaded.relativePath.contains("/"))
@@ -82,8 +83,10 @@ final class LocalModelPersistenceTests: PersistenceTestCase {
 
         try relaunch()
 
-        XCTAssertNil(try await repositories.localModels.model(id: "qwen3-1.7b-q4-k-m"))
-        XCTAssertTrue(try await repositories.localModels.installedModels().isEmpty)
+        let stored = try await repositories.localModels.model(id: "qwen3-1.7b-q4-k-m")
+        XCTAssertNil(stored)
+        let all = try await repositories.localModels.installedModels()
+        XCTAssertTrue(all.isEmpty)
     }
 
     func testSeveralModelsCoexistNewestFirst() async throws {
@@ -117,14 +120,16 @@ final class LocalModelPersistenceTests: PersistenceTestCase {
 
         let settings = try await repositories.settings.settings()
         XCTAssertNil(settings.selectedLocalModelID)
-        XCTAssertTrue(try await repositories.localModels.installedModels().isEmpty)
+        let all = try await repositories.localModels.installedModels()
+        XCTAssertTrue(all.isEmpty)
     }
 
     /// Section 26, as an assertion: what the store holds is a description, not
     /// a model. A row is a few hundred bytes whatever the file weighs.
     func testTheRowIsMetadataNotWeights() async throws {
         try await repositories.localModels.save(record())
-        let loaded = try XCTUnwrap(try await repositories.localModels.model(id: "qwen3-1.7b-q4-k-m"))
+        let stored = try await repositories.localModels.model(id: "qwen3-1.7b-q4-k-m")
+        let loaded = try XCTUnwrap(stored)
 
         // The record's own encoded size is the check: if weights were ever
         // added to this type, this number would move by nine orders of
