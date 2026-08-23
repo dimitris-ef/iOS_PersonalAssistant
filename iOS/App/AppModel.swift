@@ -283,7 +283,7 @@ final class AppModel {
             SystemSurfaceSettings.liveActivitiesEnabled
         )
         await environment.systemSurfaces.refresh(reason: reason)
-        environment.systemSurfaces.publishKeyboardConfiguration(
+        await environment.systemSurfaces.publishKeyboardConfiguration(
             assistantActionsEnabled: SystemSurfaceSettings.keyboardAssistantEnabled
         )
     }
@@ -300,7 +300,7 @@ final class AppModel {
     /// widget shows, and spending a WidgetKit refresh on it is exactly the
     /// waste section 36 asks to avoid.
     func setKeyboardAssistantEnabled(_ enabled: Bool) async {
-        environment.systemSurfaces.publishKeyboardConfiguration(
+        await environment.systemSurfaces.publishKeyboardConfiguration(
             assistantActionsEnabled: enabled
         )
     }
