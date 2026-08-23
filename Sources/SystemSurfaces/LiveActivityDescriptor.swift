@@ -53,7 +53,7 @@ public enum SupportActivityKind: String, Codable, Sendable, CaseIterable {
 /// adapter in the iOS layer copies it into an `ActivityAttributes.ContentState`.
 /// That adapter is the only file in the project that has to import ActivityKit,
 /// and this value is what all the tests can therefore assert on.
-public struct SupportActivityContent: Codable, Sendable, Equatable {
+public struct SupportActivityContent: Codable, Sendable, Hashable {
     /// What is happening. Already privacy-filtered by the builder.
     public var title: String
     public var phase: SupportActivityPhase

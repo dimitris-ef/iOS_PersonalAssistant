@@ -50,8 +50,10 @@ the calendar, reminders, notifications and alarms over EventKit,
 UserNotifications and AlarmKit; and **speaking to the assistant** over Speech
 and AVFAudio; and **Siri, Shortcuts and the Action Button** over App Intents. A
 shipped build changes the user's actual phone; tests, previews and CI keep the
-mocks. Widgets, Live Activities, CarPlay and a Watch app do not exist yet — see
-[Open items](Docs/OPEN-ITEMS.md).
+mocks. **Widgets, Lock Screen widgets, Live Activities, the Dynamic Island and a
+custom keyboard** exist too, as thin surfaces over the same state — see
+[`Docs/SYSTEM-SURFACES.md`](Docs/SYSTEM-SURFACES.md). CarPlay and a Watch app do
+not — see [Open items](Docs/OPEN-ITEMS.md).
 
 > **What has and has not been verified.** This is written on a machine with no
 > Swift toolchain, so CI is the only compiler. Three GitHub Actions workflows,
@@ -111,7 +113,8 @@ work, not to avoid it.
 | Tool definitions, validation, authorization | An alarm sounding through Focus |
 | Reminder planning and scheduling | Siri discovery and invocation |
 | Task status machine | Action Button assignment |
-| App Intent command layer | Widgets, Live Activities |
+| App Intent command layer | Widget and Lock Screen rendering |
+| Widget projections, timelines, keyboard layout | Live Activities, Dynamic Island |
 | Repositories (SwiftData and JSON-backed) | Background execution |
 | Mock **and** Apple platform services | Signing, provisioning, TestFlight |
 | AI provider abstraction and routing | |
@@ -137,6 +140,7 @@ PhonePersonalAI/
 │   ├── AssistantVoice/         Speech recognition and synthesis (real)
 │   ├── AIProviderApple/        Apple Foundation Models  (real; TODO-DEVICE)
 │   ├── AIProviderLocal/        Downloaded local model    (runtime not chosen)
+│   ├── SystemSurfaces/         What the keyboard and widgets may see. Foundation only.
 │   ├── AIProviderRemote/       Remote API, vendor-neutral
 │   ├── DevSupport/             Scripted provider for development only
 │   └── DevHarness/             CLI harness (assistant-dev)
@@ -147,6 +151,7 @@ PhonePersonalAI/
 │   ├── Presentation/           Domain → display mapping
 │   ├── ViewModels/             Per-screen state
 │   ├── Intents/                App Intents: Siri, Shortcuts, Action Button
+│   ├── SystemSurfaces/         Keyboard extension, widget extension, shared
 │   ├── UI/                     Views and reusable components
 │   ├── Platform/               Keychain credential store
 │   └── Resources/              Assets, Info.plist
@@ -166,6 +171,7 @@ PhonePersonalAI/
     ├── FOLLOW-UP.md         The escalation ladder
     ├── EXECUTIVE-SUPPORT.md Routines, dependencies, preparation, starting
     ├── BACKGROUND.md        Recovery when the app was not running
+    ├── SYSTEM-SURFACES.md   Keyboard, widgets, Lock Screen, Dynamic Island
     ├── MEMORY.md            Retrieval, ranking, deduplication
     └── SEMANTIC-MEMORY.md   Meaning, consolidation, aging, lifecycle
 ```
