@@ -1,5 +1,6 @@
 import AssistantDomain
 import AssistantPersistence
+import AssistantPlatform
 import ExecutiveSupport
 import Foundation
 

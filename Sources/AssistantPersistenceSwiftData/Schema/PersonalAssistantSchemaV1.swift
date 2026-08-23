@@ -536,7 +536,8 @@ public final class SDReminderPlan {
         completionRequiresExplicitConfirmation: Bool,
         completionMarkMissedAfter: Double?,
         createdAt: Date,
-        generatedBy: String
+        generatedBy: String,
+        revision: Int = 1
     ) {
         self.id = id
         self.subjectReferenceKind = subjectReferenceKind
@@ -564,6 +565,7 @@ public final class SDReminderPlan {
         self.completionMarkMissedAfter = completionMarkMissedAfter
         self.createdAt = createdAt
         self.generatedBy = generatedBy
+        self.revision = revision
         self.stages = []
     }
 }

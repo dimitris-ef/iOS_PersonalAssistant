@@ -165,6 +165,7 @@ PhonePersonalAI/
     ├── PERSISTENCE.md       SwiftData schema and migration
     ├── FOLLOW-UP.md         The escalation ladder
     ├── EXECUTIVE-SUPPORT.md Routines, dependencies, preparation, starting
+    ├── BACKGROUND.md        Recovery when the app was not running
     ├── MEMORY.md            Retrieval, ranking, deduplication
     └── SEMANTIC-MEMORY.md   Meaning, consolidation, aging, lifecycle
 ```
@@ -427,17 +428,25 @@ centre or an alarm daemon. See
   compiles against the iOS 26 SDK and links correctly, but Apple Intelligence
   inference needs eligible hardware, so the generation path is `TODO-DEVICE`.
   See `Docs/APPLE-ON-DEVICE.md`.
-- **Missed reminders are only noticed when the app opens.** The follow-up
-  engine is complete and tested, but nothing delivers a notification yet, so
-  "this reminder went unanswered" is discovered at the next launch rather than
-  when it happens. See `Docs/FOLLOW-UP.md`.
+- **Background execution has never been observed on a real device.** Reminders
+  are handed to `UNUserNotificationCenter` and AlarmKit, and the app reconciles
+  its state at launch, on foreground and in a `BGAppRefreshTask` — but whether
+  iOS actually grants that refresh, and whether a notification scheduled a week
+  out fires when it should, cannot be established in CI or the simulator. See
+  the device-only list in `Docs/BACKGROUND.md`.
+- **A missed reminder is noticed on the next pass, not at the moment it is
+  missed.** A notification that was delivered and ignored produces no callback —
+  iOS has nothing to report — so the app learns about it when it next gets
+  execution time. That is inherent to the platform, not a gap in the
+  implementation. See `Docs/BACKGROUND.md`.
 - **Two rounds, not a full loop.** A turn asks the provider, executes what it
   proposed, shows it the results and asks for a closing reply — but only for
   providers that declare `supportsToolResultContinuation`, and only twice.
   A model that needs three steps to answer cannot have them.
-- **Reminder scheduling is one-shot.** Plans are generated and resolved at
-  creation time. Re-planning after a snooze or a follow-up is modelled by
-  `TaskStatusMachine` but not yet driven by anything.
+- **Only a rolling week of reminders is ever handed to iOS.** Stages further out
+  stay in the plan and are scheduled by a later pass. If the app is never opened
+  and never gets a background refresh for longer than that, a reminder beyond
+  the horizon will not have been scheduled when its moment arrives.
 - **Memory retrieval is lexical, not semantic.** Relevance, salience,
   confidence, category and recency are combined and bounded properly, but the
   relevance signal itself is term overlap — it cannot see that "my commute is

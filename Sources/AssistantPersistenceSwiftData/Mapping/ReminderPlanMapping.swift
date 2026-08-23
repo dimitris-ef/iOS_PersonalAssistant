@@ -138,13 +138,13 @@ enum ReminderPlanMapper {
                     offsetMinute: offset.minute,
                     offsetDate: offset.date,
                     stateRaw: stage.state.rawValue,
+                    stateChangedAt: stage.stateChangedAt,
+                    scheduledFor: stage.scheduledFor,
                     deliveryStateRaw: stage.delivery.state.rawValue,
                     deliveryLastAttemptAt: stage.delivery.lastAttemptAt,
                     deliveryAttempts: stage.delivery.attempts,
                     deliveryFailureReason: stage.delivery.failureReason,
-                    deliveryScheduledRevision: stage.delivery.scheduledRevision,
-                    stateChangedAt: stage.stateChangedAt,
-                    scheduledFor: stage.scheduledFor
+                    deliveryScheduledRevision: stage.delivery.scheduledRevision
                 )
                 inserted.plan = row
                 context.insert(inserted)
