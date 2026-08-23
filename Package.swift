@@ -104,6 +104,13 @@ let package = Package(
         // the memory architecture stays buildable where NaturalLanguage is not.
         .library(name: "PersonalMemoryApple", targets: ["PersonalMemoryApple"]),
         .library(name: "AssistantCore", targets: ["AssistantCore"]),
+        // What the keyboard and the widgets are allowed to see.
+        //
+        // Foundation and nothing else, so an extension that links it does not
+        // drag in the domain, the repositories, a provider or a runtime. That
+        // is the point: a widget extension with `AIProviderLocalLlama` in its
+        // graph is an 80 MB widget extension.
+        .library(name: "SystemSurfaces", targets: ["SystemSurfaces"]),
         .library(name: "MockPlatform", targets: ["MockPlatform"]),
         // The real iPhone: EventKit, UserNotifications, AlarmKit. Apple-only
         // in practice — every framework import is behind `#if canImport`, so
@@ -175,6 +182,15 @@ let package = Package(
         // than a change to the memory system.
         .target(name: "PersonalMemoryApple", dependencies: ["PersonalMemory"]),
 
+        // The extension-safe projection layer.
+        //
+        // Depends on nothing — deliberately, and the dependency list is the
+        // architectural claim: a keyboard extension cannot reach a repository,
+        // a provider or the engine, because none of them is in its graph. What
+        // crosses into an extension is the handful of small `Codable` values
+        // defined in this target and nothing else.
+        .target(name: "SystemSurfaces"),
+
         .target(
             name: "AssistantCore",
             dependencies: [
@@ -185,6 +201,9 @@ let package = Package(
                 "AssistantPersistence",
                 "ExecutiveSupport",
                 "PersonalMemory",
+                // One-way: the core builds projections for the surfaces; the
+                // surfaces know nothing about the core.
+                "SystemSurfaces",
             ]
         ),
 
@@ -273,6 +292,7 @@ let package = Package(
         // MARK: Tests
 
         .testTarget(name: "AssistantDomainTests", dependencies: ["AssistantDomain"]),
+        .testTarget(name: "SystemSurfacesTests", dependencies: ["SystemSurfaces"]),
         .testTarget(name: "AssistantToolsTests", dependencies: ["AssistantTools"]),
         .testTarget(name: "ExecutiveSupportTests", dependencies: ["ExecutiveSupport"]),
         .testTarget(
@@ -325,6 +345,10 @@ let package = Package(
                 // only place "a spoken sentence gets the whole pipeline" can be
                 // asserted is where both are visible.
                 "AssistantVoice",
+                // For the system-surface tests: that a widget's Done really
+                // reaches `TaskStatusMachine`, and that a snapshot carries no
+                // credentials, are claims about the join between the two.
+                "SystemSurfaces",
             ]
         ),
         .testTarget(
