@@ -1,4 +1,5 @@
 import AssistantCore
+import AssistantDomain
 import Foundation
 
 #if canImport(BackgroundTasks)
