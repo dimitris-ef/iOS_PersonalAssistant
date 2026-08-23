@@ -24,6 +24,7 @@ struct SettingsScreen: View {
                 modelSection
                 supportSection
                 voiceSection
+                systemSurfacesSection
                 permissionsSection
                 appearanceSection
                 privacySection
@@ -59,6 +60,8 @@ struct SettingsScreen: View {
                     RemoteAISettingsView()
                 case .localModels:
                     LocalModelsView()
+                case .systemSurfaces:
+                    SystemSurfacesView()
                 case .privacy(let topic):
                     PrivacyDetailView(topic: topic)
                 }
@@ -223,6 +226,21 @@ struct SettingsScreen: View {
     /// integration landed would have turned an honest disclosure into a lie, so
     /// each row now reports the real permission status — including the ones
     /// that are bad news.
+    /// Widgets, the keyboard and Live Activities.
+    ///
+    /// One row. Section 88 asks for no large widget-settings screen, and
+    /// section 86 for the app to remain completely functional whether or not
+    /// any of it is installed — so this is a door, not a requirement.
+    private var systemSurfacesSection: some View {
+        Section {
+            NavigationLink(value: SettingsViewModel.Route.systemSurfaces) {
+                Label("Widgets & Keyboard", systemImage: "square.grid.2x2")
+            }
+        } footer: {
+            Text("Optional. Personal Assistant works fully without any of them.")
+        }
+    }
+
     private var permissionsSection: some View {
         Section {
             ForEach(PlatformCapability.allCases, id: \.self) { capability in

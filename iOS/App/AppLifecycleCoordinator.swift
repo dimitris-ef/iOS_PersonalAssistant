@@ -56,8 +56,20 @@ final class AppLifecycleCoordinator {
     /// benefit of a correction the user cannot see happening.
     func applicationDidLaunch() {
         registerBackgroundTasks()
+        // The widget extension may perform an intent while the app is running.
+        // Handing it this composition is what stops it opening a second
+        // `ModelContainer` over the same file.
+        SystemSurfaceBridge.adopt(
+            repositories: environment.repositories,
+            services: environment.services,
+            surfaces: environment.systemSurfaces
+        )
         Task { [environment] in
             _ = try? await environment.engine.reconciliation.reconcile(trigger: .launch)
+            // Section 75: after reconciliation, because reconciliation is
+            // exactly the thing most likely to have changed what the widgets
+            // should say. Section 65 in one line.
+            await environment.systemSurfaces.refresh(reason: .launch)
             await scheduleNextRefresh()
         }
     }
@@ -80,6 +92,11 @@ final class AppLifecycleCoordinator {
         } else {
             _ = try? await environment.engine.reconciliation.reconcile(trigger: .foreground)
         }
+        await environment.systemSurfaces.refresh(reason: .foreground)
+        // Section 23's other half. The keyboard cannot make this app run, so
+        // the moment it *is* running is the moment to answer anything waiting.
+        // Not a loop and not a timer — one look, when there is a process.
+        await environment.keyboardAssistant.servicePendingRequest()
         await scheduleNextRefresh()
     }
 
@@ -149,6 +166,10 @@ final class AppLifecycleCoordinator {
             _ = try? await environment.engine.reconciliation.reconcile(
                 trigger: .backgroundRefresh
             )
+            // Cheap, and the whole reason a background refresh is worth having
+            // for widgets: the projections are rebuilt without the user having
+            // opened anything.
+            await environment.systemSurfaces.refresh(reason: .reconciliation)
         }
         backgroundPass = pass
 

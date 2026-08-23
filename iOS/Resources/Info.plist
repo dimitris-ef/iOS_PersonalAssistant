@@ -143,5 +143,24 @@
 	<array>
 		<string>com.example.personalassistant.refresh</string>
 	</array>
+	<!--
+	  The scheme widget deep links use. Must match
+	  `SystemSurfaceIdentifiers.urlScheme`; a test asserts the Swift side and
+	  this string is the other half. Registered `Editor` rather than `Viewer`
+	  because this app is the only thing that understands these URLs.
+	-->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLName</key>
+			<string>com.example.personalassistant.surfaces</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>personalassistant</string>
+			</array>
+		</dict>
+	</array>
 </dict>
 </plist>

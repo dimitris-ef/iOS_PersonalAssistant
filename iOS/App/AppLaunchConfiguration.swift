@@ -22,10 +22,17 @@ struct AppLaunchConfiguration {
     /// that is configuration, not content, and the distinction matters: a fake
     /// haircut in someone's real task list is a bug, a default 30-minute
     /// preparation allowance is the app working.
-    static let production = AppLaunchConfiguration(
-        persistence: .applicationDefault,
-        seedsDemoData: false
-    )
+    /// The store is in the App Group container so an interactive widget's App
+    /// Intent — which iOS runs in the widget extension's process — can reach
+    /// the same database the app opens. `SharedStoreLocation` migrates an
+    /// existing app-container store across once, and falls back to the app's
+    /// own container on a build with no App Group entitlement.
+    static var production: AppLaunchConfiguration {
+        AppLaunchConfiguration(
+            persistence: SharedStoreLocation.resolve(),
+            seedsDemoData: false
+        )
+    }
 
     /// Reads the launch environment.
     ///

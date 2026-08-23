@@ -15,6 +15,7 @@ import Foundation
 import MockPlatform
 import PersonalMemory
 import PersonalMemoryApple
+import SystemSurfaces
 
 /// The composition root: the one place concrete implementations are chosen.
 ///
@@ -52,6 +53,18 @@ final class AppEnvironment: Sendable {
     /// same repositories, the same providers, the same database. See
     /// `AppIntentDependencies`.
     let commands: AssistantCommandService
+    /// Keeps the widgets, the Lock Screen and the keyboard in step with the
+    /// application's own state.
+    ///
+    /// Held here for the same reason `commands` is: the widgets' App Intents
+    /// and the app must share one composition, or a Done pressed on a widget
+    /// while the app is open would write through a second `ModelContainer`.
+    let systemSurfaces: SystemSurfaceService
+    /// Answers the keyboard's Improve / Shorten / Ask Assistant requests.
+    ///
+    /// Runs in the app's process, never the keyboard's — which is the whole
+    /// point: the model is loaded where there is memory for it.
+    let keyboardAssistant: KeyboardAssistantService
     /// Downloading, verifying, loading and deleting local models.
     ///
     /// Held here because the Settings screen drives it directly and the
@@ -82,8 +95,12 @@ final class AppEnvironment: Sendable {
         localModels: LocalModelManager,
         notificationCoordinator: AppleNotificationCoordinator?,
         voice: VoiceServices?,
-        commands: AssistantCommandService
+        commands: AssistantCommandService,
+        systemSurfaces: SystemSurfaceService,
+        keyboardAssistant: KeyboardAssistantService
     ) {
+        self.systemSurfaces = systemSurfaces
+        self.keyboardAssistant = keyboardAssistant
         self.engine = engine
         self.repositories = repositories
         self.services = services
@@ -265,6 +282,33 @@ final class AppEnvironment: Sendable {
             semanticEncoder: semanticEncoder
         )
 
+        let commands = AssistantCommandService(
+            engine: engine,
+            repositories: repositories,
+            memory: memory,
+            dateProvider: dateProvider
+        )
+
+        // The shared container, when this build is entitled to one. A demo or
+        // CI launch gets an in-memory store for the same reason it gets mock
+        // platform services: a screenshot run must not write a projection a
+        // real widget would then read.
+        let surfaceStore: any SystemSurfaceStore = launch.seedsDemoData
+            ? InMemorySystemSurfaceStore()
+            : FileSystemSurfaceStore.appGroup()
+
+        let systemSurfaces = SystemSurfaceService(
+            repositories: repositories,
+            store: surfaceStore,
+            reloader: WidgetCenterReloader(),
+            // The app owns the ActivityKit requests. The widget extension does
+            // not get a coordinator (section 54) — one process decides what is
+            // presenting, and it is the one that can see the whole domain.
+            activities: launch.seedsDemoData ? nil : AppleLiveActivityCoordinator(),
+            calendarService: services.calendar,
+            dateProvider: dateProvider
+        )
+
         return AppEnvironment(
             engine: engine,
             repositories: repositories,
@@ -278,10 +322,12 @@ final class AppEnvironment: Sendable {
             localModels: localModels,
             notificationCoordinator: platform?.notifications,
             voice: voice,
-            commands: AssistantCommandService(
+            commands: commands,
+            systemSurfaces: systemSurfaces,
+            keyboardAssistant: KeyboardAssistantService(
                 engine: engine,
-                repositories: repositories,
-                memory: memory,
+                commands: commands,
+                store: surfaceStore,
                 dateProvider: dateProvider
             )
         )

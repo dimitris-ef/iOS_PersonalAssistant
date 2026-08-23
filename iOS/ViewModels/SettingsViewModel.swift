@@ -15,6 +15,7 @@ final class SettingsViewModel {
         case modelSelector
         case remoteAI
         case localModels
+        case systemSurfaces
         case privacy(PrivacyTopic)
 
         var id: String {
@@ -22,6 +23,7 @@ final class SettingsViewModel {
             case .modelSelector: return "model"
             case .remoteAI: return "remote-ai"
             case .localModels: return "local-models"
+            case .systemSurfaces: return "system-surfaces"
             case .privacy(let topic): return "privacy-\(topic.rawValue)"
             }
         }

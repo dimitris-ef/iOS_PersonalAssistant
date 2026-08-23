@@ -460,6 +460,67 @@ public final class AssistantEngine: Sendable {
         }
     }
 
+    /// One text in, one text out. No conversation, no tools, no memory.
+    ///
+    /// ## Why this exists separately from `send`
+    ///
+    /// The keyboard's Improve, Shorten and Fix Grammar are transformations of a
+    /// sentence the user is in the middle of typing in somebody else's app.
+    /// Routing them through `send` would do two things that are wrong for that:
+    ///
+    ///  - **Persist them.** Section 94 of the system-surfaces work is explicit
+    ///    that keyboard input is discarded unless the user turns it into a
+    ///    conversation deliberately. Half-written messages to a colleague
+    ///    appearing in the assistant's history is not something anybody asked
+    ///    for.
+    ///  - **Offer tools.** "Shorten this" cannot legitimately create a calendar
+    ///    event, and the safest way to guarantee that is to hand the model no
+    ///    tools at all rather than to validate away what it proposes.
+    ///
+    /// What it keeps is everything that matters about routing: the provider is
+    /// chosen by `ModelRouter` from the user's own settings, exactly as a turn
+    /// is. The caller does not know — and cannot find out — whether the answer
+    /// came from the remote provider, Apple's on-device model or llama.cpp.
+    ///
+    /// Memory is deliberately not assembled. A rewrite needs the sentence and
+    /// nothing else, and section 7 of the same work is about not sending the
+    /// user's private context anywhere it is not needed.
+    public func transformText(instruction: String, text: String) async throws -> String {
+        let settings = try await repositories.settings.settings()
+        let provider = try await router.selectProvider(from: providers, settings: settings)
+
+        let response = try await provider.respond(
+            to: AIRequest(
+                model: settings.preferredModelID,
+                systemPrompt: Self.transformSystemPrompt,
+                messages: [
+                    AIMessage(role: .user, content: "\(instruction)\n\n\(text)"),
+                ],
+                // Empty, and that is the point.
+                tools: []
+            )
+        )
+
+        let answer = response.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !answer.isEmpty else {
+            throw AssistantCommandError.providerUnavailable(
+                reason: "The assistant had nothing to suggest."
+            )
+        }
+        return answer
+    }
+
+    /// Tight, because the output is inserted into somebody's message.
+    ///
+    /// A model that answers "Sure! Here's a better version:" produces a
+    /// keyboard that pastes that sentence into the user's text.
+    private static let transformSystemPrompt = """
+        You rewrite short pieces of text for a keyboard. Reply with the rewritten \
+        text and nothing else: no preamble, no explanation, no quotation marks \
+        around it, and no commentary. Preserve the writer's meaning and their \
+        language. If the text is already fine, reply with it unchanged.
+        """
+
     /// Applies an engagement event (notification dismissed, snoozed, confirmed)
     /// to a task.
     ///

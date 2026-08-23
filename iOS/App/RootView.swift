@@ -78,6 +78,22 @@ struct RootView: View {
                 break
             }
         }
+        // Section 44. A widget's deep link, parsed by the one type that knows
+        // how to build them — so a widget cannot open a destination the app
+        // does not have, and adding one is a change in `SystemSurfaceDestination`
+        // rather than in a string here.
+        .onOpenURL { url in
+            guard let destination = SystemSurfaceDestination.parse(url) else { return }
+            switch destination {
+            case .today:
+                selectedTab = .today
+            case .assistant:
+                selectedTab = .assistant
+            case .task(let id):
+                selectedTab = .tasks
+                model.focusTask(TaskItem.ID(id))
+            }
+        }
         .bannerHost()
     }
 }

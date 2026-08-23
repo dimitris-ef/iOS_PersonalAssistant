@@ -109,14 +109,33 @@ public struct TodaySnapshot: SystemSurfaceSnapshot {
         self.outstandingCount = outstandingCount
     }
 
-    /// The next thing that has not happened yet.
-    public func next(at date: Date) -> TodaySnapshotItem? {
-        items.first { !$0.isDone && $0.date >= date } ?? items.first { !$0.isDone }
+    /// What is left after `date`, in time order.
+    ///
+    /// Sorted here rather than trusted from `items`. The builder writes them in
+    /// order, but a snapshot is a file that outlives the build that wrote it,
+    /// and a widget whose "up next" depended on the order somebody happened to
+    /// encode would be a widget that shows a different answer for the same day.
+    public func upcoming(at date: Date) -> [TodaySnapshotItem] {
+        items
+            .filter { !$0.isDone && $0.date >= date }
+            .sorted(by: Self.chronological)
     }
 
-    /// What is left after `date`.
-    public func upcoming(at date: Date) -> [TodaySnapshotItem] {
-        items.filter { !$0.isDone && $0.date >= date }
+    /// The next thing that has not happened yet.
+    ///
+    /// Falls back to the earliest unfinished item when everything is in the
+    /// past — something overdue is still the thing to show, and an empty widget
+    /// on a day full of missed work would be the least useful possible answer.
+    public func next(at date: Date) -> TodaySnapshotItem? {
+        upcoming(at: date).first
+            ?? items.filter { !$0.isDone }.sorted(by: Self.chronological).first
+    }
+
+    /// Time, then identifier. The second half only ever decides between two
+    /// items at the same instant, and exists so the answer is stable rather
+    /// than whatever the sort happened to do.
+    private static func chronological(_ first: TodaySnapshotItem, _ second: TodaySnapshotItem) -> Bool {
+        first.date == second.date ? first.id < second.id : first.date < second.date
     }
 
     /// An empty day, for a first launch or an unreadable file.

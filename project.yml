@@ -54,6 +54,13 @@ targets:
       # `AssistantPlatformApple` package target, because `iOS/` has no test
       # target and the mapping decisions in them are worth testing.
       - path: iOS/Platform
+      # Shared with the extensions: the ActivityKit attributes, the widget
+      # intents, the App Group store location and the narrow composition an
+      # extension is allowed to build. Compiled into the app *and* into the
+      # widget extension, because an interactive widget's App Intent has to
+      # exist in both — iOS runs it in the extension, and the app has to be
+      # able to hand the extension its own composition when it is already open.
+      - path: iOS/SystemSurfaces/Shared
     dependencies:
       - package: PhonePersonalAI
         product: AssistantCore
@@ -109,6 +116,14 @@ targets:
       # no model is connected. Remove this dependency when one is.
       - package: PhonePersonalAI
         product: DevSupport
+      # What the extensions are allowed to see: versioned snapshots, the App
+      # Group store, the keyboard exchange.
+      - package: PhonePersonalAI
+        product: SystemSurfaces
+      # The extensions are embedded in the app bundle. Without these two lines
+      # they would build and then not exist on the device.
+      - target: PersonalAssistantWidgets
+      - target: PersonalAssistantKeyboard
     settings:
       base:
         INFOPLIST_FILE: iOS/Resources/Info.plist
@@ -125,6 +140,94 @@ targets:
         MARKETING_VERSION: "0.1"
         CURRENT_PROJECT_VERSION: "1"
         # Simulator builds in CI must not need a signing identity.
+        CODE_SIGNING_ALLOWED: NO
+        CODE_SIGNING_REQUIRED: NO
+        CODE_SIGN_IDENTITY: ""
+        CODE_SIGN_ENTITLEMENTS: iOS/Resources/PersonalAssistant.entitlements
+
+  # MARK: Widgets, Lock Screen and Live Activities
+  #
+  # One extension for all of it (section 82). Its dependency list is the
+  # architectural claim of the milestone: repositories, the support lifecycle
+  # and the projections — and **no AI**. `AIProviderRemote`, `AIProviderApple`,
+  # `AIProviderLocal` and `AIProviderLocalLlama` are all absent, deliberately,
+  # so a widget cannot invoke a model even by accident and the extension binary
+  # does not carry an inference runtime it would never have the memory to use.
+  PersonalAssistantWidgets:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: iOS/SystemSurfaces/Widgets
+      # Shared with the app. The App Intents behind Done, Later and I'm doing
+      # it must be in this target: iOS performs an interactive widget's intent
+      # in the widget extension's process.
+      - path: iOS/SystemSurfaces/Shared
+    dependencies:
+      - package: PhonePersonalAI
+        product: SystemSurfaces
+      - package: PhonePersonalAI
+        product: AssistantDomain
+      - package: PhonePersonalAI
+        product: AssistantPlatform
+      - package: PhonePersonalAI
+        product: AssistantPersistence
+      - package: PhonePersonalAI
+        product: AssistantPersistenceSwiftData
+      - package: PhonePersonalAI
+        product: ExecutiveSupport
+      # For `SystemSurfaceCommandService` and `SystemSurfaceService`. Brings
+      # `AssistantAI` with it, which is protocols — no provider implementation
+      # is in this graph.
+      - package: PhonePersonalAI
+        product: AssistantCore
+      # So a reminder cancelled from a widget is cancelled with the same
+      # notification centre the app scheduled it with. See `SystemSurfaceBridge`.
+      - package: PhonePersonalAI
+        product: AssistantPlatformApple
+    settings:
+      base:
+        INFOPLIST_FILE: iOS/SystemSurfaces/Widgets/Info.plist
+        PRODUCT_BUNDLE_IDENTIFIER: com.example.personalassistant.widgets
+        CODE_SIGN_ENTITLEMENTS: iOS/SystemSurfaces/Widgets/PersonalAssistantWidgets.entitlements
+        TARGETED_DEVICE_FAMILY: "1"
+        SWIFT_VERSION: "5.0"
+        GENERATE_INFOPLIST_FILE: NO
+        SKIP_INSTALL: YES
+        ENABLE_USER_SCRIPT_SANDBOXING: YES
+        MARKETING_VERSION: "0.1"
+        CURRENT_PROJECT_VERSION: "1"
+        CODE_SIGNING_ALLOWED: NO
+        CODE_SIGNING_REQUIRED: NO
+        CODE_SIGN_IDENTITY: ""
+
+  # MARK: The custom keyboard
+  #
+  # The shortest dependency list in the project, and that is the point.
+  # `SystemSurfaces` is Foundation-only, so this target cannot reach a
+  # repository, the engine, a provider or llama.cpp — sections 15, 16, 120 and
+  # 121 enforced by the graph rather than by a promise. A keyboard extension
+  # gets a fraction of an app's memory; there is nothing here that could
+  # exhaust it.
+  PersonalAssistantKeyboard:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: iOS/SystemSurfaces/Keyboard
+    dependencies:
+      - package: PhonePersonalAI
+        product: SystemSurfaces
+    settings:
+      base:
+        INFOPLIST_FILE: iOS/SystemSurfaces/Keyboard/Info.plist
+        PRODUCT_BUNDLE_IDENTIFIER: com.example.personalassistant.keyboard
+        CODE_SIGN_ENTITLEMENTS: iOS/SystemSurfaces/Keyboard/PersonalAssistantKeyboard.entitlements
+        TARGETED_DEVICE_FAMILY: "1"
+        SWIFT_VERSION: "5.0"
+        GENERATE_INFOPLIST_FILE: NO
+        SKIP_INSTALL: YES
+        ENABLE_USER_SCRIPT_SANDBOXING: YES
+        MARKETING_VERSION: "0.1"
+        CURRENT_PROJECT_VERSION: "1"
         CODE_SIGNING_ALLOWED: NO
         CODE_SIGNING_REQUIRED: NO
         CODE_SIGN_IDENTITY: ""

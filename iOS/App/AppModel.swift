@@ -194,6 +194,15 @@ final class AppModel {
         focusedTask = FocusedTask(id: taskID)
     }
 
+    /// Opens a task because something outside the app asked for it.
+    ///
+    /// A widget deep link, today. Reloads first so the detail screen is drawn
+    /// from current state rather than from whatever was in memory when the app
+    /// was last put away — which, for a widget tap, may be hours ago.
+    func focusTask(_ taskID: TaskItem.ID) {
+        Task { await focus(taskID) }
+    }
+
     /// The conversation to show, and the action history beneath it.
     ///
     /// The most recently updated conversation is the one the user was last in.
@@ -251,6 +260,49 @@ final class AppModel {
 
         await reloadCalendar()
         await reloadPermissions()
+        await refreshSystemSurfaces()
+    }
+
+    // MARK: System surfaces
+
+    /// Rebuilds the widget projections and brings the Live Activities in line.
+    ///
+    /// Hung off `reload()` because that is what runs after anything meaningful
+    /// changes — a task created, a reminder answered, a routine occurrence
+    /// generated — which is section 75's list. Not on a timer, and not on every
+    /// repository read: `SystemSurfaceService` compares each projection against
+    /// what is already stored and asks WidgetKit for a refresh only when the
+    /// content genuinely differs.
+    ///
+    /// Deliberately not awaited by anything that can fail because of it
+    /// (section 85). A widget that did not update is a widget showing something
+    /// slightly old; a completion that failed because a widget could not be
+    /// written would be a task the user believes they finished.
+    func refreshSystemSurfaces(reason: SystemSurfaceRefreshReason = .domainChange) async {
+        await environment.systemSurfaces.setLiveActivitiesEnabled(
+            SystemSurfaceSettings.liveActivitiesEnabled
+        )
+        await environment.systemSurfaces.refresh(reason: reason)
+        environment.systemSurfaces.publishKeyboardConfiguration(
+            assistantActionsEnabled: SystemSurfaceSettings.keyboardAssistantEnabled
+        )
+    }
+
+    /// Section 89. The user's own switch — turning it off ends what is running.
+    func setLiveActivitiesEnabled(_ enabled: Bool) async {
+        await environment.systemSurfaces.setLiveActivitiesEnabled(enabled)
+        await environment.systemSurfaces.refresh(reason: .settingChanged)
+    }
+
+    /// Republishes what the keyboard is allowed to offer.
+    ///
+    /// Widgets are not reloaded for this: a keyboard toggle changes nothing a
+    /// widget shows, and spending a WidgetKit refresh on it is exactly the
+    /// waste section 36 asks to avoid.
+    func setKeyboardAssistantEnabled(_ enabled: Bool) async {
+        environment.systemSurfaces.publishKeyboardConfiguration(
+            assistantActionsEnabled: enabled
+        )
     }
 
     private func reloadPermissions() async {

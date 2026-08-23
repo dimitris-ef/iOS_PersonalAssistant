@@ -181,6 +181,8 @@ final class SystemSurfaceTests: XCTestCase {
     func testWidgetSnoozeIsNotCompletion() async throws {
         let harness = Harness()
         let (task, plan) = try await harness.seedTaskWithReminder()
+        let before = try await harness.repositories.reminderPlans
+            .plan(id: plan.id)?.pendingStages.count ?? 0
 
         let outcome = try await harness.commands(at: now).snooze(taskID: task.id)
 
@@ -190,9 +192,13 @@ final class SystemSurfaceTests: XCTestCase {
         XCTAssertNil(stored?.completedAt)
         XCTAssertEqual(stored?.snoozeCount, 1)
 
-        // Exactly one new follow-up, not none and not several.
-        let storedPlan = try await harness.repositories.reminderPlans.plan(id: plan.id)
-        XCTAssertEqual(storedPlan?.pendingStages.count, 1)
+        // Exactly one new stage, not none and not several. The original
+        // reminder is untouched on purpose: the widget's "Later" is a statement
+        // about the task, not an answer to a specific reminder, so a stage that
+        // has not fired yet still will.
+        let after = try await harness.repositories.reminderPlans
+            .plan(id: plan.id)?.pendingStages.count ?? 0
+        XCTAssertEqual(after, before + 1)
     }
 
     /// Section 101 and 41.
