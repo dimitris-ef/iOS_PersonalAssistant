@@ -286,6 +286,26 @@ preparation timing, escalation and ranking are deterministic and work with no
 network — a person who is already late does not need the answer to depend on a
 round trip. See [`EXECUTIVE-SUPPORT.md`](EXECUTIVE-SUPPORT.md).
 
+## Background reliability
+
+iOS gives the app no general way to run, so the assistant is built to be
+*recoverable* rather than always-running. Three layers, and which one a thing
+belongs to is never ambiguous: **persisted domain state** is the source of
+truth, **`UNUserNotificationCenter` and AlarmKit** deliver the user-facing part
+because they keep working with the process gone, and **`SupportReconciliationService`**
+reconstructs what should have happened whenever the app next gets execution time.
+
+No timer holds a reminder. `Task.sleep`, `Timer` and `DispatchQueue.asyncAfter`
+are all suspended seconds after the app leaves the foreground, so none of them
+is used for anything durable, and `BGTaskScheduler` is treated as an
+optimisation that may never fire rather than as a mechanism to depend on.
+
+The reconciliation path calls no model at all — not remote, not Apple
+Foundation Models, not llama.cpp. That is structural rather than a promise:
+`SupportReconciliationService` takes repositories, platform services, a clock
+and pure policy values, and has no provider registry in scope.
+See [`BACKGROUND.md`](BACKGROUND.md).
+
 ## Extension points
 
 Each of these is an implementation task, not a redesign:

@@ -133,7 +133,8 @@ At the platform level, the stage id *is* the notification request id, so a
 re-run cannot create a second OS-level notification for the same stage.
 
 Scheduling happens because of a domain event, never because a screen rendered.
-Reconciliation runs on `scenePhase == .active`, not in a view's `task {}`.
+Reconciliation is driven by `AppLifecycleCoordinator`, not from a view's
+`task {}` — see [`BACKGROUND.md`](BACKGROUND.md).
 
 ## Reconciliation
 
@@ -141,13 +142,19 @@ Real callbacks arrive late, get retried, or never arrive — the app may not hav
 been running. So the truth about a reminder cannot come only from a callback.
 
 `FollowUpCoordinator.reconcile` marks any `pending` stage whose `scheduledFor`
-has passed, on an unresolved task, as `missed` — and missed produces the next
-intervention. A backlog of three overdue reminders is applied in order, so the
-attempt count climbs and the result is one escalated follow-up rather than three
-identical ones.
+has passed by more than the grace period, on an unresolved task, as `missed` —
+and missed produces the next intervention. A backlog is *compressed*: every
+overdue stage is recorded, only the most recent few drive a planning round,
+escalation climbs by a bounded amount, and exactly one intervention is
+scheduled. A week's absence therefore produces one reminder rather than dozens.
+The bounds all live on `SupportCatchUpPolicy`.
 
-`FollowUpService.reconcile()` does this across all outstanding tasks. It is
-idempotent: the first pass leaves those stages resolved.
+Two callers use it. `FollowUpService.reconcile(task:)` brings a single task up
+to date immediately after something happened to it. `SupportReconciliationService`
+owns the whole-store sweep — routines first, then reminders, then the diff
+against what iOS is actually holding — and is what runs at launch, on
+foreground, and in a background refresh. Both are idempotent: the first pass
+leaves those stages resolved, so a second finds nothing to do.
 
 ## Persistence
 

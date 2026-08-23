@@ -80,6 +80,11 @@ enum ReminderPlanMapper {
         row.completionMarkMissedAfter = plan.completion.markMissedAfter
         row.createdAt = plan.createdAt
         row.generatedBy = plan.generatedBy
+        // Schema V9. Carried on every re-save, not only on insert: the revision
+        // moves precisely *because* the plan changed, so a save that did not
+        // write it would leave every notification in flight looking current
+        // when it is not.
+        row.revision = plan.revision
     }
 
     /// Diffs the stages by id, for the same reason messages are diffed: a stage

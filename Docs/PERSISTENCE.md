@@ -42,7 +42,21 @@ iOS deployment target is unchanged at 17.
 
 ## Current schema
 
-**Version 1** — `PersonalAssistantSchemaV1`, `Schema.Version(1, 0, 0)`.
+The container opens at **version 9**. The table below describes
+`PersonalAssistantSchemaV1`, `Schema.Version(1, 0, 0)` — the shape everything
+since has added to, and the file that must never be edited because it describes
+what is already on disk.
+
+| Version | Adds |
+| --- | --- |
+| V2 | Reminder stage lifecycle: `stateRaw`, `stateChangedAt`, `scheduledFor` |
+| V3–V5 | Memory metadata, spoken replies, and the settings that came with them |
+| V6–V7 | Routines and occurrences; memory relations, embeddings and lifecycle |
+| V8 | Installed local models (`SDLocalModel`) |
+| V9 | Platform delivery state on each stage, `revision` on each plan, and `SDHandledAction` — see [`BACKGROUND.md`](BACKGROUND.md) |
+
+Every stage is an inferred `.lightweight` migration: each added property is
+optional or carries a declared default, and each new model is a new entity.
 
 | Model | Holds | Relationships |
 | --- | --- | --- |

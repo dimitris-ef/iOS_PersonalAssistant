@@ -286,6 +286,17 @@ public struct FollowUpCoordinator: Sendable {
         let preexisting = Set(plan.stages.map(\.id))
 
         var lastDecision: FollowUpDecision?
+        /// The newest intervention any round actually produced.
+        ///
+        /// Tracked separately from `lastDecision` because a round can change
+        /// the plan without scheduling anything: the planner declines when an
+        /// equivalent follow-up is already waiting, and inside one pass every
+        /// round computes its delay from the same `context.now`, so the second
+        /// and third rounds routinely land on the moment the first already
+        /// claimed. Reading the schedule off the *last* decision would then see
+        /// an empty list and conclude there was nothing to keep — cancelling
+        /// the one real follow-up the pass had produced.
+        var lastScheduled: ScheduledReminder?
         for stage in applied {
             let decision = apply(
                 outcome: .missed,
@@ -298,6 +309,7 @@ public struct FollowUpCoordinator: Sendable {
             currentTask = decision.task
             currentPlan = decision.plan
             lastDecision = decision
+            if let reminder = decision.schedule.first { lastScheduled = reminder }
         }
 
         // Only the newest intervention survives. Each applied round appended a
@@ -309,7 +321,7 @@ public struct FollowUpCoordinator: Sendable {
         // Scoped to stages this pass created. A plan's own future stages — the
         // final call at the deadline, still legitimately waiting — are not this
         // method's to withdraw just because an earlier nudge was missed.
-        let keeping = lastDecision?.schedule.first?.stageID
+        let keeping = lastScheduled?.stageID
         var superseded: [ReminderStage] = []
         for index in currentPlan.stages.indices
         where currentPlan.stages[index].state.isPending
@@ -348,15 +360,13 @@ public struct FollowUpCoordinator: Sendable {
         return ReconciledSupport(
             task: currentTask,
             plan: currentPlan,
-            schedule: lastDecision.map { decision in
-                decision.schedule.map { reminder in
-                    var adjusted = reminder
-                    adjusted.escalation = min(adjusted.escalation, ceiling)
-                    if adjusted.escalation < .alarm, adjusted.channel == .alarm {
-                        adjusted.channel = .notification
-                    }
-                    return adjusted
+            schedule: lastScheduled.map { reminder in
+                var adjusted = reminder
+                adjusted.escalation = min(adjusted.escalation, ceiling)
+                if adjusted.escalation < .alarm, adjusted.channel == .alarm {
+                    adjusted.channel = .notification
                 }
+                return [adjusted]
             } ?? [],
             cancel: superseded,
             catchUp: SupportCatchUp(

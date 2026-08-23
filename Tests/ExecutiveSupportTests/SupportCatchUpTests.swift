@@ -235,10 +235,14 @@ final class SupportCatchUpTests: XCTestCase {
         XCTAssertEqual(FollowUpCoordinator.clamp(.alarm, from: .gentle, steps: 0), .gentle)
     }
 
-    /// The intermediate stages a compression pass creates are its own working
-    /// out, not reminders. Left pending they would be scheduled anyway and the
+    /// However many rounds a compression pass runs internally, it leaves
+    /// exactly one reminder waiting.
+    ///
+    /// The rounds are the pass's own working out, not reminders. Any stage they
+    /// created and then superseded is withdrawn here rather than left pending —
+    /// otherwise the scheduler would hand every one of them to iOS and the
     /// compression would have been cosmetic.
-    func testIntermediateStagesCreatedDuringCatchUpAreCancelled() {
+    func testACatchUpPassLeavesExactlyOneStagePending() {
         var fixture = makeFixture()
         fixture.plan.stages = (1...8).map { hour in
             pendingStage(due: now.addingTimeInterval(TimeSpan.hours(Double(hour))))
@@ -251,11 +255,42 @@ final class SupportCatchUpTests: XCTestCase {
         )
 
         XCTAssertEqual(recovered.plan.pendingStages.count, 1)
+        XCTAssertEqual(recovered.schedule.count, 1)
+        XCTAssertEqual(recovered.schedule.first?.stageID, recovered.plan.pendingStages.first?.id)
+
         // The withdrawals are reported, so the caller can take them off the OS
         // too rather than leaving orphaned requests behind.
         for stage in recovered.cancel {
             XCTAssertEqual(recovered.plan.stage(id: stage.id)?.state, .cancelled)
         }
+    }
+
+    /// The trap this pass fell into once, kept as a test.
+    ///
+    /// Every round inside one pass computes its delay from the same
+    /// `context.now`, and the planner declines to add a follow-up when an
+    /// equivalent one is already waiting — so the second and third rounds
+    /// routinely produce *nothing*. Reading the result off the last round would
+    /// see an empty schedule, conclude there was nothing to keep, and cancel
+    /// the one real follow-up the pass had produced. Which would leave a task
+    /// that missed a dozen reminders with no reminder at all.
+    func testARoundThatSchedulesNothingDoesNotDiscardTheOneThatDid() {
+        var fixture = makeFixture()
+        fixture.plan.stages = (1...5).map { hour in
+            pendingStage(due: now.addingTimeInterval(TimeSpan.hours(Double(hour))))
+        }
+
+        let recovered = FollowUpCoordinator().reconcile(
+            task: fixture.task,
+            plan: fixture.plan,
+            context: context(at: now.addingTimeInterval(TimeSpan.days(1)))
+        )
+
+        XCTAssertFalse(
+            recovered.schedule.isEmpty,
+            "a task with a backlog of missed reminders must still be chased"
+        )
+        XCTAssertEqual(recovered.plan.pendingStages.count, 1)
     }
 
     /// Running the same pass twice changes nothing the second time. This is what
