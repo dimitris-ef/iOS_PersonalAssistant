@@ -117,9 +117,14 @@ class KeyboardViewController: UIInputViewController {
     }
 
     private func button(for key: KeyboardKey) -> UIButton {
+        // Read once, outside the closure below. The transformer outlives this
+        // call, so capturing `self` to ask again would keep the view controller
+        // alive through every button on the keyboard.
+        let isControlKey = Self.isControl(key)
+
         var configuration = UIButton.Configuration.filled()
         configuration.title = key.label
-        configuration.baseBackgroundColor = isControl(key)
+        configuration.baseBackgroundColor = isControlKey
             ? .secondarySystemFill
             : .systemBackground
         configuration.baseForegroundColor = .label
@@ -128,7 +133,7 @@ class KeyboardViewController: UIInputViewController {
         // than being pinned to a number (section 126).
         configuration.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer {
             var attributes = $0
-            attributes.font = UIFont.preferredFont(forTextStyle: isControl(key) ? .footnote : .title3)
+            attributes.font = UIFont.preferredFont(forTextStyle: isControlKey ? .footnote : .title3)
             return attributes
         }
 
@@ -163,7 +168,7 @@ class KeyboardViewController: UIInputViewController {
         return button
     }
 
-    private func isControl(_ key: KeyboardKey) -> Bool {
+    private static func isControl(_ key: KeyboardKey) -> Bool {
         switch key {
         case .character: return false
         case .space, .backspace, .shift, .returnKey, .nextKeyboard, .plane: return true
