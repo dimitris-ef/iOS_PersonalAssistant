@@ -8,6 +8,7 @@ import SwiftUI
 struct RootView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.appLifecycle) private var lifecycle
     @State private var selectedTab: AppTab = .assistant
     @State private var showsSettings = false
 
@@ -61,11 +62,39 @@ struct RootView: View {
         // notification the user never touched produces no callback at all —
         // iOS has nothing to report — so a reminder that was ignored rather
         // than answered is only ever noticed by this sweep.
+        // The view *notices* the phase change; it does not decide what one
+        // means. Section 77 — everything below this line is one call into an
+        // application-level coordinator, so a view being recreated, appearing
+        // twice or being replaced by a preview cannot change whether the user's
+        // reminders get reconciled.
         .onChange(of: scenePhase) { _, phase in
-            guard phase == .active else { return }
-            Task { await model.reconcileFollowUps() }
+            guard let lifecycle else { return }
+            switch phase {
+            case .active:
+                Task { await lifecycle.applicationDidBecomeActive() }
+            case .background:
+                Task { await lifecycle.applicationDidEnterBackground() }
+            default:
+                break
+            }
         }
         .bannerHost()
+    }
+}
+
+/// Reaches the lifecycle coordinator from the view tree.
+///
+/// An environment value rather than a singleton: previews and the demo launch
+/// legitimately have no coordinator, and `nil` there is better than a shared
+/// instance quietly reconciling a preview's throwaway store.
+private struct AppLifecycleKey: EnvironmentKey {
+    static let defaultValue: AppLifecycleCoordinator? = nil
+}
+
+extension EnvironmentValues {
+    var appLifecycle: AppLifecycleCoordinator? {
+        get { self[AppLifecycleKey.self] }
+        set { self[AppLifecycleKey.self] = newValue }
     }
 }
 

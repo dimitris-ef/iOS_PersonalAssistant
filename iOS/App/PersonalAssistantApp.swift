@@ -13,7 +13,7 @@ struct PersonalAssistantApp: App {
     /// opened its own store would be a second store, and two contexts over one
     /// database disagree with each other.
     private enum Startup {
-        case ready(AppModel)
+        case ready(AppModel, AppLifecycleCoordinator)
         case failed(String)
     }
 
@@ -38,7 +38,21 @@ struct PersonalAssistantApp: App {
             // SwiftData container over the same file.
             AppIntentDependencies.adopt(environment)
 
-            _startup = State(initialValue: .ready(AppModel(environment: environment)))
+            // Section 78's ordering, and each step depends on the one above:
+            // persistence, then the environment, then the notification
+            // delegate (which must exist before a lock-screen "Done" can
+            // arrive), then background-task registration, then reconciliation.
+            //
+            // Registration in particular cannot wait for a view: iOS requires
+            // every `BGTaskScheduler` identifier to be registered before the
+            // app finishes launching, and one registered later is one that
+            // never runs.
+            let model = AppModel(environment: environment)
+            let lifecycle = AppLifecycleCoordinator(environment: environment)
+            lifecycle.appModel = model
+            lifecycle.applicationDidLaunch()
+
+            _startup = State(initialValue: .ready(model, lifecycle))
         } catch {
             // Deliberately not a fallback to in-memory storage. The user would
             // get a working-looking app that loses a day's work at
@@ -51,9 +65,10 @@ struct PersonalAssistantApp: App {
         WindowGroup {
             Group {
                 switch startup {
-                case .ready(let model):
+                case .ready(let model, let lifecycle):
                     RootView()
                         .environment(model)
+                        .environment(\.appLifecycle, lifecycle)
                         .task { await model.bootstrap() }
                 case .failed(let detail):
                     PersistenceFailureView(detail: detail)

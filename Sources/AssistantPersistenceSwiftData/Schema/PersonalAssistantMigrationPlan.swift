@@ -70,13 +70,14 @@ public enum PersonalAssistantMigrationPlan: SchemaMigrationPlan {
             PersonalAssistantSchemaV6.self,
             PersonalAssistantSchemaV7.self,
             PersonalAssistantSchemaV8.self,
+            PersonalAssistantSchemaV9.self,
         ]
     }
 
     public static var stages: [MigrationStage] {
         [
             migrateV1toV2, migrateV2toV3, migrateV3toV4, migrateV4toV5,
-            migrateV5toV6, migrateV6toV7, migrateV7toV8,
+            migrateV5toV6, migrateV6toV7, migrateV7toV8, migrateV8toV9,
         ]
     }
 
@@ -179,6 +180,31 @@ public enum PersonalAssistantMigrationPlan: SchemaMigrationPlan {
     static let migrateV7toV8 = MigrationStage.lightweight(
         fromVersion: PersonalAssistantSchemaV7.self,
         toVersion: PersonalAssistantSchemaV8.self
+    )
+
+    /// Background reliability: delivery state, plan revisions and the handled-
+    /// action ledger.
+    ///
+    /// One new entity — `SDHandledAction` — plus five optional/defaulted
+    /// columns on `SDReminderStage` and one defaulted column on
+    /// `SDReminderPlan`. Nothing renamed, retyped or removed.
+    ///
+    /// **What an existing store becomes.** Every plan is at revision 1 and
+    /// every stage reads back as `planned`, which is not a downgrade but the
+    /// literal truth: a build that predates this had no record of what it had
+    /// handed to iOS. It is also the safe direction. The first reconciliation
+    /// after upgrading treats those stages as wanting delivery, reads what the
+    /// notification centre *actually* holds, and diffs the two — so a reminder
+    /// already scheduled by the old build is recognised and left alone rather
+    /// than duplicated.
+    ///
+    /// **No callbacks are lost.** A notification scheduled before the upgrade
+    /// carries no revision in its payload, and the router treats a missing
+    /// revision as "cannot prove it is stale, so trust it" — the alternative
+    /// would be silently ignoring every reminder in flight across the update.
+    static let migrateV8toV9 = MigrationStage.lightweight(
+        fromVersion: PersonalAssistantSchemaV8.self,
+        toVersion: PersonalAssistantSchemaV9.self
     )
 }
 

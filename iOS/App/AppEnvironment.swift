@@ -306,12 +306,17 @@ final class AppEnvironment: Sendable {
 
         notificationCoordinator.setHandler { [engine] route in
             switch route {
-            case .outcome(let outcome, let taskID, let stageID):
+            case .outcome(let outcome, let taskID, let stageID, let revision):
                 do {
+                    // The revision the notification was scheduled under travels
+                    // with the answer, so a button pressed on a reminder that
+                    // has since been replaced is declined rather than applied
+                    // to a plan it no longer describes.
                     try await engine.followUp.handle(
                         outcome: outcome,
                         forTask: taskID,
-                        stageID: stageID
+                        stageID: stageID,
+                        revision: revision
                     )
                     await onChange()
                 } catch {

@@ -41,6 +41,45 @@ public struct FollowUpDecision: Sendable {
     }
 }
 
+/// What one task's reconciliation concluded.
+///
+/// Deliberately not a `[FollowUpDecision]`. The earlier shape returned one
+/// decision per overdue stage and left the caller to work out which schedules
+/// to honour — and the caller honoured all of them, which is how a week's
+/// absence became a screenful of notifications. One value, one intervention,
+/// with the backlog described rather than enacted.
+public struct ReconciledSupport: Sendable {
+    public var task: TaskItem
+    public var plan: ReminderPlan
+    /// The single current intervention, if there is one.
+    public var schedule: [ScheduledReminder]
+    /// Stages whose platform requests should be withdrawn — including the
+    /// intermediate ones this pass created and then superseded.
+    public var cancel: [ReminderStage]
+    /// What the backlog looked like, for the log and for the banner.
+    public var catchUp: SupportCatchUp
+    public var rationale: String?
+    public var didChange: Bool
+
+    public init(
+        task: TaskItem,
+        plan: ReminderPlan,
+        schedule: [ScheduledReminder] = [],
+        cancel: [ReminderStage] = [],
+        catchUp: SupportCatchUp = SupportCatchUp(),
+        rationale: String? = nil,
+        didChange: Bool = true
+    ) {
+        self.task = task
+        self.plan = plan
+        self.schedule = schedule
+        self.cancel = cancel
+        self.catchUp = catchUp
+        self.rationale = rationale
+        self.didChange = didChange
+    }
+}
+
 /// Runs one reminder outcome through the whole support lifecycle.
 ///
 /// This is the join between the two systems that already existed and never
@@ -160,41 +199,89 @@ public struct FollowUpCoordinator: Sendable {
         )
     }
 
-    /// Marks pending reminders whose moment has passed as missed.
+    /// Brings one task's reminders up to date with the clock, bounded.
     ///
-    /// The reconciliation path. Real notification callbacks will be late,
-    /// dropped or never delivered at all — the app may simply not have been
-    /// running — so the truth about a reminder cannot come only from a
-    /// callback. Anything still `pending` after its scheduled time, on an
-    /// unresolved task, is missed, and missed means the assistant tries again.
+    /// ## The reconciliation path
     ///
-    /// Returns one decision per stage that needed it, or an empty array when
-    /// there is nothing overdue. Applying it twice is a no-op, because the
-    /// first pass leaves those stages resolved.
+    /// Real notification callbacks are late, dropped, or never delivered at all
+    /// — the app may simply not have been running — so the truth about a
+    /// reminder cannot come only from a callback. Anything still `pending` well
+    /// past its moment, on an unresolved task, is missed, and missed means the
+    /// assistant tries again.
+    ///
+    /// ## Why this returns one decision and not one per stage
+    ///
+    /// Sections 69 to 71, and it is the difference between an assistant and an
+    /// alarm system. Someone who has not opened the app for a week may have
+    /// eighty-four theoretically-missed follow-ups on one task. The earlier
+    /// version of this method applied each of them and returned a decision for
+    /// each, and the caller scheduled every one — eighty-four notifications, at
+    /// once, for a person whose difficulty with being overwhelmed is the reason
+    /// this app exists.
+    ///
+    /// So the backlog is *compressed*:
+    ///
+    /// - every overdue stage is recorded as missed, because it was;
+    /// - only the most recent few drive a planning round;
+    /// - escalation may climb, but by a bounded amount per pass;
+    /// - exactly one intervention is scheduled, and it is the current one.
+    ///
+    /// The whole backlog still shows in the plan's history. What it does not do
+    /// is arrive in the notification centre.
+    ///
+    /// Applying this twice is a no-op: the first pass leaves those stages
+    /// resolved, and a resolved stage takes no further outcome.
     public func reconcile(
         task: TaskItem,
         plan: ReminderPlan,
-        context: SupportPlanningContext
-    ) -> [FollowUpDecision] {
-        guard !task.status.isTerminal else { return [] }
+        context: SupportPlanningContext,
+        policy: SupportCatchUpPolicy = .default
+    ) -> ReconciledSupport {
+        guard !task.status.isTerminal else {
+            return ReconciledSupport(task: task, plan: plan, didChange: false)
+        }
 
-        let overdue = plan.pendingStages
-            .filter { stage in
-                guard let scheduled = stage.scheduledFor else { return false }
-                return scheduled <= context.now
-            }
+        let overdue = plan.stages
+            .filter { policy.isOverdue($0, at: context.now) }
             .sorted { ($0.scheduledFor ?? .distantPast) < ($1.scheduledFor ?? .distantPast) }
 
-        guard !overdue.isEmpty else { return [] }
+        guard !overdue.isEmpty else {
+            return ReconciledSupport(task: task, plan: plan, didChange: false)
+        }
 
-        // Applied one at a time, feeding each result into the next, so the
-        // attempt count climbs and a backlog of three missed reminders
-        // escalates rather than producing three identical follow-ups.
-        var decisions: [FollowUpDecision] = []
+        // The oldest are absorbed: recorded as missed and counted, but they do
+        // not each get a vote on what happens next. The most recent few run
+        // through the full pipeline, because those are the ones whose outcome
+        // describes the situation the user is actually in.
+        let appliedCount = min(overdue.count, policy.maximumHistoricalStagesPerTask)
+        let absorbed = overdue.dropLast(appliedCount)
+        let applied = overdue.suffix(appliedCount)
+
         var currentTask = task
         var currentPlan = plan
+        // The loudest level this plan had already reached before the pass. The
+        // ceiling is measured from here rather than from the task, because
+        // escalation lives on stages: it is a property of how the assistant has
+        // been interrupting, not of the task itself.
+        let startingEscalation = plan.stages.map(\.escalation).max() ?? .gentle
 
-        for stage in overdue {
+        for stage in absorbed {
+            guard currentPlan.recordOutcome(.missed, forStage: stage.id, at: context.now) else {
+                continue
+            }
+            // The counters still move — a missed reminder is a missed reminder
+            // whether or not it got its own planning round — so the escalation
+            // the user eventually sees reflects what really happened.
+            let transition = statusMachine.apply(
+                event(for: .missed, at: context.now),
+                to: currentTask,
+                plan: currentPlan
+            )
+            currentTask = statusMachine.updated(currentTask, with: transition, at: context.now)
+        }
+
+        var lastDecision: FollowUpDecision?
+        for stage in applied {
             let decision = apply(
                 outcome: .missed,
                 toStage: stage.id,
@@ -205,10 +292,83 @@ public struct FollowUpCoordinator: Sendable {
             guard decision.didChange else { continue }
             currentTask = decision.task
             currentPlan = decision.plan
-            decisions.append(decision)
+            lastDecision = decision
         }
 
-        return decisions
+        // Only the newest intervention survives. The earlier rounds appended
+        // stages to the plan as they went; those are cancelled here rather than
+        // left pending, or the app would end up asking iOS for all of them
+        // anyway and the compression would have been cosmetic.
+        var superseded: [ReminderStage] = []
+        if let keeping = lastDecision?.schedule.first?.stageID {
+            for index in currentPlan.stages.indices
+            where currentPlan.stages[index].state.isPending
+                && currentPlan.stages[index].id != keeping
+                && (currentPlan.stages[index].scheduledFor ?? .distantFuture) <= context.now
+            {
+                superseded.append(currentPlan.stages[index])
+                currentPlan.stages[index].transition(to: .cancelled, at: context.now)
+            }
+        }
+
+        // Section 72: elapsed time is evidence that support is not working, and
+        // worth escalating for — but jumping to the loudest level because a week
+        // passed, rather than because of anything the user did, is how an
+        // assistant becomes frightening.
+        //
+        // Applied to the stage in the plan as well as to the reminder being
+        // scheduled, so what is persisted and what is delivered agree. Clamping
+        // only the outgoing request would leave the plan claiming a level the
+        // user never actually got.
+        let ceiling = Self.clamp(
+            .alarm,
+            from: startingEscalation,
+            steps: policy.maximumEscalationStepsPerPass
+        )
+        for index in currentPlan.stages.indices
+        where currentPlan.stages[index].state.isPending
+            && currentPlan.stages[index].escalation > ceiling {
+            currentPlan.stages[index].escalation = ceiling
+            if ceiling < .alarm, currentPlan.stages[index].channel == .alarm {
+                currentPlan.stages[index].channel = .notification
+            }
+        }
+
+        currentPlan.touch()
+
+        return ReconciledSupport(
+            task: currentTask,
+            plan: currentPlan,
+            schedule: lastDecision.map { decision in
+                decision.schedule.map { reminder in
+                    var adjusted = reminder
+                    adjusted.escalation = min(adjusted.escalation, ceiling)
+                    if adjusted.escalation < .alarm, adjusted.channel == .alarm {
+                        adjusted.channel = .notification
+                    }
+                    return adjusted
+                }
+            } ?? [],
+            cancel: superseded,
+            catchUp: SupportCatchUp(
+                missedStages: overdue.map(\.id),
+                appliedStages: applied.map(\.id),
+                wasCompressed: !absorbed.isEmpty
+            ),
+            rationale: lastDecision?.rationale,
+            didChange: true
+        )
+    }
+
+    /// Holds an escalation level to within `steps` of where it started.
+    static func clamp(
+        _ level: EscalationLevel,
+        from starting: EscalationLevel,
+        steps: Int
+    ) -> EscalationLevel {
+        guard level.rank > starting.rank + steps else { return level }
+        let capped = starting.rank + steps
+        return EscalationLevel.allCases.first { $0.rank == capped } ?? level
     }
 
     // MARK: Translation

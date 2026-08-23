@@ -20,7 +20,7 @@ final class NotificationRoutingTests: XCTestCase {
     func testDismissingAReminderIsNotCompletingTheTask() throws {
         let route = AppleNotificationRouter.route(response(action: .dismiss))
 
-        guard case .outcome(let outcome, let task, let stage) = route else {
+        guard case .outcome(let outcome, let task, let stage, _) = route else {
             return XCTFail("A dismissal must reach the lifecycle, not be discarded: \(route)")
         }
         XCTAssertEqual(outcome, .dismissed)
@@ -36,7 +36,7 @@ final class NotificationRoutingTests: XCTestCase {
     func testTheDoneButtonCompletesTheTask() throws {
         let route = AppleNotificationRouter.route(response(action: .custom(.complete)))
 
-        guard case .outcome(let outcome, _, _) = route else {
+        guard case .outcome(let outcome, _, _, _) = route else {
             return XCTFail("Unexpected route: \(route)")
         }
         XCTAssertEqual(outcome, .completed)
@@ -54,7 +54,7 @@ final class NotificationRoutingTests: XCTestCase {
     func testSnoozeLetsThePlanDecideWhenLaterIs() throws {
         let route = AppleNotificationRouter.route(response(action: .custom(.snooze)))
 
-        guard case .outcome(let outcome, _, _) = route else {
+        guard case .outcome(let outcome, _, _, _) = route else {
             return XCTFail("Unexpected route: \(route)")
         }
         // Not a hard-coded interval. The button says "Later"; how long later is
@@ -66,7 +66,7 @@ final class NotificationRoutingTests: XCTestCase {
     func testImOnItAcknowledgesWithoutClaimingCompletion() throws {
         let route = AppleNotificationRouter.route(response(action: .custom(.working)))
 
-        guard case .outcome(let outcome, _, _) = route else {
+        guard case .outcome(let outcome, _, _, _) = route else {
             return XCTFail("Unexpected route: \(route)")
         }
         XCTAssertEqual(outcome, .acknowledged)

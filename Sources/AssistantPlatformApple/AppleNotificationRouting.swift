@@ -74,6 +74,12 @@ public enum AppleNotificationPayloadKey {
     public static let stageID = "assistant.stage"
     public static let requestID = "assistant.request"
     public static let requiresConfirmation = "assistant.confirm"
+    /// The plan revision this notification was scheduled under.
+    ///
+    /// Section 54. It comes back with the user's answer and is compared against
+    /// the plan as it stands then; a lower number means the reminder they are
+    /// answering belonged to a schedule that has since been replaced.
+    public static let planRevision = "assistant.rev"
 
     /// Bumped when the meaning of a key changes.
     ///
@@ -90,17 +96,22 @@ public struct AppleNotificationPayload: Hashable, Sendable {
     public var taskID: TaskItem.ID?
     public var stageID: ReminderStage.ID?
     public var requiresConfirmation: Bool
+    /// The plan revision at scheduling time. Nil for a notification scheduled
+    /// by a build that predates revisions.
+    public var planRevision: Int?
 
     public init(
         requestID: NotificationRequest.ID,
         taskID: TaskItem.ID? = nil,
         stageID: ReminderStage.ID? = nil,
-        requiresConfirmation: Bool = true
+        requiresConfirmation: Bool = true,
+        planRevision: Int? = nil
     ) {
         self.requestID = requestID
         self.taskID = taskID
         self.stageID = stageID
         self.requiresConfirmation = requiresConfirmation
+        self.planRevision = planRevision
     }
 
     public init(request: NotificationRequest) {
@@ -108,7 +119,8 @@ public struct AppleNotificationPayload: Hashable, Sendable {
             requestID: request.id,
             taskID: request.relatedTaskID,
             stageID: request.stageID,
-            requiresConfirmation: request.requiresCompletionConfirmation
+            requiresConfirmation: request.requiresCompletionConfirmation,
+            planRevision: request.planRevision
         )
     }
 
@@ -129,6 +141,9 @@ public struct AppleNotificationPayload: Hashable, Sendable {
         }
         if let stageID {
             values[AppleNotificationPayloadKey.stageID] = stageID.rawValue.uuidString
+        }
+        if let planRevision {
+            values[AppleNotificationPayloadKey.planRevision] = String(planRevision)
         }
         return values
     }
@@ -152,7 +167,12 @@ public struct AppleNotificationPayload: Hashable, Sendable {
             // not symmetric: treating a confirmable reminder as informational
             // silently ends support for that task, while the reverse merely
             // asks a question that did not need asking.
-            requiresConfirmation: userInfo[AppleNotificationPayloadKey.requiresConfirmation] != "0"
+            requiresConfirmation: userInfo[AppleNotificationPayloadKey.requiresConfirmation] != "0",
+            // Absent means "this notification predates revisions", which the
+            // follow-up service reads as "cannot prove it is stale, so trust
+            // it". Refusing every in-flight reminder across an app update would
+            // be the worse failure by a distance.
+            planRevision: userInfo[AppleNotificationPayloadKey.planRevision].flatMap(Int.init)
         )
     }
 }
@@ -189,7 +209,17 @@ public struct AppleNotificationResponse: Hashable, Sendable {
 /// Where a notification response should be delivered.
 public enum AppleNotificationRoute: Hashable, Sendable {
     /// Report this outcome through `FollowUpService`.
-    case outcome(ReminderOutcome, task: TaskItem.ID, stage: ReminderStage.ID?)
+    ///
+    /// `revision` travels with it so the service can decline an answer to a
+    /// reminder that has since been superseded (section 18). This layer does
+    /// not make that judgement itself: it has no repositories and cannot see
+    /// the plan, which is the point — the router parses, the service decides.
+    case outcome(
+        ReminderOutcome,
+        task: TaskItem.ID,
+        stage: ReminderStage.ID?,
+        revision: Int?
+    )
     /// The user tapped the notification. Show them the task; change nothing.
     case open(task: TaskItem.ID, stage: ReminderStage.ID?)
     /// Not ours, or not understood. The reason is a fixed string written here,
@@ -231,16 +261,31 @@ public enum AppleNotificationRouter {
         if let action = AppleNotificationAction(rawValue: response.actionIdentifier) {
             switch action {
             case .complete:
-                return .outcome(.completed, task: taskID, stage: payload.stageID)
+                return .outcome(
+                    .completed,
+                    task: taskID,
+                    stage: payload.stageID,
+                    revision: payload.planRevision
+                )
             case .snooze:
                 // `until: nil` on purpose. The button says "Later", not a
                 // duration, and the plan's own snooze policy — which knows how
                 // many times this task has already been put off and how close
                 // its deadline is — decides when later means. Hard-coding nine
                 // minutes here would quietly override that.
-                return .outcome(.snoozed(until: nil), task: taskID, stage: payload.stageID)
+                return .outcome(
+                    .snoozed(until: nil),
+                    task: taskID,
+                    stage: payload.stageID,
+                    revision: payload.planRevision
+                )
             case .working:
-                return .outcome(.acknowledged, task: taskID, stage: payload.stageID)
+                return .outcome(
+                    .acknowledged,
+                    task: taskID,
+                    stage: payload.stageID,
+                    revision: payload.planRevision
+                )
             }
         }
 
@@ -250,7 +295,12 @@ public enum AppleNotificationRouter {
             // so. The task stays open, the follow-up ladder escalates, and the
             // user hears about it again — which is the entire reason this app
             // exists rather than a calendar alert.
-            return .outcome(.dismissed, task: taskID, stage: payload.stageID)
+            return .outcome(
+                .dismissed,
+                task: taskID,
+                stage: payload.stageID,
+                revision: payload.planRevision
+            )
 
         case AppleNotificationResponse.defaultActionIdentifier:
             // Tapped it open. That is engagement, but it is not a claim about

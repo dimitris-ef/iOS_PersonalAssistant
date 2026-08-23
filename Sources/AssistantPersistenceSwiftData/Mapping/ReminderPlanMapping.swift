@@ -46,7 +46,8 @@ enum ReminderPlanMapper {
             completionRequiresExplicitConfirmation: plan.completion.requiresExplicitConfirmation,
             completionMarkMissedAfter: plan.completion.markMissedAfter,
             createdAt: plan.createdAt,
-            generatedBy: plan.generatedBy
+            generatedBy: plan.generatedBy,
+            revision: plan.revision
         )
     }
 
@@ -114,6 +115,11 @@ enum ReminderPlanMapper {
                 found.offsetMinute = offset.minute
                 found.offsetDate = offset.date
                 found.stateRaw = stage.state.rawValue
+                found.deliveryStateRaw = stage.delivery.state.rawValue
+                found.deliveryLastAttemptAt = stage.delivery.lastAttemptAt
+                found.deliveryAttempts = stage.delivery.attempts
+                found.deliveryFailureReason = stage.delivery.failureReason
+                found.deliveryScheduledRevision = stage.delivery.scheduledRevision
                 found.stateChangedAt = stage.stateChangedAt
                 found.scheduledFor = stage.scheduledFor
             } else {
@@ -132,6 +138,11 @@ enum ReminderPlanMapper {
                     offsetMinute: offset.minute,
                     offsetDate: offset.date,
                     stateRaw: stage.state.rawValue,
+                    deliveryStateRaw: stage.delivery.state.rawValue,
+                    deliveryLastAttemptAt: stage.delivery.lastAttemptAt,
+                    deliveryAttempts: stage.delivery.attempts,
+                    deliveryFailureReason: stage.delivery.failureReason,
+                    deliveryScheduledRevision: stage.delivery.scheduledRevision,
                     stateChangedAt: stage.stateChangedAt,
                     scheduledFor: stage.scheduledFor
                 )
@@ -184,7 +195,8 @@ enum ReminderPlanMapper {
                 markMissedAfter: row.completionMarkMissedAfter
             ),
             createdAt: row.createdAt,
-            generatedBy: row.generatedBy
+            generatedBy: row.generatedBy,
+            revision: row.revision
         )
     }
 
@@ -214,7 +226,21 @@ enum ReminderPlanMapper {
                 ReminderStageState(rawValue: $0) ?? .pending
             } ?? .pending,
             stateChangedAt: row.stateChangedAt,
-            scheduledFor: row.scheduledFor
+            scheduledFor: row.scheduledFor,
+            // A row written before schema V9 has no recorded delivery state,
+            // which reads back as `planned` — "the app has no record of having
+            // scheduled this". That is the truth and also the safe direction:
+            // the next reconciliation diffs the desired schedule against what
+            // iOS actually holds, so a request the old build already made is
+            // recognised and left alone rather than duplicated.
+            delivery: StageDelivery(
+                state: row.deliveryStateRaw
+                    .flatMap(StageDeliveryState.init(rawValue:)) ?? .planned,
+                lastAttemptAt: row.deliveryLastAttemptAt,
+                attempts: row.deliveryAttempts,
+                failureReason: row.deliveryFailureReason,
+                scheduledRevision: row.deliveryScheduledRevision
+            )
         )
     }
 

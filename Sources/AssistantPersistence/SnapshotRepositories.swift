@@ -19,6 +19,7 @@ private enum SnapshotKey {
     static let settings = "settings"
     static let profile = "profile"
     static let localModels = "local-models"
+    static let supportActions = "support-actions"
 }
 
 public actor SnapshotConversationRepository: ConversationRepository {
@@ -388,6 +389,56 @@ public actor SnapshotLocalModelRepository: LocalModelRepository {
     }
 }
 
+/// Handled support actions, snapshotted.
+///
+/// Keyed by the action's derived identity, so claiming the same (stage, action,
+/// revision) twice is a dictionary insert that reports it was already there —
+/// which is exactly the answer the caller needs, with no comparison logic of
+/// its own.
+public actor SnapshotSupportActionLedger: SupportActionLedger {
+    private let store: any SnapshotStore
+    private var storage: [HandledSupportAction.ID: HandledSupportAction] = [:]
+    private var isLoaded = false
+
+    public init(store: any SnapshotStore) {
+        self.store = store
+    }
+
+    public func claim(_ action: HandledSupportAction) async throws -> Bool {
+        try await loadIfNeeded()
+        guard storage[action.id] == nil else { return false }
+        storage[action.id] = action
+        try await persist()
+        return true
+    }
+
+    public func wasHandled(_ id: HandledSupportAction.ID) async throws -> Bool {
+        try await loadIfNeeded()
+        return storage[id] != nil
+    }
+
+    public func prune(before date: Date) async throws {
+        try await loadIfNeeded()
+        let before = storage.count
+        storage = storage.filter { $0.value.handledAt >= date }
+        guard storage.count != before else { return }
+        try await persist()
+    }
+
+    private func loadIfNeeded() async throws {
+        guard !isLoaded else { return }
+        isLoaded = true
+        guard let data = try await store.read(key: SnapshotKey.supportActions) else { return }
+        let decoded = try JSONCoding.decoder.decode([HandledSupportAction].self, from: data)
+        storage = Dictionary(uniqueKeysWithValues: decoded.map { ($0.id, $0) })
+    }
+
+    private func persist() async throws {
+        let data = try JSONCoding.encoder.encode(Array(storage.values))
+        try await store.write(data, key: SnapshotKey.supportActions)
+    }
+}
+
 public actor SnapshotUserProfileRepository: UserProfileRepository {
     private let store: any SnapshotStore
     private var cached: UserProfile?
@@ -476,6 +527,7 @@ extension AssistantRepositories {
             settings: SnapshotSettingsRepository(store: store),
             profile: SnapshotUserProfileRepository(store: store),
             localModels: SnapshotLocalModelRepository(store: store),
+            supportActions: SnapshotSupportActionLedger(store: store),
             actionPlans: SnapshotActionPlanRepository(store: store)
         )
     }

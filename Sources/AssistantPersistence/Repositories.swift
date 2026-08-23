@@ -124,6 +124,39 @@ public protocol LocalModelRepository: Sendable {
     func delete(id: AIModelIdentifier) async throws
 }
 
+/// Support actions that have already been applied.
+///
+/// ## Why this exists
+///
+/// A notification callback is not delivered once. iOS may hand the same
+/// response to the app again after a crash, the user may tap a button on a
+/// notification that is already being processed, and a cold launch triggered by
+/// an action can race a foreground reconciliation that is doing the same work.
+/// Without a record, "Snooze" pressed once becomes two follow-ups.
+///
+/// ## Why it is not the tool execution ledger
+///
+/// Section 53 asks for reuse where it fits cleanly. It does not: the Part 7
+/// ledger is scoped to one assistant turn and held in memory, because its job
+/// is stopping an agent loop repeating itself inside a single turn. A duplicate
+/// notification callback can arrive minutes later, in a process that has just
+/// launched to handle it, with no turn in sight. Nothing in-memory can see
+/// that. Two small mechanisms that each do one job beat one that fits neither.
+///
+/// ## Bounded
+///
+/// Rows are pruned by age rather than kept forever — see `prune(before:)`. An
+/// action from six months ago cannot arrive again, and a table that only grows
+/// is a table that eventually costs a launch.
+public protocol SupportActionLedger: Sendable {
+    /// Records that an action has been applied. Returns false when it was
+    /// already there, which is the caller's signal to do nothing.
+    func claim(_ action: HandledSupportAction) async throws -> Bool
+    func wasHandled(_ id: HandledSupportAction.ID) async throws -> Bool
+    /// Drops records older than `date`.
+    func prune(before date: Date) async throws
+}
+
 public protocol SettingsRepository: Sendable {
     func settings() async throws -> AssistantSettings
     func update(_ settings: AssistantSettings) async throws
@@ -153,6 +186,9 @@ public struct AssistantRepositories: Sendable {
     /// Model files the user has downloaded. Rows only — the weights live on
     /// the filesystem.
     public let localModels: any LocalModelRepository
+    /// Support actions already applied, so a repeated notification callback
+    /// changes nothing the second time.
+    public let supportActions: any SupportActionLedger
     /// What the assistant did, so a loaded conversation still shows its cards.
     public let actionPlans: any ActionPlanRepository
 
@@ -167,6 +203,7 @@ public struct AssistantRepositories: Sendable {
         settings: any SettingsRepository,
         profile: any UserProfileRepository,
         localModels: any LocalModelRepository,
+        supportActions: any SupportActionLedger,
         actionPlans: any ActionPlanRepository
     ) {
         self.conversations = conversations
@@ -179,6 +216,7 @@ public struct AssistantRepositories: Sendable {
         self.settings = settings
         self.profile = profile
         self.localModels = localModels
+        self.supportActions = supportActions
         self.actionPlans = actionPlans
     }
 }

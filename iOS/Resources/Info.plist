@@ -110,5 +110,38 @@
 	<string>Personal Assistant uses the microphone when you choose to speak to the assistant.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>What you say is turned into text so the assistant can act on it. Your recordings are not saved.</string>
+	<!--
+	  Background reliability.
+
+	  `fetch` is the only background mode this app declares, and it is worth
+	  saying what it is *not* for: reminders. Those are scheduled with
+	  UNUserNotificationCenter and AlarmKit, which iOS delivers whether or not
+	  this process exists — that is the whole architecture, and it is why the
+	  app does not need to keep running.
+
+	  What the refresh buys is an *earlier* correction. When a reminder has been
+	  ignored, the app has to run again before it can notice and escalate; a
+	  granted refresh means that can happen before the user next opens the app
+	  rather than only when they do. iOS decides whether and when to grant one,
+	  based on battery, charging and how often the app is used, so nothing about
+	  correctness may depend on it — and nothing does.
+
+	  No `processing`, no `audio`, no `location`. Adding a background mode the
+	  app does not genuinely need is both an App Review problem and a battery
+	  one, and none of them would make a notification arrive any more reliably.
+	-->
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>fetch</string>
+	</array>
+	<!--
+	  Every identifier the app may register with BGTaskScheduler. iOS matches
+	  registrations against this list at launch and traps on a mismatch, so the
+	  string here and the constant in `AppLifecycleCoordinator` must agree.
+	-->
+	<key>BGTaskSchedulerPermittedIdentifiers</key>
+	<array>
+		<string>com.example.personalassistant.refresh</string>
+	</array>
 </dict>
 </plist>

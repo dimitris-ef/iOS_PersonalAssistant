@@ -78,11 +78,19 @@ public struct FollowUpService: Sendable {
     /// "Mark complete" in the task list rather than answering a notification.
     /// The lifecycle is the same either way, which is the point: the UI has no
     /// private path to a task's status.
+    ///
+    /// `revision` is the plan revision the *caller* believes it is answering
+    /// about. A notification carries the revision it was scheduled under, so a
+    /// button pressed on a reminder that has since been replaced arrives with a
+    /// stale number and is declined (section 18). Nil means "I have no claim
+    /// about which revision this is" — the UI's own buttons, which are looking
+    /// at current state — and is always accepted.
     @discardableResult
     public func handle(
         outcome: ReminderOutcome,
         forTask taskID: TaskItem.ID,
-        stageID: ReminderStage.ID? = nil
+        stageID: ReminderStage.ID? = nil,
+        revision: Int? = nil
     ) async throws -> FollowUpResult {
         guard let task = try await repositories.tasks.task(id: taskID) else {
             throw RepositoryError.notFound(taskID.description)
@@ -97,13 +105,57 @@ public struct FollowUpService: Sendable {
             return try await applyWithoutPlan(outcome: outcome, task: task)
         }
 
-        let decision = coordinator.apply(
+        // Section 18. A callback from a superseded plan must not mutate the
+        // current one. The classic sequence: stage A is scheduled, the event
+        // moves, A is replaced by B — and then the notification for A, which
+        // has been sitting on the lock screen the whole time, is finally
+        // tapped. Applying it would resurrect a reminder that no longer exists
+        // and, worse, could reopen support the user has already settled.
+        //
+        // Only a *lower* revision is refused. A higher one cannot legitimately
+        // happen, and if it somehow did — a restored backup, a clock that went
+        // backwards — refusing it would be the app arguing with the user about
+        // a button they just pressed.
+        if let revision, revision < plan.revision {
+            return FollowUpResult(task: task, plan: plan, didChange: false)
+        }
+
+        // Sections 49 to 52. Notification callbacks arrive more than once: iOS
+        // can redeliver after a crash, a cold launch triggered by a lock-screen
+        // action can race a foreground pass doing the same work, and the user
+        // can tap twice. The claim is persistent and derived from (stage,
+        // action, revision), so the second arrival — in this process or the
+        // next — finds the row already there and changes nothing.
+        //
+        // Only stage-addressed outcomes are claimed. An action taken in the UI
+        // has no stage and no duplicate to defend against: the user pressing
+        // "Done" twice is looking at a task that is already done.
+        if let stageID {
+            let claim = HandledSupportAction(
+                stageID: stageID,
+                taskID: task.id,
+                action: Self.actionName(for: outcome),
+                revision: plan.revision,
+                handledAt: dateProvider.now
+            )
+            let isFirst = (try? await repositories.supportActions.claim(claim)) ?? true
+            guard isFirst else {
+                return FollowUpResult(task: task, plan: plan, didChange: false)
+            }
+        }
+
+        var decision = coordinator.apply(
             outcome: outcome,
             toStage: stageID,
             task: task,
             plan: plan,
             context: try await planningContext()
         )
+        // One change to the plan, one bump. Recorded here rather than inside
+        // the coordinator so the pure decision stays a pure function of its
+        // inputs — a coordinator that incremented a counter would return a
+        // different value for the same arguments.
+        if decision.didChange { decision.plan.touch() }
 
         try await persist(decision)
 
@@ -117,44 +169,79 @@ public struct FollowUpService: Sendable {
         )
     }
 
-    /// Brings pending reminders up to date with the clock.
+    /// Brings pending reminders up to date with the clock, for one task at a
+    /// time.
     ///
-    /// Call this when the app comes back to the foreground. Anything still
-    /// pending after its scheduled time, on a task nobody resolved, becomes
-    /// missed — and missed produces the next intervention rather than silence.
+    /// ## Where the whole-store version went
     ///
-    /// Without this a reminder that fired while the app was closed would sit
-    /// `pending` forever and support would quietly stop, which is the exact
-    /// failure this milestone exists to prevent.
+    /// This used to walk every outstanding task and is now the per-task half of
+    /// that job, because Part 11 needs the sweep to do more than reminders:
+    /// routines have to be generated first, the OS schedule has to be diffed
+    /// afterwards, and the whole thing has to be single-flighted, bounded and
+    /// cancellable. That belongs in ``SupportReconciliationService``, which
+    /// owns the order (section 59) and calls the same pure coordinator this
+    /// does.
+    ///
+    /// What is left here is what the *engine* needs: bringing one task up to
+    /// date immediately after acting on it, without waiting for a pass.
     @discardableResult
-    public func reconcile() async throws -> [FollowUpResult] {
-        let context = try await planningContext()
-        let tasks = try await repositories.tasks.tasks(matching: .outstanding)
+    public func reconcile(
+        task taskID: TaskItem.ID,
+        policy: SupportCatchUpPolicy = .default
+    ) async throws -> FollowUpResult? {
+        guard let task = try await repositories.tasks.task(id: taskID) else { return nil }
+        guard
+            let planID = task.reminderPlanID,
+            let plan = try await repositories.reminderPlans.plan(id: planID)
+        else { return nil }
 
-        var results: [FollowUpResult] = []
-        for task in tasks {
-            guard let planID = task.reminderPlanID,
-                  let plan = try await repositories.reminderPlans.plan(id: planID)
-            else { continue }
+        let outcome = coordinator.reconcile(
+            task: task,
+            plan: plan,
+            context: try await planningContext(),
+            policy: policy
+        )
+        guard outcome.didChange else { return nil }
 
-            let decisions = coordinator.reconcile(task: task, plan: plan, context: context)
-            guard let last = decisions.last else { continue }
+        try await repositories.reminderPlans.save(outcome.plan)
+        try await repositories.tasks.save(outcome.task)
 
-            // One write per task, from the final state. The intermediate
-            // decisions exist so the attempt count climbs correctly, not so
-            // each one hits the database.
-            try await persist(last, scheduling: decisions.flatMap(\.schedule))
-
-            results.append(
-                FollowUpResult(
-                    task: last.task,
-                    plan: last.plan,
-                    nextReminder: last.schedule.first,
-                    rationale: last.rationale
-                )
+        for stage in outcome.cancel {
+            await cancelPlatformRequest(for: stage)
+        }
+        for reminder in outcome.schedule {
+            try await schedulePlatformRequest(
+                for: reminder,
+                task: outcome.task,
+                revision: outcome.plan.revision
             )
         }
-        return results
+
+        return FollowUpResult(
+            task: outcome.task,
+            plan: outcome.plan,
+            nextReminder: outcome.schedule.first,
+            rationale: outcome.rationale
+        )
+    }
+
+    /// A stable name for an outcome, for the handled-action identity.
+    ///
+    /// Spelled out rather than derived from the enum, because the associated
+    /// values must not enter it: two snoozes to different times are still one
+    /// "the user pressed Snooze on this stage", and letting the target date
+    /// into the identity would make every repeat a distinct action and defeat
+    /// the whole mechanism.
+    static func actionName(for outcome: ReminderOutcome) -> String {
+        switch outcome {
+        case .delivered: return "delivered"
+        case .snoozed: return "snoozed"
+        case .dismissed: return "dismissed"
+        case .acknowledged: return "acknowledged"
+        case .missed: return "missed"
+        case .completed: return "completed"
+        case .cancelled: return "cancelled"
+        }
     }
 
     // MARK: Persistence and platform
@@ -183,7 +270,11 @@ public struct FollowUpService: Sendable {
             await cancelPlatformRequest(for: stage)
         }
         for reminder in extra ?? decision.schedule {
-            try await schedulePlatformRequest(for: reminder, task: decision.task)
+            try await schedulePlatformRequest(
+                for: reminder,
+                task: decision.task,
+                revision: decision.plan.revision
+            )
         }
     }
 
@@ -196,7 +287,8 @@ public struct FollowUpService: Sendable {
     /// nothing above it.
     private func schedulePlatformRequest(
         for reminder: ScheduledReminder,
-        task: TaskItem
+        task: TaskItem,
+        revision: Int
     ) async throws {
         switch reminder.channel {
         case .alarm:
@@ -206,7 +298,8 @@ public struct FollowUpService: Sendable {
                     label: reminder.title,
                     fireDate: reminder.fireDate,
                     allowsSnooze: true,
-                    relatedTaskID: task.id
+                    relatedTaskID: task.id,
+                    planRevision: revision
                 )
             )
         case .notification, .reminderList:
@@ -223,7 +316,11 @@ public struct FollowUpService: Sendable {
                     escalation: reminder.escalation,
                     requiresCompletionConfirmation: reminder.requiresConfirmation,
                     relatedTaskID: task.id,
-                    stageID: reminder.stageID
+                    stageID: reminder.stageID,
+                    // Carried into `userInfo` so the answer that comes back can
+                    // be checked against the plan as it stands then. See
+                    // `handle(outcome:forTask:stageID:revision:)`.
+                    planRevision: revision
                 )
             )
         }

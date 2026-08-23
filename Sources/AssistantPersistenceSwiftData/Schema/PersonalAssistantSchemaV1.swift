@@ -496,6 +496,13 @@ public final class SDReminderPlan {
     public var createdAt: Date
     public var generatedBy: String
 
+    /// Schema V9. How many times the plan has been recalculated.
+    ///
+    /// Declared with a default of 1 rather than as optional: every plan has
+    /// been through at least one revision by definition, and a nil here would
+    /// mean "unknown", which every comparison would then have to handle.
+    public var revision: Int = 1
+
     /// Stages are their own entity rather than an encoded array: they are the
     /// part of a plan most likely to be queried and updated one at a time
     /// ("which stage fires next", "mark this stage acknowledged"), and the part
@@ -596,6 +603,20 @@ public final class SDReminderStage {
     /// anchor, and on rows predating schema V2.
     public var scheduledFor: Date?
 
+    // MARK: Schema V9 — platform delivery
+    //
+    // Whether iOS is actually holding a request for this stage, kept apart from
+    // `stateRaw` because they answer different questions: `stateRaw` is what
+    // became of the reminder for the user, this is whether the OS was ever
+    // successfully asked. All optional or defaulted, so V8 → V9 is inferrable;
+    // a row written before this reads back as `planned`, which is the honest
+    // answer — the app has no record of having scheduled it.
+    public var deliveryStateRaw: String?
+    public var deliveryLastAttemptAt: Date?
+    public var deliveryAttempts: Int = 0
+    public var deliveryFailureReason: String?
+    public var deliveryScheduledRevision: Int?
+
     public var plan: SDReminderPlan?
 
     public init(
@@ -614,7 +635,12 @@ public final class SDReminderStage {
         offsetDate: Date?,
         stateRaw: String? = nil,
         stateChangedAt: Date? = nil,
-        scheduledFor: Date? = nil
+        scheduledFor: Date? = nil,
+        deliveryStateRaw: String? = nil,
+        deliveryLastAttemptAt: Date? = nil,
+        deliveryAttempts: Int = 0,
+        deliveryFailureReason: String? = nil,
+        deliveryScheduledRevision: Int? = nil
     ) {
         self.id = id
         self.kindRaw = kindRaw
@@ -632,6 +658,11 @@ public final class SDReminderStage {
         self.stateRaw = stateRaw
         self.stateChangedAt = stateChangedAt
         self.scheduledFor = scheduledFor
+        self.deliveryStateRaw = deliveryStateRaw
+        self.deliveryLastAttemptAt = deliveryLastAttemptAt
+        self.deliveryAttempts = deliveryAttempts
+        self.deliveryFailureReason = deliveryFailureReason
+        self.deliveryScheduledRevision = deliveryScheduledRevision
     }
 }
 

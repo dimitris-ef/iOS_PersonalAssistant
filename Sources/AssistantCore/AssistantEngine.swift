@@ -104,6 +104,18 @@ public final class AssistantEngine: Sendable {
     /// blunter one.
     public let memoryMaintenance: MemoryMaintenanceService
 
+    /// Works out what happened while the app was not running.
+    ///
+    /// Exposed here for the same reason the others are: there must be exactly
+    /// one route into a pass, and the app's lifecycle coordinator needs it. It
+    /// is an actor, and single-flighted, so several callers asking at once is
+    /// one pass rather than a race (sections 83 and 84).
+    ///
+    /// Note what it is *not* given: the provider registry. Section 44 is a hard
+    /// requirement, and the way to keep it is to make it structurally
+    /// impossible rather than a rule someone has to remember.
+    public let reconciliation: SupportReconciliationService
+
     public init(
         providers: AIProviderRegistry,
         repositories: AssistantRepositories,
@@ -115,6 +127,10 @@ public final class AssistantEngine: Sendable {
         promptBuilder: SystemPromptBuilder = SystemPromptBuilder(),
         timing: FollowUpTiming = .default,
         limits: AgentLimits = .default,
+        /// Bounds on catch-up after a long absence: the grace period, how many
+        /// historical stages are applied individually, how far escalation may
+        /// climb in one pass, and the scheduling horizon.
+        catchUpPolicy: SupportCatchUpPolicy = .default,
         /// The memory encoder, if this build has one.
         ///
         /// Deliberately a parameter of the engine rather than something read
@@ -123,7 +139,8 @@ public final class AssistantEngine: Sendable {
         /// indexed, and wiring the two together would mean switching to the
         /// remote provider changed what the assistant could recall.
         semanticEncoder: (any SemanticEncoder)? = nil,
-        logger: any AgentLogger = SilentAgentLogger()
+        logger: any AgentLogger = SilentAgentLogger(),
+        reconciliationLogger: (any ReconciliationLogger)? = nil
     ) {
         self.providers = providers
         self.repositories = repositories
@@ -155,6 +172,15 @@ public final class AssistantEngine: Sendable {
             repositories: repositories,
             encoder: semanticEncoder,
             dateProvider: dateProvider
+        )
+        self.reconciliation = SupportReconciliationService(
+            repositories: repositories,
+            services: services,
+            routines: self.routines,
+            dateProvider: dateProvider,
+            policy: catchUpPolicy,
+            timing: timing,
+            logger: reconciliationLogger
         )
         self.executor = executor
             ?? DefaultToolExecutor(

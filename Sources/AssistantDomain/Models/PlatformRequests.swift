@@ -50,6 +50,19 @@ public struct NotificationRequest: Identifiable, Hashable, Codable, Sendable {
     public var requiresCompletionConfirmation: Bool
     public var relatedTaskID: TaskItem.ID?
     public var stageID: ReminderStage.ID?
+    /// The plan revision this request was created from.
+    ///
+    /// Travels into the notification's `userInfo` and comes back with the
+    /// user's answer. When it does not match the plan's current revision, the
+    /// button they pressed belonged to a schedule that has since been replaced
+    /// — a reminder for a time that moved, or a stage that was superseded — and
+    /// the router declines it rather than resurrecting it.
+    ///
+    /// Optional because a request scheduled by a build that predates revisions
+    /// has none, and a missing revision is treated as "cannot prove this is
+    /// stale", not as "ignore it". Silently dropping every reminder in flight
+    /// across an app update would be the worse failure.
+    public var planRevision: Int?
 
     public init(
         id: ID = ID(),
@@ -59,7 +72,8 @@ public struct NotificationRequest: Identifiable, Hashable, Codable, Sendable {
         escalation: EscalationLevel = .standard,
         requiresCompletionConfirmation: Bool = true,
         relatedTaskID: TaskItem.ID? = nil,
-        stageID: ReminderStage.ID? = nil
+        stageID: ReminderStage.ID? = nil,
+        planRevision: Int? = nil
     ) {
         self.id = id
         self.title = title
@@ -69,6 +83,7 @@ public struct NotificationRequest: Identifiable, Hashable, Codable, Sendable {
         self.requiresCompletionConfirmation = requiresCompletionConfirmation
         self.relatedTaskID = relatedTaskID
         self.stageID = stageID
+        self.planRevision = planRevision
     }
 }
 
@@ -84,6 +99,9 @@ public struct AlarmRequest: Identifiable, Hashable, Codable, Sendable {
     public var maximumSnoozes: Int
     public var recurrence: RecurrenceRule?
     public var relatedTaskID: TaskItem.ID?
+    /// The plan revision this alarm was created from. See
+    /// ``NotificationRequest/planRevision``.
+    public var planRevision: Int?
 
     public init(
         id: ID = ID(),
@@ -93,7 +111,8 @@ public struct AlarmRequest: Identifiable, Hashable, Codable, Sendable {
         snoozeDuration: TimeInterval = TimeSpan.minutes(9),
         maximumSnoozes: Int = 3,
         recurrence: RecurrenceRule? = nil,
-        relatedTaskID: TaskItem.ID? = nil
+        relatedTaskID: TaskItem.ID? = nil,
+        planRevision: Int? = nil
     ) {
         self.id = id
         self.label = label
@@ -103,6 +122,7 @@ public struct AlarmRequest: Identifiable, Hashable, Codable, Sendable {
         self.maximumSnoozes = maximumSnoozes
         self.recurrence = recurrence
         self.relatedTaskID = relatedTaskID
+        self.planRevision = planRevision
     }
 }
 
