@@ -1,4 +1,6 @@
+import AssistantDomain
 import SwiftUI
+import SystemSurfaces
 
 /// The four primary destinations, plus the presentations that can appear over
 /// any of them.
