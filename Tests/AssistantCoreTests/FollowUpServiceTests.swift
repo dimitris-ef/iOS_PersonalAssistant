@@ -140,19 +140,18 @@ final class FollowUpServiceTests: XCTestCase {
         pendingPlan.stages[0].state = .pending
         try await repositories.reminderPlans.save(pendingPlan)
 
-        let results = try await service.reconcile()
+        let result = try await service.reconcile(task: task.id)
 
-        XCTAssertEqual(results.count, 1)
-        XCTAssertEqual(results.first?.task.status, .needsFollowUp)
+        let recovered = try XCTUnwrap(result)
+        XCTAssertEqual(recovered.task.status, .needsFollowUp)
 
         let storedPlan = try await repositories.reminderPlans.plan(id: plan.id)
         XCTAssertEqual(storedPlan?.stage(id: plan.stages[0].id)?.state, .missed)
         XCTAssertEqual(storedPlan?.pendingStages.count, 1)
 
         // Running it again finds nothing new to do.
-        let again = try await service.reconcile()
-        XCTAssertTrue(again.isEmpty)
-        XCTAssertNotNil(task.id)
+        let again = try await service.reconcile(task: task.id)
+        XCTAssertNil(again)
     }
 
     // MARK: Resolution

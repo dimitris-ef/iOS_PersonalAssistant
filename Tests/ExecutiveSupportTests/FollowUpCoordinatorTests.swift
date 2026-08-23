@@ -163,16 +163,18 @@ final class FollowUpCoordinatorTests: XCTestCase {
         f.task.status = .reminded
 
         let later = now.addingTimeInterval(TimeSpan.hours(1))
-        let decisions = FollowUpCoordinator().reconcile(
+        let recovered = FollowUpCoordinator().reconcile(
             task: f.task,
             plan: f.plan,
             context: context(at: later)
         )
 
-        XCTAssertEqual(decisions.count, 1)
-        XCTAssertEqual(decisions.first?.task.status, .needsFollowUp)
-        XCTAssertEqual(decisions.first?.plan.stages.first?.state, .missed)
-        XCTAssertEqual(decisions.first?.plan.pendingStages.count, 1)
+        XCTAssertTrue(recovered.didChange)
+        XCTAssertEqual(recovered.catchUp.missedStages.count, 1)
+        XCTAssertEqual(recovered.task.status, .needsFollowUp)
+        XCTAssertEqual(recovered.plan.stages.first?.state, .missed)
+        XCTAssertEqual(recovered.plan.pendingStages.count, 1)
+        XCTAssertEqual(recovered.schedule.count, 1)
     }
 
     /// A reminder cannot sit pending forever, but nor may reconciliation keep
@@ -186,17 +188,17 @@ final class FollowUpCoordinatorTests: XCTestCase {
         let later = now.addingTimeInterval(TimeSpan.hours(1))
 
         let first = coordinator.reconcile(task: f.task, plan: f.plan, context: context(at: later))
-        let updated = first.last
         let second = coordinator.reconcile(
-            task: updated?.task ?? f.task,
-            plan: updated?.plan ?? f.plan,
+            task: first.task,
+            plan: first.plan,
             // The follow-up it just created is not yet due.
             context: context(at: later)
         )
 
-        XCTAssertEqual(first.count, 1)
-        XCTAssertTrue(second.isEmpty)
-        XCTAssertEqual(updated?.plan.pendingStages.count, 1)
+        XCTAssertTrue(first.didChange)
+        XCTAssertFalse(second.didChange)
+        XCTAssertTrue(second.catchUp.isEmpty)
+        XCTAssertEqual(first.plan.pendingStages.count, 1)
     }
 
     func testReconciliationIgnoresResolvedTasks() {
@@ -204,12 +206,13 @@ final class FollowUpCoordinatorTests: XCTestCase {
         f.task.status = .completed
         f.plan.stages = [overdueStage()]
 
-        let decisions = FollowUpCoordinator().reconcile(
+        let recovered = FollowUpCoordinator().reconcile(
             task: f.task,
             plan: f.plan,
             context: context(at: now.addingTimeInterval(TimeSpan.hours(2)))
         )
-        XCTAssertTrue(decisions.isEmpty)
+        XCTAssertFalse(recovered.didChange)
+        XCTAssertTrue(recovered.schedule.isEmpty)
     }
 
     // MARK: Idempotency

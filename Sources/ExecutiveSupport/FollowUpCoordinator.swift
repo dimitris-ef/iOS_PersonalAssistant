@@ -280,6 +280,11 @@ public struct FollowUpCoordinator: Sendable {
             currentTask = statusMachine.updated(currentTask, with: transition, at: context.now)
         }
 
+        // Everything the plan already had. What is *not* in this set after the
+        // loop below was created by this pass, which is what makes the
+        // intermediate rounds distinguishable from the plan's own future stages.
+        let preexisting = Set(plan.stages.map(\.id))
+
         var lastDecision: FollowUpDecision?
         for stage in applied {
             let decision = apply(
@@ -295,20 +300,24 @@ public struct FollowUpCoordinator: Sendable {
             lastDecision = decision
         }
 
-        // Only the newest intervention survives. The earlier rounds appended
-        // stages to the plan as they went; those are cancelled here rather than
-        // left pending, or the app would end up asking iOS for all of them
-        // anyway and the compression would have been cosmetic.
+        // Only the newest intervention survives. Each applied round appended a
+        // follow-up as it went, all of them dated *after* the pass began, so
+        // leaving them pending would have the scheduler hand every one of them
+        // to iOS and the compression would have been cosmetic — the backlog
+        // would arrive as three notifications instead of twelve.
+        //
+        // Scoped to stages this pass created. A plan's own future stages — the
+        // final call at the deadline, still legitimately waiting — are not this
+        // method's to withdraw just because an earlier nudge was missed.
+        let keeping = lastDecision?.schedule.first?.stageID
         var superseded: [ReminderStage] = []
-        if let keeping = lastDecision?.schedule.first?.stageID {
-            for index in currentPlan.stages.indices
-            where currentPlan.stages[index].state.isPending
-                && currentPlan.stages[index].id != keeping
-                && (currentPlan.stages[index].scheduledFor ?? .distantFuture) <= context.now
-            {
-                superseded.append(currentPlan.stages[index])
-                currentPlan.stages[index].transition(to: .cancelled, at: context.now)
-            }
+        for index in currentPlan.stages.indices
+        where currentPlan.stages[index].state.isPending
+            && !preexisting.contains(currentPlan.stages[index].id)
+            && currentPlan.stages[index].id != keeping
+        {
+            superseded.append(currentPlan.stages[index])
+            currentPlan.stages[index].transition(to: .cancelled, at: context.now)
         }
 
         // Section 72: elapsed time is evidence that support is not working, and
