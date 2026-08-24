@@ -161,7 +161,9 @@ private struct SpeechModelRow: View {
             if let reason = status.compatibility.reason {
                 Text(reason)
                     .font(.caption)
-                    .foregroundStyle(status.compatibility.permitsDownload ? .secondary : .orange)
+                    .foregroundStyle(
+                        status.compatibility.permitsDownload ? Color.secondary : Color.orange
+                    )
             }
         }
     }

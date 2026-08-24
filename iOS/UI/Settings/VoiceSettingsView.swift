@@ -89,7 +89,7 @@ struct VoiceSettingsView: View {
                 if let availability = availabilities[.localWhisper] {
                     LabeledContent("Status") {
                         Text(availability.summary)
-                            .foregroundStyle(availability.isReady ? .secondary : .orange)
+                            .foregroundStyle(availability.isReady ? Color.secondary : Color.orange)
                     }
                 }
             } header: {
@@ -130,7 +130,7 @@ struct VoiceSettingsView: View {
                 Section {
                     LabeledContent("Status") {
                         Text(availability.summary)
-                            .foregroundStyle(availability.isReady ? .secondary : .orange)
+                            .foregroundStyle(availability.isReady ? Color.secondary : Color.orange)
                     }
                     LabeledContent("Language") {
                         Text(languageName)
