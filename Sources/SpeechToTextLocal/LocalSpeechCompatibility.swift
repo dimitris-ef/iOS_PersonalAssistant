@@ -94,7 +94,9 @@ public struct LocalSpeechResourceEstimator: Sendable {
 
     public static let `default` = LocalSpeechResourceEstimator()
 
-    static let megabyte: Int64 = 1024 * 1024
+    /// Public because the default arguments above are public API, and Swift
+    /// will not let a public default reference an internal constant.
+    public static let megabyte: Int64 = 1024 * 1024
 
     /// Encoder and decoder activation buffers, by size.
     ///

@@ -126,6 +126,10 @@ let package = Package(
         // On-device transcription: the speech-model catalog, its manager, and
         // the provider. Holds no networking of any kind — see the target note.
         .library(name: "SpeechToTextLocal", targets: ["SpeechToTextLocal"]),
+
+        // Transcription by OpenAI. Separate from AIProviderRemote: same
+        // company, same credential, two different decisions.
+        .library(name: "SpeechToTextOpenAI", targets: ["SpeechToTextOpenAI"]),
         .library(name: "MockPlatform", targets: ["MockPlatform"]),
         // The real iPhone: EventKit, UserNotifications, AlarmKit. Apple-only
         // in practice — every framework import is behind `#if canImport`, so
@@ -302,6 +306,14 @@ let package = Package(
             dependencies: ["SpeechToText", "NativeModelKit", "AssistantDomain"]
         ),
 
+        // Cloud transcription.
+        //
+        // Depends on `SpeechToText` and nothing else — in particular not on
+        // `AIProviderRemote`. Section 71: the two providers may share the
+        // credential and HTTPS, not identity, and this target cannot name
+        // `RemoteAIProvider` to borrow it.
+        .target(name: "SpeechToTextOpenAI", dependencies: ["SpeechToText"]),
+
         .target(
             name: "AIProviderLocal",
             dependencies: [
@@ -351,7 +363,10 @@ let package = Package(
         .testTarget(name: "SystemSurfacesTests", dependencies: ["SystemSurfaces"]),
         .testTarget(
             name: "SpeechToTextTests",
-            dependencies: ["SpeechToText", "SpeechToTextLocal", "NativeModelKit"]
+            dependencies: [
+                "SpeechToText", "SpeechToTextLocal", "SpeechToTextOpenAI",
+                "NativeModelKit",
+            ]
         ),
         // Reaches `PortableSHA256`, which is internal — the point of the file
         // is that the fallback and CryptoKit agree, and only a test inside the
