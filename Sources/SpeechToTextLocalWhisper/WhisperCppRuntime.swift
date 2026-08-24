@@ -169,7 +169,11 @@ public actor WhisperCppRuntime: LocalSpeechRuntime {
         // The decode is a long synchronous C call. Running it on the actor's
         // executor would block every other message to this actor — including
         // the `cancelTranscription` that is meant to stop it.
-        let transcript = try await withCheckedThrowingContinuation { continuation in
+        // The continuation is spelled out: every `resume` happens inside a
+        // nested escaping closure, so there is nothing in the outer body for
+        // the compiler to infer the result type from.
+        let transcript: String = try await withCheckedThrowingContinuation {
+            (continuation: CheckedContinuation<String, any Error>) in
             DispatchQueue.global(qos: .userInitiated).async {
                 var params = whisper_full_default_params(WHISPER_SAMPLING_GREEDY)
                 params.n_threads = Int32(threads)

@@ -54,6 +54,9 @@ targets:
       # `AssistantPlatformApple` package target, because `iOS/` has no test
       # target and the mapping decisions in them are worth testing.
       - path: iOS/Platform
+      # The speech-to-text composition root: which providers exist, which
+      # runtime backs the local one, and where the OpenAI credential is read.
+      - path: iOS/Voice
       # Shared with the extensions: the ActivityKit attributes, the widget
       # intents, the App Group store location and the narrow composition an
       # extension is allowed to build. Compiled into the app *and* into the
@@ -98,6 +101,23 @@ targets:
       # AVSpeechSynthesizer, behind a protocol the UI depends on instead.
       - package: PhonePersonalAI
         product: AssistantVoice
+      # Speech-to-text. Separate products so the dependency graph shows what
+      # each provider can reach: SpeechToTextLocal has no networking,
+      # SpeechToTextOpenAI has no assistant provider.
+      - package: PhonePersonalAI
+        product: SpeechToText
+      - package: PhonePersonalAI
+        product: SpeechToTextApple
+      - package: PhonePersonalAI
+        product: SpeechToTextLocal
+      - package: PhonePersonalAI
+        product: SpeechToTextOpenAI
+      # The whisper.cpp adapter. Linking the actual binary is opt-in: generate
+      # with PPAI_WHISPER_RUNTIME=1 for a device build that can transcribe
+      # on-device. Without it this product still builds and links, reporting
+      # the runtime unavailable.
+      - package: PhonePersonalAI
+        product: SpeechToTextLocalWhisper
       - package: PhonePersonalAI
         product: AIProviderApple
       - package: PhonePersonalAI
