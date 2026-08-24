@@ -68,7 +68,14 @@ public enum SHA256Hash {
         return normalized.count == 64 && normalized.allSatisfy(\.isHexDigit)
     }
 
-    static func normalize(_ value: String) -> String {
+    /// Strips the casing, whitespace and `sha256:` prefix that published
+    /// checksums arrive with, so two digests can be compared as written.
+    ///
+    /// Public because callers store the normalized form: a checksum mismatch is
+    /// reported with what was expected, and reporting the raw catalog string
+    /// there would show `SHA256:AB…` against `ab…` and look like a different
+    /// bug than the one that happened.
+    public static func normalize(_ value: String) -> String {
         var text = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         if text.hasPrefix("sha256:") { text.removeFirst("sha256:".count) }
         return text

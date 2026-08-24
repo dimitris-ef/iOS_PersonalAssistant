@@ -117,6 +117,11 @@ let package = Package(
         // (Part 10) and local speech (Part 13) stacks, which are otherwise
         // unrelated — see the target note below.
         .library(name: "NativeModelKit", targets: ["NativeModelKit"]),
+
+        // Speech-to-text: the provider abstraction, its registry, and the
+        // audio boundary. Separate from the assistant's AIProvider family on
+        // purpose — see the target note.
+        .library(name: "SpeechToText", targets: ["SpeechToText"]),
         .library(name: "MockPlatform", targets: ["MockPlatform"]),
         // The real iPhone: EventKit, UserNotifications, AlarmKit. Apple-only
         // in practice — every framework import is behind `#if canImport`, so
@@ -267,6 +272,16 @@ let package = Package(
         // throttling can be tested against a fake clock.
         .target(name: "NativeModelKit", dependencies: ["AssistantDomain"]),
 
+        // Turning captured audio into a string. Nothing more.
+        //
+        // Depends on nothing — not AssistantDomain, not AssistantAI. That is
+        // the architectural claim of Part 13 expressed as a dependency graph:
+        // a transcription provider cannot call the assistant, retrieve a
+        // memory or execute a tool, because none of those types are reachable
+        // from this target. Section 2 is a compile-time property here rather
+        // than a rule somebody has to remember.
+        .target(name: "SpeechToText"),
+
         .target(
             name: "AIProviderLocal",
             dependencies: [
@@ -314,6 +329,7 @@ let package = Package(
 
         .testTarget(name: "AssistantDomainTests", dependencies: ["AssistantDomain"]),
         .testTarget(name: "SystemSurfacesTests", dependencies: ["SystemSurfaces"]),
+        .testTarget(name: "SpeechToTextTests", dependencies: ["SpeechToText"]),
         .testTarget(name: "AssistantToolsTests", dependencies: ["AssistantTools"]),
         .testTarget(name: "ExecutiveSupportTests", dependencies: ["ExecutiveSupport"]),
         .testTarget(
