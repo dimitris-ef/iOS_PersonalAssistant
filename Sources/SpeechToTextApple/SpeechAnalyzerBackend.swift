@@ -15,9 +15,21 @@ extension AppleSpeechToTextProvider {
     /// So it is one entry in a chain rather than a replacement, and this
     /// returns nil on everything older.
     static func makeModernBackend() -> (any AppleTranscriberBackend)? {
+        // Two guards, and they do different jobs.
+        //
+        // `#if compiler(>=6.2)` is a *compile-time* check that the SDK has
+        // these types at all. `@available` is a *runtime* check that the
+        // device does. Only the first one keeps this file compiling on an
+        // older SDK: `SpeechTranscriber` lives inside the existing `Speech`
+        // module, so `canImport(Speech)` is true on both and cannot tell them
+        // apart, and an availability attribute does not stop the compiler
+        // needing the symbol to exist. The simulator lane builds on macOS 15
+        // and found that out.
+        #if compiler(>=6.2)
         if #available(iOS 26.0, macOS 26.0, *) {
             return SpeechAnalyzerBackend()
         }
+        #endif
         return nil
     }
 }
@@ -32,6 +44,7 @@ extension AppleSpeechToTextProvider {
 /// completes on a real device, how far behind the speaker volatile results
 /// arrive, and which locales report themselves installed all need an iPhone —
 /// see `Docs/SPEECH.md`.
+#if compiler(>=6.2)
 @available(iOS 26.0, macOS 26.0, *)
 struct SpeechAnalyzerBackend: AppleTranscriberBackend {
     let kind: AppleTranscriberKind = .speechAnalyzer
@@ -198,4 +211,5 @@ struct SpeechAnalyzerBackend: AppleTranscriberBackend {
         return language(candidate) == language(wanted)
     }
 }
+#endif
 #endif

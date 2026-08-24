@@ -136,6 +136,13 @@ those fails. A failure is reported as a failure.
   when downsampling a 48 kHz microphone.
 - **Cancellation of a Whisper decode is prompt, not instantaneous.** It is a C
   abort callback the decode loop checks between steps.
+- **The `SpeechAnalyzer` backend is compiled only on an SDK that has it.**
+  `@available` is a runtime guard and does not stop the compiler needing the
+  symbols to exist; `SpeechTranscriber` lives inside the existing `Speech`
+  module, so `canImport(Speech)` is true on an older SDK and cannot tell them
+  apart. The file is therefore wrapped in `#if compiler(>=6.2)` as well. A build
+  on an older Xcode gets the chain without its first entry, which is exactly
+  what that device would do at runtime anyway.
 
 ## Device-only validation remaining
 
