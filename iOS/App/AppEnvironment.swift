@@ -237,10 +237,16 @@ final class AppEnvironment: Sendable {
         let platform: AppleLivePlatform? = launch.seedsDemoData ? nil : PlatformServices.live()
         let services = platform?.services ?? PlatformServices.mock()
 
-        // Voice follows the same rule as the platform services, for the same
-        // reason: a seeded launch is a demonstration, and CI screenshot runs
-        // have no microphone. The mock renders the voice UI without ever
-        // opening an audio session.
+        // TODO-XCODE: `KeychainCredentialStore` has not been verified against a
+        // real Keychain. If it misbehaves, the app still runs — a failed read
+        // reads as "no credential", which shows as "Setup needed".
+        //
+        // Note what is *not* in the paragraph above: SwiftData. The API key
+        // lives here, in the Keychain, and never enters the database. The store
+        // holds the provider's identifier and nothing that could authenticate
+        // as anyone.
+        let credentialStore: any CredentialStore = KeychainCredentialStore()
+
         // Speech-to-text, Part 13. The microphone is shared; which engine
         // consumes its samples is a value in settings, read fresh per session.
         let speechSettings = SpeechSelectionBox(store: UserDefaultsSpeechSettingsStore())
@@ -277,16 +283,6 @@ final class AppEnvironment: Sendable {
                 ? VoiceServices.mock().output
                 : VoiceServices.live().output
         )
-
-        // TODO-XCODE: `KeychainCredentialStore` has not been verified against a
-        // real Keychain. If it misbehaves, the app still runs — a failed read
-        // reads as "no credential", which shows as "Setup needed".
-        //
-        // Note what is *not* in the paragraph above: SwiftData. The API key
-        // lives here, in the Keychain, and never enters the database. The store
-        // holds the provider's identifier and nothing that could authenticate
-        // as anyone.
-        let credentialStore: any CredentialStore = KeychainCredentialStore()
         let remoteConfiguration = RemoteAIConfigurationStore()
 
         let remoteProvider = RemoteAIProvider(
