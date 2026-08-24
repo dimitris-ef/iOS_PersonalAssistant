@@ -1,6 +1,7 @@
 import AssistantAI
 import AssistantDomain
 import Foundation
+import NativeModelKit
 
 /// Where one model is in its life on this device.
 ///
@@ -76,35 +77,6 @@ public enum LocalModelLifecycle: Hashable, Sendable {
         case .incompatible(let compatibility): return compatibility.shortLabel
         }
     }
-}
-
-/// How far a download has got.
-///
-/// Carries bytes as well as a fraction because a percentage alone is useless
-/// when the answer to "how long will this take" is "2.3 GB" (section 19).
-public struct LocalModelDownloadProgress: Hashable, Sendable, Codable {
-    public var bytesReceived: Int64
-    /// Nil when the server did not send a length.
-    public var bytesExpected: Int64?
-
-    public init(bytesReceived: Int64, bytesExpected: Int64?) {
-        self.bytesReceived = bytesReceived
-        self.bytesExpected = bytesExpected
-    }
-
-    /// 0…1, or nil when the total is unknown — which the UI must render as an
-    /// indeterminate bar rather than as zero.
-    public var fractionComplete: Double? {
-        guard let bytesExpected, bytesExpected > 0 else { return nil }
-        return min(1, max(0, Double(bytesReceived) / Double(bytesExpected)))
-    }
-
-    public var percentLabel: String {
-        guard let fraction = fractionComplete else { return "" }
-        return "\(Int(fraction * 100))%"
-    }
-
-    public static let zero = LocalModelDownloadProgress(bytesReceived: 0, bytesExpected: nil)
 }
 
 extension LocalModelRecord {

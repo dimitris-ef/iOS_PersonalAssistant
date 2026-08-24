@@ -111,6 +111,12 @@ let package = Package(
         // is the point: a widget extension with `AIProviderLocalLlama` in its
         // graph is an 80 MB widget extension.
         .library(name: "SystemSurfaces", targets: ["SystemSurfaces"]),
+
+        // Generic infrastructure for large native model files: download,
+        // checksum, storage, device resources. Shared by the local LLM
+        // (Part 10) and local speech (Part 13) stacks, which are otherwise
+        // unrelated — see the target note below.
+        .library(name: "NativeModelKit", targets: ["NativeModelKit"]),
         .library(name: "MockPlatform", targets: ["MockPlatform"]),
         // The real iPhone: EventKit, UserNotifications, AlarmKit. Apple-only
         // in practice — every framework import is behind `#if canImport`, so
@@ -248,9 +254,24 @@ let package = Package(
         // Depends on `AssistantPersistence` for the installed-model rows. That
         // is one-way: persistence knows nothing about providers, and the record
         // it stores lives in `AssistantDomain`.
+        // Downloading, verifying and storing large binaries.
+        //
+        // Exists because two unrelated subsystems fetch multi-hundred-megabyte
+        // files onto the phone — llama.cpp weights and Whisper weights — and a
+        // reset connection, a bad checksum and a full disk are the same three
+        // problems in both. What it deliberately does *not* hold is any notion
+        // of what the file is for: the key is a generic parameter, so a speech
+        // model identifier can never be passed where a chat model belongs.
+        //
+        // Depends on `AssistantDomain` only for `DateProvider`, so progress
+        // throttling can be tested against a fake clock.
+        .target(name: "NativeModelKit", dependencies: ["AssistantDomain"]),
+
         .target(
             name: "AIProviderLocal",
-            dependencies: ["AssistantDomain", "AssistantAI", "AssistantPersistence"],
+            dependencies: [
+                "AssistantDomain", "AssistantAI", "AssistantPersistence", "NativeModelKit",
+            ],
             resources: [.process("Resources")]
         ),
 
@@ -330,6 +351,7 @@ let package = Package(
                 "AssistantPersistence",
                 "PersonalMemory",
                 "DevSupport",
+                "NativeModelKit",
                 // For the provider-switch tests: the guarantee that selecting
                 // the on-device model moves none of the user's data is a
                 // property of the whole app, so it is asserted here rather
@@ -368,6 +390,7 @@ let package = Package(
             name: "AIProviderTests",
             dependencies: [
                 "AssistantDomain",
+                "NativeModelKit",
                 "AssistantAI",
                 "AssistantTools",
                 "AIProviderRemote",

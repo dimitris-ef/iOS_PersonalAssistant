@@ -1,6 +1,7 @@
 import AIProviderLocal
 import AssistantDomain
 import Foundation
+import NativeModelKit
 import Observation
 
 /// Screen state for Manage Models.

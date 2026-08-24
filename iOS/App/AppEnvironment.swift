@@ -13,6 +13,7 @@ import AssistantVoice
 import DevSupport
 import Foundation
 import MockPlatform
+import NativeModelKit
 import PersonalMemory
 import PersonalMemoryApple
 import SystemSurfaces

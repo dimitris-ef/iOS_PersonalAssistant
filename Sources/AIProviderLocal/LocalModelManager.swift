@@ -2,6 +2,7 @@ import AssistantAI
 import AssistantDomain
 import AssistantPersistence
 import Foundation
+import NativeModelKit
 
 /// Orchestrates everything about local models except inference.
 ///

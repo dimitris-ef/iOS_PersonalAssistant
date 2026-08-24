@@ -1,6 +1,7 @@
 import AssistantAI
 import AssistantDomain
 import Foundation
+import NativeModelKit
 
 /// What verification concluded about a downloaded file.
 public struct LocalModelVerification: Hashable, Sendable {

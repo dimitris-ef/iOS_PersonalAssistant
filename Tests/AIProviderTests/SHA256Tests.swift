@@ -1,4 +1,5 @@
 import Foundation
+import NativeModelKit
 import XCTest
 @testable import AIProviderLocal
 

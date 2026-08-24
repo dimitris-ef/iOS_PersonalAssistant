@@ -1,5 +1,6 @@
 import AIProviderLocal
 import AssistantDomain
+import NativeModelKit
 import SwiftUI
 
 /// Manage Models: what can be downloaded, what is here, and what is in use.

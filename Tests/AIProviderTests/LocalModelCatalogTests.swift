@@ -1,5 +1,6 @@
 import AssistantAI
 import AssistantDomain
+import NativeModelKit
 import XCTest
 @testable import AIProviderLocal
 

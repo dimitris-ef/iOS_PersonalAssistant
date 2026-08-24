@@ -1,6 +1,7 @@
 import AIProviderLocal
 import AssistantDomain
 import Foundation
+import NativeModelKit
 
 /// How local models are described on screen.
 ///

@@ -1,4 +1,5 @@
 import Foundation
+import NativeModelKit
 
 /// A breakdown of what running one model would cost in memory.
 ///

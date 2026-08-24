@@ -1,4 +1,5 @@
 import Foundation
+import NativeModelKit
 
 /// Whether a model would run on this device, and if not, why not.
 ///

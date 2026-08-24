@@ -5,6 +5,7 @@ import AssistantPersistence
 import AssistantPlatform
 import AssistantTools
 import MockPlatform
+import NativeModelKit
 import PersonalMemory
 import XCTest
 @testable import AssistantCore

@@ -102,6 +102,10 @@ targets:
         product: AIProviderApple
       - package: PhonePersonalAI
         product: AIProviderLocal
+      # Download, checksum and storage for large native model files, shared by
+      # the local LLM and local speech stacks.
+      - package: PhonePersonalAI
+        product: NativeModelKit
       # The llama.cpp adapter. Linking the actual llama.cpp binary is opt-in:
       # generate the project with PPAI_LLAMA_RUNTIME=1 for a device build that
       # can run downloaded models. Without it this product still builds and
