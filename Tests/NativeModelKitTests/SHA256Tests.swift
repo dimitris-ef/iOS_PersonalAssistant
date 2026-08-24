@@ -75,9 +75,19 @@ final class SHA256Tests: XCTestCase {
         XCTAssertEqual(chunked.finalizeHex(), whole.finalizeHex())
     }
 
+    /// Streaming a file from disk agrees with hashing the same bytes in memory.
+    ///
+    /// The file is arbitrary bytes rather than a model: what is under test is
+    /// the chunked read, and using a real model fixture here would tie a
+    /// checksum test to whichever format the app happens to support.
     func testAFileIsHashedFromDisk() throws {
-        let payload = GGUFFixture.header()
-        let url = try GGUFFixture.write(payload)
+        // Larger than the reader's buffer, so the chunked path is exercised.
+        var payload = Data()
+        for index in 0..<200_000 { payload.append(UInt8(index % 251)) }
+
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("sha256-\(UUID().uuidString).bin")
+        try payload.write(to: url)
         defer { try? FileManager.default.removeItem(at: url) }
 
         XCTAssertEqual(

@@ -122,6 +122,10 @@ let package = Package(
         // audio boundary. Separate from the assistant's AIProvider family on
         // purpose — see the target note.
         .library(name: "SpeechToText", targets: ["SpeechToText"]),
+
+        // On-device transcription: the speech-model catalog, its manager, and
+        // the provider. Holds no networking of any kind — see the target note.
+        .library(name: "SpeechToTextLocal", targets: ["SpeechToTextLocal"]),
         .library(name: "MockPlatform", targets: ["MockPlatform"]),
         // The real iPhone: EventKit, UserNotifications, AlarmKit. Apple-only
         // in practice — every framework import is behind `#if canImport`, so
@@ -286,6 +290,18 @@ let package = Package(
         // than a rule somebody has to remember.
         .target(name: "SpeechToText"),
 
+        // Local speech: catalog, download, verification, compatibility, and the
+        // provider that drives a `LocalSpeechRuntime`.
+        //
+        // Note what is absent from the dependency list: `SpeechToTextOpenAI`.
+        // Section 41 forbids a local transcription failure from silently
+        // uploading the user's audio, and the way that is guaranteed is that
+        // this target cannot name the type that would do it.
+        .target(
+            name: "SpeechToTextLocal",
+            dependencies: ["SpeechToText", "NativeModelKit", "AssistantDomain"]
+        ),
+
         .target(
             name: "AIProviderLocal",
             dependencies: [
@@ -333,7 +349,10 @@ let package = Package(
 
         .testTarget(name: "AssistantDomainTests", dependencies: ["AssistantDomain"]),
         .testTarget(name: "SystemSurfacesTests", dependencies: ["SystemSurfaces"]),
-        .testTarget(name: "SpeechToTextTests", dependencies: ["SpeechToText"]),
+        .testTarget(
+            name: "SpeechToTextTests",
+            dependencies: ["SpeechToText", "SpeechToTextLocal", "NativeModelKit"]
+        ),
         // Reaches `PortableSHA256`, which is internal — the point of the file
         // is that the fallback and CryptoKit agree, and only a test inside the
         // module can see both.
