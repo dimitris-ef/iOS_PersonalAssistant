@@ -47,8 +47,11 @@ implementations do.
 
 The Apple framework integrations: the on-device model over Foundation Models;
 the calendar, reminders, notifications and alarms over EventKit,
-UserNotifications and AlarmKit; and **speaking to the assistant** over Speech
-and AVFAudio; and **Siri, Shortcuts and the Action Button** over App Intents. A
+UserNotifications and AlarmKit; and **speaking to the assistant** over one
+shared microphone feeding whichever transcription provider is selected — Apple
+Speech, a downloaded Whisper model running on the phone, or OpenAI — see
+[`Docs/SPEECH.md`](Docs/SPEECH.md). Which engine transcribes and which model
+answers are two independent choices; and **Siri, Shortcuts and the Action Button** over App Intents. A
 shipped build changes the user's actual phone; tests, previews and CI keep the
 mocks. **Widgets, Lock Screen widgets, Live Activities, the Dynamic Island and a
 custom keyboard** exist too, as thin surfaces over the same state — see
@@ -172,6 +175,7 @@ PhonePersonalAI/
     ├── EXECUTIVE-SUPPORT.md Routines, dependencies, preparation, starting
     ├── BACKGROUND.md        Recovery when the app was not running
     ├── SYSTEM-SURFACES.md   Keyboard, widgets, Lock Screen, Dynamic Island
+    ├── SPEECH.md            Interchangeable speech-to-text providers
     ├── MEMORY.md            Retrieval, ranking, deduplication
     └── SEMANTIC-MEMORY.md   Meaning, consolidation, aging, lifecycle
 ```
