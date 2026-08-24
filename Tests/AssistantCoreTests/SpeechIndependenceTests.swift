@@ -143,7 +143,7 @@ final class SpeechIndependenceTests: XCTestCase {
                 // speech attached to it (section 72).
                 let request = try XCTUnwrap(harness.provider.receivedRequests.last)
                 let userText = request.messages.compactMap { message -> String? in
-                    message.role == .user ? message.text : nil
+                    message.role == .user ? message.content : nil
                 }.last
                 XCTAssertEqual(userText, spoken)
             }
@@ -232,8 +232,8 @@ final class SpeechIndependenceTests: XCTestCase {
 
         // Same messages, same tools offered, same everything.
         XCTAssertEqual(
-            typedRequest.messages.map(\.text),
-            spokenRequest.messages.map(\.text)
+            typedRequest.messages.map(\.content),
+            spokenRequest.messages.map(\.content)
         )
         XCTAssertEqual(
             typedRequest.tools.map(\.name).sorted(),
