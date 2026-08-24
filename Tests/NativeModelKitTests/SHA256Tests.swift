@@ -1,7 +1,7 @@
 import Foundation
-import NativeModelKit
 import XCTest
-@testable import AIProviderLocal
+
+@testable import NativeModelKit
 
 /// The checksum machinery, against published vectors.
 ///

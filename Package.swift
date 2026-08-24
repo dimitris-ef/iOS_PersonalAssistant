@@ -245,7 +245,11 @@ let package = Package(
         // layer cannot reach the engine, a provider, a repository or a
         // platform service, because none of them is available to it. It turns
         // speech into a `String` and hands it to a closure.
-        .target(name: "AssistantVoice"),
+        // Voice input and output. Now also the pipeline that connects the
+        // shared microphone to whichever transcription provider is selected —
+        // see `SpeechPipelineInputService`, which is the only thing in Part 13
+        // that knows both Part 5's delegate protocol and the new event stream.
+        .target(name: "AssistantVoice", dependencies: ["SpeechToText"]),
 
         // MARK: AI providers
 
@@ -330,6 +334,10 @@ let package = Package(
         .testTarget(name: "AssistantDomainTests", dependencies: ["AssistantDomain"]),
         .testTarget(name: "SystemSurfacesTests", dependencies: ["SystemSurfaces"]),
         .testTarget(name: "SpeechToTextTests", dependencies: ["SpeechToText"]),
+        // Reaches `PortableSHA256`, which is internal — the point of the file
+        // is that the fallback and CryptoKit agree, and only a test inside the
+        // module can see both.
+        .testTarget(name: "NativeModelKitTests", dependencies: ["NativeModelKit"]),
         .testTarget(name: "AssistantToolsTests", dependencies: ["AssistantTools"]),
         .testTarget(name: "ExecutiveSupportTests", dependencies: ["ExecutiveSupport"]),
         .testTarget(
@@ -391,7 +399,7 @@ let package = Package(
         ),
         .testTarget(
             name: "AssistantVoiceTests",
-            dependencies: ["AssistantVoice"]
+            dependencies: ["AssistantVoice", "SpeechToText"]
         ),
         .testTarget(
             name: "AssistantPlatformAppleTests",
