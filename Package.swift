@@ -130,6 +130,9 @@ let package = Package(
         // Transcription by OpenAI. Separate from AIProviderRemote: same
         // company, same credential, two different decisions.
         .library(name: "SpeechToTextOpenAI", targets: ["SpeechToTextOpenAI"]),
+
+        // Apple's speech recognition, across its three generations of API.
+        .library(name: "SpeechToTextApple", targets: ["SpeechToTextApple"]),
         .library(name: "MockPlatform", targets: ["MockPlatform"]),
         // The real iPhone: EventKit, UserNotifications, AlarmKit. Apple-only
         // in practice — every framework import is behind `#if canImport`, so
@@ -313,6 +316,11 @@ let package = Package(
         // credential and HTTPS, not identity, and this target cannot name
         // `RemoteAIProvider` to borrow it.
         .target(name: "SpeechToTextOpenAI", dependencies: ["SpeechToText"]),
+
+        // The only place `Speech` is imported (section 88). Compiles to an
+        // empty provider chain where the framework does not exist, so the
+        // Linux and Windows development stages keep building.
+        .target(name: "SpeechToTextApple", dependencies: ["SpeechToText"]),
 
         .target(
             name: "AIProviderLocal",
