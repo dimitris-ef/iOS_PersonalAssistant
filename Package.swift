@@ -463,6 +463,11 @@ let package = Package(
                 "PersonalMemory",
                 "DevSupport",
                 "NativeModelKit",
+                // For the speech-independence tests: the claim Part 13 makes is
+                // about everything *above* the transcript being unchanged, and
+                // only a test that can see the engine, the tool pipeline and
+                // the speech pipeline at once can assert it.
+                "SpeechToText",
                 // For the provider-switch tests: the guarantee that selecting
                 // the on-device model moves none of the user's data is a
                 // property of the whole app, so it is asserted here rather
