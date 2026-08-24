@@ -15,6 +15,7 @@ final class SettingsViewModel {
         case modelSelector
         case remoteAI
         case localModels
+        case voice
         case systemSurfaces
         case privacy(PrivacyTopic)
 
@@ -23,6 +24,7 @@ final class SettingsViewModel {
             case .modelSelector: return "model"
             case .remoteAI: return "remote-ai"
             case .localModels: return "local-models"
+            case .voice: return "voice"
             case .systemSurfaces: return "system-surfaces"
             case .privacy(let topic): return "privacy-\(topic.rawValue)"
             }

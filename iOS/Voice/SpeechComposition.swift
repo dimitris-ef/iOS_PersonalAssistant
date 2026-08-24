@@ -152,3 +152,36 @@ struct UserDefaultsSpeechSettingsStore: SpeechSettingsStore {
         defaults.set(value, forKey: key)
     }
 }
+
+/// The speech selection, held mutably and written through to storage.
+///
+/// `AppEnvironment` is immutable and `Sendable`; the selection changes while the
+/// app runs. This is the one mutable cell that bridges them, and it persists on
+/// every write so section 70's guarantee — the choice survives a relaunch —
+/// does not depend on anything remembering to save.
+///
+/// A lock rather than an actor because it is read synchronously from SwiftUI
+/// bindings and from the pipeline's configuration closure, and neither can
+/// await for a value this small.
+final class SpeechSelectionBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private let store: any SpeechSettingsStore
+    private var selection: SpeechSelection
+
+    init(store: any SpeechSettingsStore) {
+        self.store = store
+        self.selection = SpeechSelection.load(from: store)
+    }
+
+    var current: SpeechSelection {
+        lock.lock(); defer { lock.unlock() }
+        return selection
+    }
+
+    func update(_ new: SpeechSelection) {
+        lock.lock()
+        selection = new
+        lock.unlock()
+        new.save(to: store)
+    }
+}

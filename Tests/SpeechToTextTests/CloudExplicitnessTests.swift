@@ -2,8 +2,12 @@ import Foundation
 import NativeModelKit
 import SpeechToText
 import SpeechToTextLocal
-import SpeechToTextOpenAI
 import XCTest
+
+// `@testable` so the redaction test can read `headers`, which is deliberately
+// internal: an API key that any call site can pull out of a request is one that
+// ends up in a log line eventually.
+@testable import SpeechToTextOpenAI
 
 /// The guarantees that would matter most if they were wrong: audio leaves the
 /// device only when the user chose a cloud provider, and a local or Apple

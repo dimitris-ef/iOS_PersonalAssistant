@@ -60,6 +60,8 @@ struct SettingsScreen: View {
                     RemoteAISettingsView()
                 case .localModels:
                     LocalModelsView()
+                case .voice:
+                    VoiceSettingsView()
                 case .systemSurfaces:
                     SystemSurfacesView()
                 case .privacy(let topic):
@@ -198,13 +200,29 @@ struct SettingsScreen: View {
                 LabeledContent("Recognition", value: voice.recognitionMode.description)
             }
 
-            LabeledContent("Language", value: Locale.current.localizedString(
-                forIdentifier: Locale.current.identifier
-            ) ?? Locale.current.identifier)
+            NavigationLink(value: SettingsViewModel.Route.voice) {
+                LabeledContent(
+                    "Speech-to-Text",
+                    value: model.speechProviderDisplayName
+                )
+            }
         } header: {
             Text("Voice")
         } footer: {
-            Text("Spoken replies are off until you turn them on, and answer only what you said out loud unless you also switch on typed replies. Speech is transcribed and the audio discarded — nothing is recorded, and no audio is sent to the AI model.")
+            // Rewritten for Part 13. The old wording promised that no audio
+            // left the device, which was true when Apple Speech was the only
+            // option and would now be a lie whenever OpenAI is selected. What
+            // is still unconditionally true — and is the architectural point —
+            // is that the *assistant* never receives audio: it receives the
+            // transcript, exactly as if it had been typed.
+            Text(
+                "Spoken replies are off until you turn them on, and answer only "
+                    + "what you said out loud unless you also switch on typed "
+                    + "replies. Audio is transcribed and then discarded; nothing "
+                    + "is recorded. The AI model that answers you receives the "
+                    + "text, never the audio. Where transcription happens depends "
+                    + "on the provider you choose in Speech-to-Text."
+            )
         }
         .task { await model.voice?.refreshPermissions() }
     }

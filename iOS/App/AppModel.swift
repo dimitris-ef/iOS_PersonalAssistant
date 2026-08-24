@@ -84,7 +84,11 @@ final class AppModel {
     /// Transient confirmation text shown after an action.
     var banner: BannerMessage?
 
-    private let environment: AppEnvironment
+    /// Internal rather than private so `AppModel`'s own extensions — which
+    /// live in separate files for readability — can reach it. The rule Part 10
+    /// established still holds and is what matters: *views* do not reach past
+    /// `AppModel` into the environment, and none do.
+    let environment: AppEnvironment
 
     var now: Date { environment.dateProvider.now }
     var calendar: Calendar { environment.dateProvider.calendar }
@@ -99,8 +103,8 @@ final class AppModel {
 
     /// Downloading, verifying, loading and deleting local models.
     ///
-    /// Exposed rather than reaching through `environment`, which stays private:
-    /// the model-management screen genuinely drives this service directly —
+    /// Exposed rather than reached through `environment` by views: the
+    /// model-management screen genuinely drives this service directly —
     /// downloads outlive the screen and cancellation has to reach the one that
     /// is running — and routing every call through a wrapper method here would
     /// be a second API to keep in step for no benefit.

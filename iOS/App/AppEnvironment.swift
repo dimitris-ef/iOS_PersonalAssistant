@@ -16,6 +16,10 @@ import MockPlatform
 import NativeModelKit
 import PersonalMemory
 import PersonalMemoryApple
+import SpeechToText
+import SpeechToTextApple
+import SpeechToTextLocal
+import SpeechToTextLocalWhisper
 import SystemSurfaces
 
 /// The composition root: the one place concrete implementations are chosen.
@@ -80,6 +84,43 @@ final class AppEnvironment: Sendable {
     /// vanishing.
     let voice: VoiceServices?
 
+    /// The transcription engines this build has.
+    ///
+    /// Deliberately a *second* registry, alongside `providers`. Section 4: the
+    /// app has two independent provider concepts, and one registry would mean
+    /// one selection.
+    let speechProviders: SpeechToTextProviderRegistry
+
+    /// On-device speech models, when this build has a runtime for them.
+    let speechModels: LocalSpeechModelManager?
+
+    /// The current speech selection, and where it is persisted.
+    ///
+    /// A box rather than a stored value because `AppEnvironment` is immutable
+    /// and the selection changes while the app runs. The box writes through to
+    /// `UserDefaults`, so the answer survives a relaunch (section 70).
+    private let speechSettings: SpeechSelectionBox
+
+    var speechSelection: SpeechSelection { speechSettings.current }
+
+    func updateSpeechSelection(_ selection: SpeechSelection) {
+        speechSettings.update(selection)
+    }
+
+    /// The real microphone, where this platform has one.
+    ///
+    /// Section 9: one capture service for the whole app. On a platform without
+    /// the audio frameworks the unavailable one is returned, so the microphone
+    /// button is shown disabled with a truthful reason rather than opening a
+    /// session that was never going to work.
+    static func liveMicrophone() -> any MicrophoneCaptureService {
+        #if os(iOS) && canImport(AVFAudio)
+        return AVAudioMicrophoneCaptureService()
+        #else
+        return UnavailableMicrophoneCaptureService()
+        #endif
+    }
+
     /// The provider the remote configuration belongs to.
     static let remoteProviderID: AIProviderIdentifier = "remote.openai-compatible"
 
@@ -98,8 +139,14 @@ final class AppEnvironment: Sendable {
         voice: VoiceServices?,
         commands: AssistantCommandService,
         systemSurfaces: SystemSurfaceService,
-        keyboardAssistant: KeyboardAssistantService
+        keyboardAssistant: KeyboardAssistantService,
+        speechProviders: SpeechToTextProviderRegistry,
+        speechModels: LocalSpeechModelManager?,
+        speechSettings: SpeechSelectionBox
     ) {
+        self.speechProviders = speechProviders
+        self.speechModels = speechModels
+        self.speechSettings = speechSettings
         self.systemSurfaces = systemSurfaces
         self.keyboardAssistant = keyboardAssistant
         self.engine = engine
@@ -194,7 +241,42 @@ final class AppEnvironment: Sendable {
         // reason: a seeded launch is a demonstration, and CI screenshot runs
         // have no microphone. The mock renders the voice UI without ever
         // opening an audio session.
-        let voice = launch.seedsDemoData ? VoiceServices.mock() : VoiceServices.live()
+        // Speech-to-text, Part 13. The microphone is shared; which engine
+        // consumes its samples is a value in settings, read fresh per session.
+        let speechSettings = SpeechSelectionBox(store: UserDefaultsSpeechSettingsStore())
+        let speechRuntime = LocalSpeechRuntimeResolver.make()
+        let speechModels = SpeechComposition.speechModelManager(runtime: speechRuntime)
+
+        let speechProviders: SpeechToTextProviderRegistry
+        let microphone: any MicrophoneCaptureService
+        if launch.seedsDemoData {
+            // A seeded launch is a demonstration, and CI screenshot runs have
+            // no microphone. Mock engines render the whole voice UI without
+            // ever opening an audio session.
+            speechProviders = SpeechComposition.mockRegistry()
+            microphone = MockMicrophoneCaptureService()
+        } else {
+            speechProviders = SpeechComposition.liveRegistry(
+                credentialStore: credentialStore,
+                speechModels: speechModels,
+                runtime: speechRuntime
+            )
+            microphone = Self.liveMicrophone()
+        }
+
+        // Part 5's `VoiceServices` is preserved exactly; only the input side is
+        // now a pipeline over interchangeable providers rather than one fixed
+        // recognizer. `VoiceCoordinator` and the composer are unchanged.
+        let voice = VoiceServices(
+            input: SpeechComposition.inputService(
+                microphone: microphone,
+                registry: speechProviders,
+                selection: { speechSettings.current }
+            ),
+            output: launch.seedsDemoData
+                ? VoiceServices.mock().output
+                : VoiceServices.live().output
+        )
 
         // TODO-XCODE: `KeychainCredentialStore` has not been verified against a
         // real Keychain. If it misbehaves, the app still runs — a failed read
@@ -330,7 +412,10 @@ final class AppEnvironment: Sendable {
                 commands: commands,
                 store: surfaceStore,
                 dateProvider: dateProvider
-            )
+            ),
+            speechProviders: speechProviders,
+            speechModels: speechModels,
+            speechSettings: speechSettings
         )
     }
 
