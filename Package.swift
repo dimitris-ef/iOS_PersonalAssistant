@@ -47,6 +47,37 @@ import Foundation
 // Pinning: an upstream build tag, never a branch. Section 83 — `master` moves
 // several times a day, and a dependency that changes underneath CI is a
 // dependency that fails for reasons nobody in this repository can reproduce.
+// whisper.cpp, pinned the same way and for the same reasons.
+//
+// v1.9.2 rather than the newest tag: v1.9.3's release did not publish an
+// XCFramework asset, and a pin has to point at something that exists. Section
+// 21 — a tag, never `master`, which moves several times a day and would make CI
+// fail for reasons nobody in this repository can reproduce.
+//
+// Opt-in behind PPAI_WHISPER_RUNTIME=1 for the same reason llama.cpp is: a
+// 53 MB binary download on every `swift build` is a tax on every developer and
+// every CI run that is not testing the runtime. The `Local model runtime`
+// workflow builds with it on, so the adapter is compiled and linked on every
+// change to it.
+let whisperVersion = "v1.9.2"
+let whisperChecksum = "af74fed13ea7f2d5ca2a39d9f58ec177713fafd7cab63aef4e27b79f3ceca80b"
+let whisperRuntimeEnabled = ProcessInfo.processInfo.environment["PPAI_WHISPER_RUNTIME"] == "1"
+
+let whisperBinaryTargets: [Target] = whisperRuntimeEnabled
+    ? [
+        .binaryTarget(
+            name: "whisper",
+            url: "https://github.com/ggml-org/whisper.cpp/releases/download/"
+                + "\(whisperVersion)/whisper-\(whisperVersion)-xcframework.zip",
+            checksum: whisperChecksum
+        ),
+    ]
+    : []
+
+let whisperRuntimeDependencies: [Target.Dependency] = whisperRuntimeEnabled
+    ? ["SpeechToText", "SpeechToTextLocal", "whisper"]
+    : ["SpeechToText", "SpeechToTextLocal"]
+
 let llamaVersion = "b10506"
 let llamaChecksum = "4a8ce464f3743d5035906ed1f5d7e3474b086ee1e082779be2268510cdcddf7c"
 let llamaRuntimeEnabled = ProcessInfo.processInfo.environment["PPAI_LLAMA_RUNTIME"] == "1"
@@ -133,6 +164,10 @@ let package = Package(
 
         // Apple's speech recognition, across its three generations of API.
         .library(name: "SpeechToTextApple", targets: ["SpeechToTextApple"]),
+
+        // The whisper.cpp adapter. Reports itself unavailable unless the
+        // pinned binary is linked; see the note at the top of this file.
+        .library(name: "SpeechToTextLocalWhisper", targets: ["SpeechToTextLocalWhisper"]),
         .library(name: "MockPlatform", targets: ["MockPlatform"]),
         // The real iPhone: EventKit, UserNotifications, AlarmKit. Apple-only
         // in practice — every framework import is behind `#if canImport`, so
@@ -154,7 +189,7 @@ let package = Package(
         .library(name: "DevSupport", targets: ["DevSupport"]),
         .executable(name: "assistant-dev", targets: ["DevHarness"]),
     ],
-    targets: llamaBinaryTargets + [
+    targets: llamaBinaryTargets + whisperBinaryTargets + [
         // MARK: Core
 
         .target(name: "AssistantDomain"),
@@ -337,6 +372,16 @@ let package = Package(
         // target in the graph. See the note at the top of this file for why
         // that is opt-in rather than always on.
         .target(name: "AIProviderLocalLlama", dependencies: llamaRuntimeDependencies),
+
+        // The only place `whisper` is imported.
+        //
+        // Always compiled, so the adapter cannot silently rot; linked against
+        // the real runtime only when PPAI_WHISPER_RUNTIME=1 puts the binary
+        // target in the graph.
+        .target(
+            name: "SpeechToTextLocalWhisper",
+            dependencies: whisperRuntimeDependencies
+        ),
 
         // MARK: Development-only
 

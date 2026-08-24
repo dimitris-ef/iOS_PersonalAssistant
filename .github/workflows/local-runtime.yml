@@ -1,6 +1,7 @@
 name: Local model runtime
 
-# Resolves the pinned llama.cpp XCFramework and compiles the adapter against it.
+# Resolves the pinned llama.cpp and whisper.cpp XCFrameworks and compiles the
+# adapters against them.
 #
 # ## Why this is a separate workflow
 #
@@ -39,12 +40,16 @@ on:
     paths:
       - "Sources/AIProviderLocal/**"
       - "Sources/AIProviderLocalLlama/**"
+      - "Sources/SpeechToTextLocal/**"
+      - "Sources/SpeechToTextLocalWhisper/**"
       - "Package.swift"
       - ".github/workflows/local-runtime.yml"
   pull_request:
     paths:
       - "Sources/AIProviderLocal/**"
       - "Sources/AIProviderLocalLlama/**"
+      - "Sources/SpeechToTextLocal/**"
+      - "Sources/SpeechToTextLocalWhisper/**"
       - "Package.swift"
       - ".github/workflows/local-runtime.yml"
   workflow_dispatch:
@@ -58,12 +63,13 @@ permissions:
 
 jobs:
   build:
-    name: Compile the llama.cpp adapter
+    name: Compile the native runtime adapters
     runs-on: macos-26
     timeout-minutes: 30
 
     env:
       PPAI_LLAMA_RUNTIME: "1"
+      PPAI_WHISPER_RUNTIME: "1"
       BUILD_LOG: ${{ github.workspace }}/artifacts/llama-build.log
 
     steps:
@@ -100,6 +106,15 @@ jobs:
           echo "Slices:"
           ls -1 "$FRAMEWORK"
 
+          WHISPER=$(find .build -name "whisper.xcframework" -maxdepth 6 | head -n 1)
+          if [ -z "$WHISPER" ]; then
+            echo "whisper.xcframework was not resolved — the binary target is missing"
+            exit 1
+          fi
+          echo "Found $WHISPER"
+          echo "Slices:"
+          ls -1 "$WHISPER"
+
       - name: Build the adapter against it
         run: |
           set -euo pipefail
@@ -116,13 +131,27 @@ jobs:
           swift build --target AIProviderLocalLlama -Xswiftc -DPPAI_REQUIRE_LLAMA 2>&1 \
             | tee -a "$BUILD_LOG"
 
+      - name: Build the whisper.cpp adapter against it
+        run: |
+          set -euo pipefail
+          swift build --target SpeechToTextLocalWhisper 2>&1 | tee -a "$BUILD_LOG"
+
+      - name: Confirm the real whisper bridging code was compiled, not the stub
+        # Same trap as llama.cpp, same guard. Without this the adapter compiles
+        # with every `#if canImport(whisper)` branch elided and the lane goes
+        # green having type-checked nothing that touches whisper.h.
+        run: |
+          set -euo pipefail
+          swift build --target SpeechToTextLocalWhisper -Xswiftc -DPPAI_REQUIRE_WHISPER 2>&1 \
+            | tee -a "$BUILD_LOG"
+
       - name: Summarise failures
         if: failure()
         run: |
           set -uo pipefail
           if [ -f "$BUILD_LOG" ]; then
             echo "===== errors ====="
-            grep -E "error:|warning: .*llama" "$BUILD_LOG" | sort -u | head -n 60 \
+            grep -E "error:|warning: .*(llama|whisper)" "$BUILD_LOG" | sort -u | head -n 60 \
               || echo "(nothing matched)"
             echo "===== end ====="
           fi

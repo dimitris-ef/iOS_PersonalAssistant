@@ -69,7 +69,7 @@ public enum OpenAITranscriptionAudioEncoder {
             // otherwise wrap to the opposite extreme and produce an audible
             // click that the transcriber hears as a consonant.
             let clamped = max(-1, min(1, sample))
-            data.appendLittleEndian(Int16(clamped * 32767).bitPattern)
+            data.appendLittleEndian(UInt16(bitPattern: Int16(clamped * 32767)))
         }
         return data
     }
@@ -137,8 +137,13 @@ public enum OpenAITranscriptionAudioEncoder {
 }
 
 private extension Data {
+    /// Appends an integer in little-endian byte order.
+    ///
+    /// `Swift.withUnsafeBytes` is spelled out because inside a `Data`
+    /// extension the bare name resolves to `Data`'s own instance method, which
+    /// reads the buffer rather than writing one.
     mutating func appendLittleEndian<T: FixedWidthInteger>(_ value: T) {
         var little = value.littleEndian
-        withUnsafeBytes(of: &little) { append(contentsOf: $0) }
+        Swift.withUnsafeBytes(of: &little) { append(contentsOf: $0) }
     }
 }
