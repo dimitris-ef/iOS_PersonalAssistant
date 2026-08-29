@@ -64,6 +64,8 @@ struct SettingsScreen: View {
                     VoiceSettingsView()
                 case .systemSurfaces:
                     SystemSurfacesView()
+                case .appleDiagnostics:
+                    AppleOnDeviceDiagnosticsView()
                 case .privacy(let topic):
                     PrivacyDetailView(topic: topic)
                 }

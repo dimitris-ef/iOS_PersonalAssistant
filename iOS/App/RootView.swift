@@ -74,6 +74,15 @@ struct RootView: View {
             switch phase {
             case .active:
                 Task { await lifecycle.applicationDidBecomeActive() }
+                // Re-read provider availability on return to the foreground.
+                //
+                // The three things that change it all happen *outside* this
+                // app: switching Apple Intelligence on in Settings, the model
+                // finishing its download, the OS deciding the device is ready.
+                // Coming back to the app is the moment the user is most likely
+                // to have just done one of them, and it is a bounded one-shot
+                // read rather than a poll.
+                Task { await model.refreshProviderState() }
             case .background:
                 Task { await lifecycle.applicationDidEnterBackground() }
             default:

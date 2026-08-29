@@ -32,6 +32,15 @@ final class AppEnvironment: Sendable {
     let repositories: AssistantRepositories
     let services: PlatformServices
     let providers: AIProviderRegistry
+    /// The Apple provider, held concretely as well as in the registry.
+    ///
+    /// The registry deals in `any AIProvider`, which is the right abstraction
+    /// for everything the engine does and the wrong one for a screen whose
+    /// entire purpose is to report Apple-specific runtime state. Keeping the
+    /// concrete reference is what lets the diagnostics screen ask a real
+    /// question without a downcast, and without `AIProvider` growing a
+    /// debug-shaped member that three other providers would have to ignore.
+    let appleProvider: AppleFoundationModelsProvider
     let dateProvider: any DateProvider
 
     /// Secure storage for the remote provider's API key.
@@ -129,6 +138,7 @@ final class AppEnvironment: Sendable {
         repositories: AssistantRepositories,
         services: PlatformServices,
         providers: AIProviderRegistry,
+        appleProvider: AppleFoundationModelsProvider,
         dateProvider: any DateProvider,
         credentialStore: any CredentialStore,
         remoteConfiguration: RemoteAIConfigurationStore,
@@ -153,6 +163,7 @@ final class AppEnvironment: Sendable {
         self.repositories = repositories
         self.services = services
         self.providers = providers
+        self.appleProvider = appleProvider
         self.dateProvider = dateProvider
         self.credentialStore = credentialStore
         self.remoteConfiguration = remoteConfiguration
@@ -331,8 +342,14 @@ final class AppEnvironment: Sendable {
             dateProvider: dateProvider
         )
 
+        // One instance, referenced twice. Two would be harmless today — the
+        // provider is a value with no state beyond its reader — but the
+        // diagnostics screen exists to report what the engine actually uses,
+        // and "the same object" is the only way to keep that true.
+        let appleProvider = AppleFoundationModelsProvider()
+
         let providers = AIProviderRegistry(providers: [
-            AppleFoundationModelsProvider(),
+            appleProvider,
             LocalModelProvider(manager: localModels, runtime: localRuntime),
             remoteProvider,
             ScriptedDevProvider(dateProvider: dateProvider),
@@ -393,6 +410,7 @@ final class AppEnvironment: Sendable {
             repositories: repositories,
             services: services,
             providers: providers,
+            appleProvider: appleProvider,
             dateProvider: dateProvider,
             credentialStore: credentialStore,
             remoteConfiguration: remoteConfiguration,
@@ -475,15 +493,31 @@ final class AppEnvironment: Sendable {
             // user should be offered.
             guard provider.metadata.kind != .development else { continue }
             let availability = await provider.availability()
+            // Only Apple carries one, because Apple is the only provider whose
+            // single "unavailable" word covers six unrelated situations. The
+            // cloud provider's reason sentence already says which one it is.
+            let code = provider.metadata.kind == .appleFoundationModels
+                ? await appleProvider.availabilityReasonToken()
+                : nil
             options.append(
                 ProviderOption(
                     id: provider.metadata.id,
                     metadata: provider.metadata,
-                    availability: availability
+                    availability: availability,
+                    diagnosticCode: code
                 )
             )
         }
         return options
+    }
+
+    /// The on-device model's full runtime state, read now.
+    ///
+    /// Goes through the provider, which goes through its availability reader,
+    /// which is the only thing in the app that touches FoundationModels. No
+    /// SwiftUI file imports the framework, and none needs to.
+    func appleFoundationModelsDiagnostic() async -> AppleFoundationModelsDiagnostic {
+        await appleProvider.diagnostic(now: dateProvider.now())
     }
 
     // MARK: Remote credentials
@@ -515,6 +549,21 @@ struct ProviderOption: Identifiable, Sendable {
     let metadata: AIProviderMetadata
     let availability: AIProviderAvailability
 
+    /// A machine-readable token naming *which* unavailable this is.
+    ///
+    /// `AIProviderAvailability` has four cases and a prose sentence, which is
+    /// the right vocabulary for a list that must describe a cloud endpoint and
+    /// an on-device model in the same breath — and the wrong one for finding
+    /// out why a particular iPhone will not run Apple Intelligence. Four
+    /// distinct Apple conditions map to `.unsupported` and a fifth maps to
+    /// `.temporarilyUnavailable`, so without this the screen shows the same
+    /// word for situations with completely different answers.
+    ///
+    /// Nil for providers that do not have one. Carried alongside the
+    /// provider-neutral case rather than inside it, so `AIProviderAvailability`
+    /// stays free of any one provider's vocabulary.
+    var diagnosticCode: String? = nil
+
     var isAvailable: Bool { availability.isAvailable }
 
     var unavailableReason: String? { availability.reason }
@@ -524,15 +573,22 @@ struct ProviderOption: Identifiable, Sendable {
     var needsConfiguration: Bool { availability.isUserResolvable }
 
     /// The short state shown next to the provider's name.
+    ///
+    /// When a diagnostic token exists the pill names it — "Unavailable —
+    /// modelNotReady" rather than "Unavailable". Section 37: a status that says
+    /// only "Unavailable" is indistinguishable from five other states, one of
+    /// which resolves itself in a few minutes and one of which never will.
     var statusLabel: String {
+        let base: String
         switch availability {
         case .available: return "Ready"
-        case .configurationRequired: return "Setup needed"
-        case .temporarilyUnavailable: return "Unavailable"
+        case .configurationRequired: base = "Setup needed"
+        case .temporarilyUnavailable: base = "Unavailable"
         // Not "not available yet": a device that cannot run Apple
-        // Intelligence is not waiting for anything. The reason line underneath
-        // says which kind of unavailable this is.
-        case .unsupported: return "Not available"
+        // Intelligence is not waiting for anything.
+        case .unsupported: base = "Not available"
         }
+        guard let diagnosticCode else { return base }
+        return "\(base) — \(diagnosticCode)"
     }
 }

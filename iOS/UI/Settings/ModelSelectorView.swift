@@ -63,7 +63,12 @@ struct ModelSelectorView: View {
         switch option.metadata.kind {
         case .remoteAPI: return .remoteAI
         case .downloadedLocalModel: return .localModels
-        case .appleFoundationModels, .development: return nil
+        // Apple's has nothing to configure — there is no key, no endpoint and
+        // no file to download from here. What it has instead is a state only
+        // the system can explain, so the link goes to the diagnostics rather
+        // than to a setup screen with nothing on it.
+        case .appleFoundationModels: return .appleDiagnostics
+        case .development: return nil
         }
     }
 }
@@ -138,6 +143,9 @@ private struct ModelOptionRow: View {
     /// after the first one is installed.
     private var configureLabel: String {
         if option.metadata.kind == .downloadedLocalModel { return "Manage Models" }
+        // Neither "Set up" nor "Edit configuration" is true of Apple's: there
+        // is nothing here to set. The link answers a question instead.
+        if option.metadata.kind == .appleFoundationModels { return "Diagnostics" }
         return option.isAvailable ? "Edit configuration" : "Set up"
     }
 

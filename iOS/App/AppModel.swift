@@ -1,3 +1,4 @@
+import AIProviderApple
 import AIProviderLocal
 import AIProviderRemote
 import AssistantAI
@@ -394,6 +395,16 @@ final class AppModel {
         remoteConfiguration = environment.remoteConfiguration.current
         hasRemoteAPIKey = await environment.hasRemoteAPIKey()
         providerOptions = await environment.providerOptions()
+    }
+
+    /// Re-reads the on-device model's full runtime state.
+    ///
+    /// Deliberately not stored on this model and not persisted. It describes
+    /// one instant on one device: caching it is exactly the bug that makes a
+    /// phone report `modelNotReady` forever after the assets have finished
+    /// downloading. Every caller gets a fresh read.
+    func appleFoundationModelsDiagnostic() async -> AppleFoundationModelsDiagnostic {
+        await environment.appleFoundationModelsDiagnostic()
     }
 
     /// Saves the remote endpoint and model, and the key if one was entered.

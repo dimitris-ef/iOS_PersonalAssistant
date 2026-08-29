@@ -74,6 +74,33 @@ public struct AppleFoundationModelsProvider: AIProvider {
         return state.providerAvailability
     }
 
+    /// Which Apple reason is behind the current availability.
+    ///
+    /// One of the fixed tokens in ``AppleModelAvailabilityState/reasonToken`` —
+    /// `modelNotReady`, `deviceNotEligible`, `appleIntelligenceNotEnabled`,
+    /// and so on. The model selector shows it next to the status, because
+    /// "Unavailable" alone is the same word for six unrelated situations and
+    /// only one of them is worth waiting out.
+    public func availabilityReasonToken() async -> String {
+        availabilityReader.currentState().reasonToken
+    }
+
+    /// The full diagnostic snapshot.
+    ///
+    /// Read fresh on every call — there is no cached copy to go stale, which is
+    /// what lets a `modelNotReady` device become `available` without the app
+    /// being reinstalled. The reader is the same one `availability()` and
+    /// `respond(to:)` use, so this cannot report a state the provider would not
+    /// act on.
+    public func diagnostic(now: Date = Date()) async -> AppleFoundationModelsDiagnostic {
+        var snapshot = availabilityReader.diagnostic(now: now)
+        // Stamped here rather than in the reader: the question the screen is
+        // really asking is "which AIProvider answered", and only the provider
+        // knows that.
+        snapshot = snapshot.namingProvider(String(describing: Self.self))
+        return snapshot
+    }
+
     public func availableModels() async throws -> [AIModel] {
         [
             AIModel(

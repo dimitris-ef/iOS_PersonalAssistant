@@ -114,6 +114,14 @@ public enum AppleModelAvailabilityState: Hashable, Sendable {
 /// the framework — see the note there about why nothing else may.
 public protocol AppleModelAvailabilityReading: Sendable {
     func currentState() -> AppleModelAvailabilityState
+
+    /// The full picture, for the diagnostics screen.
+    ///
+    /// Separate from ``currentState()`` because it costs more — it asks the
+    /// framework several further questions — and because nothing on the hot
+    /// path needs it. Both go through the same reader, so a diagnostic can
+    /// never disagree with the decision the provider actually made.
+    func diagnostic(now: Date) -> AppleFoundationModelsDiagnostic
 }
 
 /// The only place in the application that asks Apple whether the model is
@@ -142,6 +150,92 @@ public struct SystemLanguageModelAvailabilityReader: AppleModelAvailabilityReadi
         return .frameworkMissingFromSDK
         #endif
     }
+
+    /// Asks the framework everything worth knowing, once.
+    ///
+    /// The two compile-time constants below are the point of the whole screen.
+    /// `frameworkCompiled` and `runtimeSupported` are evaluated *here*, in the
+    /// same file and under the same guards the real decision uses — so if a
+    /// shipped build is somehow taking the no-framework path, the diagnostic
+    /// says so instead of the app reporting a plausible-looking "unavailable".
+    public func diagnostic(now: Date = Date()) -> AppleFoundationModelsDiagnostic {
+        let state = currentState()
+        let locale = Locale.current
+
+        var isAvailable: Bool?
+        var raw = "not read"
+        var localeSupported: Bool?
+        var languageCount: Int?
+        var frameworkCompiled = false
+        var runtimeSupported = false
+
+        #if canImport(FoundationModels)
+        frameworkCompiled = true
+        if #available(iOS 26.0, macOS 26.0, *) {
+            runtimeSupported = true
+            let model = SystemLanguageModel.default
+            isAvailable = model.isAvailable
+            raw = Self.describe(model.availability)
+
+            // Asked regardless of availability: an ineligible device still
+            // reports a language list, and "which languages does this build
+            // think it has" is useful even when the model cannot run.
+            let languages = model.supportedLanguages
+            languageCount = languages.count
+            if let code = locale.language.languageCode {
+                localeSupported = languages.contains { $0.languageCode == code }
+            }
+        }
+        #endif
+
+        return AppleFoundationModelsDiagnostic(
+            capturedAt: now,
+            frameworkCompiled: frameworkCompiled,
+            runtimeSupported: runtimeSupported,
+            // Overwritten by the provider, which knows its own type. A reader
+            // used on its own still produces something truthful.
+            providerImplementation: "SystemLanguageModelAvailabilityReader",
+            osName: Self.osName,
+            osVersion: ProcessInfo.processInfo.operatingSystemVersionString,
+            systemModelIsAvailable: isAvailable,
+            rawAvailability: raw,
+            reasonToken: state.reasonToken,
+            state: state,
+            mappedAvailability: state.providerAvailability,
+            currentLocaleIdentifier: locale.identifier,
+            currentLocaleSupported: localeSupported,
+            supportedLanguageCount: languageCount
+        )
+    }
+
+    private static var osName: String {
+        #if os(iOS)
+        return "iOS"
+        #elseif os(macOS)
+        return "macOS"
+        #else
+        return "OS"
+        #endif
+    }
+
+    #if canImport(FoundationModels)
+    /// Apple's value as text, with the module prefix stripped.
+    ///
+    /// `String(describing:)` yields
+    /// `unavailable(FoundationModels.SystemLanguageModel.Availability.UnavailableReason.modelNotReady)`,
+    /// which is accurate and unreadable on a phone. The qualification is
+    /// removed and the rest kept verbatim, so a reason released after this
+    /// build still shows up as itself rather than as "unknown".
+    @available(iOS 26.0, macOS 26.0, *)
+    private static func describe(_ availability: SystemLanguageModel.Availability) -> String {
+        String(describing: availability)
+            .replacingOccurrences(
+                of: "FoundationModels.SystemLanguageModel.Availability.UnavailableReason.",
+                with: ""
+            )
+            .replacingOccurrences(of: "FoundationModels.", with: "")
+    }
+    #endif
 }
 
 /// A reader that reports whatever it was given.
@@ -150,12 +244,78 @@ public struct SystemLanguageModelAvailabilityReader: AppleModelAvailabilityReadi
 /// provider defaults to the real reader.
 public struct FixedAppleModelAvailabilityReader: AppleModelAvailabilityReading {
     private let state: AppleModelAvailabilityState
+    private let frameworkCompiled: Bool
+    private let runtimeSupported: Bool
+    private let isAvailable: Bool?
+    private let localeSupported: Bool?
 
-    public init(_ state: AppleModelAvailabilityState) {
+    public init(
+        _ state: AppleModelAvailabilityState,
+        frameworkCompiled: Bool = true,
+        runtimeSupported: Bool = true,
+        isAvailable: Bool? = nil,
+        localeSupported: Bool? = true
+    ) {
         self.state = state
+        self.frameworkCompiled = frameworkCompiled
+        self.runtimeSupported = runtimeSupported
+        // Defaults to agreeing with the state, which is what a real device
+        // does. A test that wants the two to disagree — the combination worth
+        // debugging — passes them explicitly.
+        self.isAvailable = isAvailable ?? (state == .ready)
+        self.localeSupported = localeSupported
     }
 
     public func currentState() -> AppleModelAvailabilityState { state }
+
+    public func diagnostic(now: Date = Date()) -> AppleFoundationModelsDiagnostic {
+        AppleFoundationModelsDiagnostic(
+            capturedAt: now,
+            frameworkCompiled: frameworkCompiled,
+            runtimeSupported: runtimeSupported,
+            providerImplementation: "FixedAppleModelAvailabilityReader",
+            osName: "Test",
+            osVersion: "0.0",
+            systemModelIsAvailable: isAvailable,
+            rawAvailability: state.reasonToken,
+            reasonToken: state.reasonToken,
+            state: state,
+            mappedAvailability: state.providerAvailability,
+            currentLocaleIdentifier: "en_US",
+            currentLocaleSupported: localeSupported,
+            supportedLanguageCount: nil
+        )
+    }
+}
+
+/// A reader whose answer changes between calls.
+///
+/// For the transition that matters most and is otherwise untestable: a device
+/// that reports `modelNotReady` while the assets download and `available`
+/// afterwards. Section 44 — a refresh has to be able to observe that without
+/// the app being reinstalled.
+public final class SequenceAppleModelAvailabilityReader: AppleModelAvailabilityReading, @unchecked Sendable {
+    private let lock = NSLock()
+    private var remaining: [AppleModelAvailabilityState]
+    private var last: AppleModelAvailabilityState
+
+    public init(_ states: [AppleModelAvailabilityState]) {
+        precondition(!states.isEmpty, "a reader with no states can answer nothing")
+        self.remaining = states
+        self.last = states[0]
+    }
+
+    public func currentState() -> AppleModelAvailabilityState {
+        lock.lock()
+        defer { lock.unlock() }
+        if !remaining.isEmpty { last = remaining.removeFirst() }
+        return last
+    }
+
+    public func diagnostic(now: Date = Date()) -> AppleFoundationModelsDiagnostic {
+        let state = currentState()
+        return FixedAppleModelAvailabilityReader(state).diagnostic(now: now)
+    }
 }
 
 #if canImport(FoundationModels)
