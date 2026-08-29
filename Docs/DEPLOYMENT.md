@@ -272,6 +272,34 @@ There is no bundled cipher, no custom TLS stack and no encrypted format of our
 own. If that stops being true, the key must be removed and the question
 answered honestly in App Store Connect.
 
+## What the first real deploy established
+
+Run [33223698046](https://github.com/dimitris-ef/iOS_PersonalAssistant/actions/runs/33223698046),
+on `efcdc39`, build **2.1**. All 22 steps succeeded on the first attempt.
+
+```
+The app:      com.dimitrisefthymiou.MetisAI          0.1 (2.1), signed, App Group present.
+The widgets:  com.dimitrisefthymiou.MetisAI.widgets  0.1 (2.1), signed, App Group present.
+The keyboard: com.dimitrisefthymiou.MetisAI.keyboard 0.1 (2.1), signed, App Group present.
+Archive carries 3 dSYM bundle(s).
+Exported PersonalAssistant.ipa (9.0M)
+--- scanning the payload for build credentials ---
+No build credentials found in the payload.
+UPLOAD SUCCEEDED with no errors
+Transfer accepted for build 2.1. This is not yet a usable build.
+Waiting for build 2.1 of com.dimitrisefthymiou.MetisAI to finish processing.
+  build 2.1 has not appeared in App Store Connect yet.
+  build 2.1 has not appeared in App Store Connect yet.
+  build 2.1 has not appeared in App Store Connect yet.
+  build 2.1: VALID
+Build 2.1 is VALID and available in TestFlight.
+```
+
+The three "has not appeared" lines matter: the poll did not pass vacuously on
+a build that was already there. It asked for build `2.1` specifically, found
+nothing four times over ninety seconds, and settled only when that exact
+`CFBundleVersion` reported `VALID`.
+
 ## Running a deploy
 
 Actions → **TestFlight Deploy** → Run workflow, on
