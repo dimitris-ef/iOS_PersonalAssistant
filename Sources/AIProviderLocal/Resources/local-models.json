@@ -12,7 +12,7 @@
       "downloadURL": "https://huggingface.co/HuggingFaceTB/SmolLM2-360M-Instruct-GGUF/resolve/main/smollm2-360m-instruct-q8_0.gguf?download=true",
       "defaultContextLength": 2048,
       "maximumContextLength": 8192,
-      "toolSupport": "none",
+      "toolSupport": "unsupported",
       "chatTemplate": "modelDefault",
       "license": {
         "identifier": "Apache-2.0",
@@ -159,7 +159,7 @@
       "downloadURL": "https://huggingface.co/bartowski/gemma-2-2b-it-GGUF/resolve/main/gemma-2-2b-it-Q4_K_M.gguf?download=true",
       "defaultContextLength": 4096,
       "maximumContextLength": 8192,
-      "toolSupport": "none",
+      "toolSupport": "unsupported",
       "chatTemplate": "modelDefault",
       "license": {
         "identifier": "Gemma",
