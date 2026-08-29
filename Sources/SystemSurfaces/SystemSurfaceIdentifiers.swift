@@ -13,20 +13,59 @@ import Foundation
 /// So they live here, are referenced everywhere else, and are asserted in
 /// tests. The entitlement files still repeat the group identifier — a plist
 /// cannot import Swift — and a test checks that they still agree.
+///
+/// ## Why this file and not somewhere in the app
+///
+/// Part 14, section 8. The keyboard extension links exactly one package
+/// product, `SystemSurfaces`, and `SystemSurfaces` imports nothing but
+/// Foundation. So every target that needs the App Group identifier — the app,
+/// the widget extension, the keyboard — can read it from here without dragging
+/// in SwiftData, the engine, or an inference runtime. A constant that lived in
+/// `AssistantCore` would be unreachable from a keyboard that must stay small,
+/// and the string would have been retyped instead.
+///
+/// ## These are production identifiers
+///
+/// They are registered with Apple and an App Store Connect record exists for
+/// the main application identifier. Changing any of them orphans the shared
+/// container of every installed copy, so they are treated as fixed data rather
+/// than as configuration.
 public enum SystemSurfaceIdentifiers {
     /// The App Group both extensions and the app share.
     ///
     /// Derived from the app's bundle identifier, which is what makes it
     /// predictable rather than something to look up.
-    public static let appGroup = "group.com.example.personalassistant"
+    public static let appGroup = "group." + bundlePrefix
 
     /// The bundle identifier prefix the extensions hang off.
-    public static let bundlePrefix = "com.example.personalassistant"
+    public static let bundlePrefix = "com.dimitrisefthymiou.MetisAI"
     public static let keyboardBundleID = bundlePrefix + ".keyboard"
     public static let widgetsBundleID = bundlePrefix + ".widgets"
 
     /// The URL scheme the app registers, used by widget deep links.
-    public static let urlScheme = "personalassistant"
+    ///
+    /// URL schemes are claimed first-come-first-served across the whole device,
+    /// so a generic one is a collision waiting to happen: any other app that
+    /// registers `personalassistant` would start receiving this app's widget
+    /// taps, or steal them, with no error either way. The product name is the
+    /// least contested string available.
+    public static let urlScheme = "metisai"
+
+    /// The identifier registered with `BGTaskScheduler`.
+    ///
+    /// Lives here rather than in the app because iOS matches it against
+    /// `BGTaskSchedulerPermittedIdentifiers` in the Info.plist and *traps* on a
+    /// mismatch — a launch crash, not a warning. One derivation, one plist
+    /// entry, and a test that they agree.
+    public static let backgroundRefreshTaskID = bundlePrefix + ".refresh"
+
+    /// The Keychain service secrets are filed under.
+    ///
+    /// Kept identical to the bundle identifier, which is what
+    /// `Bundle.main.bundleIdentifier` returns in the app. Naming it here means
+    /// the fallback used when that is somehow nil lands in the same service
+    /// rather than in a second, invisible one.
+    public static let keychainService = bundlePrefix
 }
 
 /// The widgets this app publishes.

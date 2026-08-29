@@ -1,0 +1,734 @@
+name: TestFlight Deploy
+
+# Signs, archives, exports and uploads a real distribution build of MetisAI,
+# then waits for App Store Connect to say whether the build is usable.
+#
+# ## Why this is a separate workflow
+#
+# The three existing workflows compile for the Simulator with signing turned
+# off, which is what lets them run on a stock runner with an empty keychain.
+# This one needs a distribution certificate, three provisioning profiles and an
+# App Store Connect key, and it produces something irreversible: a build number
+# that can never be uploaded again. Mixing that into a workflow that runs on
+# every push would mean every push consuming one.
+#
+# ## When it runs
+#
+# By hand, and on a `testflight-*` tag. Never on a pull request, and never on
+# `pull_request_target`: a fork's pull request must not be able to reach the
+# signing identity, and there is no version of "run the deploy on a proposed
+# change" that is safe.
+#
+# ## What counts as success
+#
+# Not the upload. `altool` exits zero when Apple has *accepted the transfer*,
+# which is minutes before Apple has decided whether the binary works. A build
+# that fails processing is invisible in TestFlight with no signal at the upload
+# site at all. So the last step asks the Builds API about this exact build
+# number and fails unless the answer is VALID.
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_number_override:
+        description: >-
+          Optional CFBundleVersion to sign instead of the run-derived one. Use
+          only to re-check a build that uploaded successfully and whose polling
+          failed. Never reuse a number already accepted by App Store Connect.
+        required: false
+        type: string
+      poll_deadline_minutes:
+        description: "How long to wait for App Store Connect processing."
+        required: false
+        default: "45"
+        type: string
+  push:
+    tags:
+      - "testflight-*"
+
+# Read-only. Nothing here writes to the repository, comments on anything, or
+# needs a token beyond checkout.
+permissions:
+  contents: read
+
+concurrency:
+  # One deploy at a time, and `cancel-in-progress` is deliberately false: an
+  # upload cancelled halfway leaves a build number consumed and a partial
+  # transfer Apple may or may not have registered, which is the single worst
+  # state this workflow can be interrupted into.
+  group: testflight-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Archive, upload and confirm processing
+    runs-on: macos-26
+    timeout-minutes: 120
+
+    env:
+      SCHEME: PersonalAssistant
+      PROJECT: PersonalAssistant.xcodeproj
+      APP_BUNDLE_ID: com.dimitrisefthymiou.MetisAI
+      WIDGETS_BUNDLE_ID: com.dimitrisefthymiou.MetisAI.widgets
+      KEYBOARD_BUNDLE_ID: com.dimitrisefthymiou.MetisAI.keyboard
+      APP_GROUP: group.com.dimitrisefthymiou.MetisAI
+      DERIVED_DATA: ${{ github.workspace }}/.ci-deriveddata
+      # Everything run-specific lives under one directory so cleanup is a single
+      # `rm -rf` and two runs can never read each other's files.
+      RUN_DIR: ${{ runner.temp }}/testflight-${{ github.run_id }}-${{ github.run_attempt }}
+      LOG_DIR: ${{ github.workspace }}/artifacts
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Show toolchain
+        run: |
+          set -euo pipefail
+          mkdir -p "$LOG_DIR" "$RUN_DIR"
+          chmod 700 "$RUN_DIR"
+          sw_vers
+          xcodebuild -version
+          swift --version
+
+      # ------------------------------------------------------------------
+      # Preflight
+      # ------------------------------------------------------------------
+
+      - name: Confirm every required secret is configured
+        # Presence only. `-n` on the variable, never the variable itself: a
+        # missing secret expands to an empty string, and a workflow that only
+        # discovers that at `security import` reports it as a corrupt
+        # certificate.
+        env:
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          CERT: ${{ secrets.IOS_DISTRIBUTION_CERTIFICATE_BASE64 }}
+          CERT_PASSWORD: ${{ secrets.IOS_DISTRIBUTION_CERTIFICATE_PASSWORD }}
+          MAIN_PROFILE: ${{ secrets.IOS_MAIN_PROFILE_BASE64 }}
+          WIDGETS_PROFILE: ${{ secrets.IOS_WIDGETS_PROFILE_BASE64 }}
+          KEYBOARD_PROFILE: ${{ secrets.IOS_KEYBOARD_PROFILE_BASE64 }}
+          ASC_KEY: ${{ secrets.APP_STORE_CONNECT_API_KEY_BASE64 }}
+          ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          MISSING=0
+          check() {
+            if [ -z "${2:-}" ]; then
+              echo "::error::The repository secret $1 is not set."
+              MISSING=1
+            else
+              echo "$1 is configured."
+            fi
+          }
+          check APPLE_TEAM_ID "$APPLE_TEAM_ID"
+          check IOS_DISTRIBUTION_CERTIFICATE_BASE64 "$CERT"
+          check IOS_DISTRIBUTION_CERTIFICATE_PASSWORD "$CERT_PASSWORD"
+          check IOS_MAIN_PROFILE_BASE64 "$MAIN_PROFILE"
+          check IOS_WIDGETS_PROFILE_BASE64 "$WIDGETS_PROFILE"
+          check IOS_KEYBOARD_PROFILE_BASE64 "$KEYBOARD_PROFILE"
+          check APP_STORE_CONNECT_API_KEY_BASE64 "$ASC_KEY"
+          check APP_STORE_CONNECT_KEY_ID "$ASC_KEY_ID"
+          check APP_STORE_CONNECT_ISSUER_ID "$ASC_ISSUER_ID"
+          [ "$MISSING" -eq 0 ] || exit 1
+
+      - name: Build the release tool
+        # The parts of this deploy that can be unit tested are Swift, in
+        # `Sources/ReleaseTooling`, and are compiled and exercised by the Swift
+        # Tests workflow on every push. Building the executable here is also the
+        # cheapest possible check that the package still compiles before the
+        # expensive part starts.
+        run: |
+          set -euo pipefail
+          swift build -c release --product testflight-tool
+          BIN="$(swift build -c release --show-bin-path)/testflight-tool"
+          test -x "$BIN" || { echo "::error::testflight-tool was not built."; exit 1; }
+          echo "TFTOOL=$BIN" >> "$GITHUB_ENV"
+
+      - name: Refuse to ship a placeholder identifier
+        # Section 97. A placeholder bundle identifier archives, exports and is
+        # then rejected on ownership grounds after twenty minutes of processing.
+        run: |
+          set -euo pipefail
+          "$TFTOOL" check-identifiers
+
+      - name: Resolve the build number
+        # Section 35 and 36. `run_number` never repeats and `run_attempt`
+        # separates a re-run from the run it re-runs, so the pair is unique
+        # across every execution GitHub can produce — which is what
+        # `CFBundleVersion` has to be.
+        env:
+          OVERRIDE: ${{ inputs.build_number_override }}
+        run: |
+          set -euo pipefail
+          # An array rather than `${VAR:+--flag "$VAR"}`: inside a parameter
+          # expansion the quotes are literal characters, so the override would
+          # arrive with quotation marks around it and be rejected as malformed.
+          ARGS=(--run-number "$GITHUB_RUN_NUMBER" --run-attempt "$GITHUB_RUN_ATTEMPT")
+          if [ -n "${OVERRIDE:-}" ]; then
+            ARGS+=(--override "$OVERRIDE")
+            echo "::warning::Using the supplied build number override instead of this run's."
+          fi
+          BUILD_NUMBER="$("$TFTOOL" build-number "${ARGS[@]}")"
+          echo "BUILD_NUMBER=$BUILD_NUMBER" >> "$GITHUB_ENV"
+          echo "This run will sign and upload build $BUILD_NUMBER."
+
+      # ------------------------------------------------------------------
+      # Signing material
+      # ------------------------------------------------------------------
+
+      - name: Import the distribution certificate into a temporary keychain
+        # A keychain created for this job and destroyed with it. The runner's
+        # `login.keychain` is never touched, so a failure here cannot leave an
+        # identity behind on a reused image.
+        #
+        # Nothing in this step prints anything derived from a secret. The
+        # decoded `.p12` goes straight from `base64` into a file that is created
+        # under `umask 077`; it is never on stdout and never in a variable.
+        env:
+          CERT_BASE64: ${{ secrets.IOS_DISTRIBUTION_CERTIFICATE_BASE64 }}
+          CERT_PASSWORD: ${{ secrets.IOS_DISTRIBUTION_CERTIFICATE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          umask 077
+
+          KEYCHAIN_PATH="$RUN_DIR/signing.keychain-db"
+          CERT_PATH="$RUN_DIR/distribution.p12"
+          # Not a secret in any meaningful sense: it protects a keychain that
+          # exists for the length of one job and is deleted at the end of it.
+          # Random anyway, so two concurrent jobs cannot collide.
+          KEYCHAIN_PASSWORD="$(uuidgen)"
+
+          printf '%s' "$CERT_BASE64" | base64 --decode > "$CERT_PATH"
+          chmod 600 "$CERT_PATH"
+          [ -s "$CERT_PATH" ] || {
+            echo "::error::The distribution certificate secret did not decode to any bytes."
+            exit 1
+          }
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          # `-lut 21600`: do not auto-lock while a long archive is running, and
+          # expire after six hours in case cleanup somehow does not run.
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          # `-T` rather than `-A`: only codesign and security may use the key,
+          # instead of every process on the machine.
+          security import "$CERT_PATH" \
+            -P "$CERT_PASSWORD" \
+            -f pkcs12 \
+            -k "$KEYCHAIN_PATH" \
+            -T /usr/bin/codesign \
+            -T /usr/bin/security
+
+          # Without this, codesign blocks on a GUI prompt that no one can answer
+          # and the job hangs until its timeout.
+          security set-key-partition-list \
+            -S apple-tool:,apple:,codesign: \
+            -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH" > /dev/null
+
+          # Put it in the search list *and* keep the login keychain, or other
+          # tooling on the runner stops finding its own certificates.
+          security list-keychains -d user -s "$KEYCHAIN_PATH" "$HOME/Library/Keychains/login.keychain-db"
+
+          # The certificate is now redundant on disk.
+          rm -f "$CERT_PATH"
+
+          echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
+
+          # Verification without disclosure. `find-identity` prints the
+          # certificate's common name, which carries the developer's name and
+          # team; it is counted and matched, never echoed.
+          IDENTITIES="$(security find-identity -v -p codesigning "$KEYCHAIN_PATH")"
+          COUNT="$(printf '%s' "$IDENTITIES" | grep -c 'Apple Distribution' || true)"
+          if [ "$COUNT" -eq 0 ]; then
+            echo "::error::No Apple Distribution identity was imported. The secret may hold a development certificate, or the password may be wrong."
+            exit 1
+          fi
+          if ! printf '%s' "$IDENTITIES" | grep -q "($APPLE_TEAM_ID)"; then
+            echo "::error::The imported signing identity does not belong to the configured team."
+            exit 1
+          fi
+          echo "Imported $COUNT Apple Distribution identity/identities for the configured team."
+
+      - name: Install and validate the provisioning profiles
+        # Section 17 to 22. Each profile is decoded, read with Apple's own CMS
+        # tooling, checked against the target it will sign, and only then
+        # installed. Every failure message names the role and the problem and
+        # nothing else — a build log is readable by anyone who can read the
+        # repository.
+        env:
+          MAIN_PROFILE_BASE64: ${{ secrets.IOS_MAIN_PROFILE_BASE64 }}
+          WIDGETS_PROFILE_BASE64: ${{ secrets.IOS_WIDGETS_PROFILE_BASE64 }}
+          KEYBOARD_PROFILE_BASE64: ${{ secrets.IOS_KEYBOARD_PROFILE_BASE64 }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          umask 077
+
+          PROFILE_DIR="$HOME/Library/MobileDevice/Provisioning Profiles"
+          mkdir -p "$PROFILE_DIR"
+
+          install_profile() {
+            local role="$1" secret="$2" bundle_id="$3" var_prefix="$4"
+            local path="$RUN_DIR/$role.mobileprovision"
+
+            printf '%s' "$secret" | base64 --decode > "$path"
+            chmod 600 "$path"
+            [ -s "$path" ] || {
+              echo "::error::The $role provisioning profile secret did not decode to any bytes."
+              exit 1
+            }
+
+            # Read it with the tool that owns the format, rather than assuming
+            # the payload can be scanned out of the CMS container.
+            local plist="$RUN_DIR/$role.plist"
+            if ! security cms -D -i "$path" -o "$plist" 2>/dev/null; then
+              echo "::error::The $role provisioning profile is not a readable signed profile."
+              exit 1
+            fi
+            chmod 600 "$plist"
+
+            "$TFTOOL" profile-validate "$plist" \
+              --role "$role" \
+              --bundle-id "$bundle_id" \
+              --team "$APPLE_TEAM_ID" \
+              --app-group "$APP_GROUP"
+
+            # Name and UUID come from the profile itself. Nothing is hardcoded:
+            # a profile regenerated in the portal keeps its name and changes its
+            # UUID, so a pinned UUID would break on the next renewal.
+            eval "$("$TFTOOL" profile-summary "$plist")"
+
+            # Installed under its own UUID, which is the filename Xcode looks
+            # for.
+            cp "$path" "$PROFILE_DIR/$PROFILE_UUID.mobileprovision"
+            chmod 600 "$PROFILE_DIR/$PROFILE_UUID.mobileprovision"
+
+            echo "${var_prefix}_PROFILE_NAME=$PROFILE_NAME" >> "$GITHUB_ENV"
+            echo "$role profile installed: $PROFILE_NAME"
+
+            rm -f "$path" "$plist"
+          }
+
+          install_profile Main     "$MAIN_PROFILE_BASE64"     "$APP_BUNDLE_ID"      METIS_MAIN
+          install_profile Widgets  "$WIDGETS_PROFILE_BASE64"  "$WIDGETS_BUNDLE_ID"  METIS_WIDGETS
+          install_profile Keyboard "$KEYBOARD_PROFILE_BASE64" "$KEYBOARD_BUNDLE_ID" METIS_KEYBOARD
+
+      - name: Install the App Store Connect API key
+        # Section 29 to 32. `altool` looks for the key by convention at
+        # `~/.appstoreconnect/private_keys/AuthKey_<KEY_ID>.p8`, so it goes
+        # there — decoded straight into the file, `chmod 600`, never printed and
+        # never echoed. The key ID comes from the secret; nothing about it is
+        # written into the repository.
+        env:
+          ASC_KEY_BASE64: ${{ secrets.APP_STORE_CONNECT_API_KEY_BASE64 }}
+          ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+        run: |
+          set -euo pipefail
+          umask 077
+
+          KEY_DIR="$HOME/.appstoreconnect/private_keys"
+          mkdir -p "$KEY_DIR"
+          chmod 700 "$KEY_DIR"
+
+          KEY_PATH="$KEY_DIR/AuthKey_${ASC_KEY_ID}.p8"
+          printf '%s' "$ASC_KEY_BASE64" | base64 --decode > "$KEY_PATH"
+          chmod 600 "$KEY_PATH"
+
+          [ -s "$KEY_PATH" ] || {
+            echo "::error::The App Store Connect key secret did not decode to any bytes."
+            exit 1
+          }
+          # A shape check that reveals nothing: the count of BEGIN lines, not
+          # the content of any of them.
+          if [ "$(grep -c 'BEGIN PRIVATE KEY' "$KEY_PATH" || true)" -ne 1 ]; then
+            echo "::error::The App Store Connect key is not a PEM private key. The secret should hold the base64 of the whole .p8 file."
+            exit 1
+          fi
+          echo "ASC_KEY_PATH=$KEY_PATH" >> "$GITHUB_ENV"
+          echo "App Store Connect key installed for altool and the Builds API."
+
+      - name: Confirm an App Store Connect record exists for this app
+        # Section 33. Nothing in this workflow can create an app record, so
+        # discovering it is missing after a forty-minute build helps nobody.
+        env:
+          ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          "$TFTOOL" preflight-app --bundle-id "$APP_BUNDLE_ID" > "$RUN_DIR/app.env"
+          # shellcheck disable=SC1090
+          . "$RUN_DIR/app.env"
+          echo "ASC_APP_ID=$ASC_APP_ID" >> "$GITHUB_ENV"
+
+      # ------------------------------------------------------------------
+      # Build
+      # ------------------------------------------------------------------
+
+      - name: Install XcodeGen and generate the project
+        # Section 13 and 44. The `.xcodeproj` is generated from `project.yml`
+        # here exactly as it is in the other workflows, so the thing that gets
+        # signed is the thing the spec describes — never a project patched by
+        # hand on the side.
+        run: |
+          set -euo pipefail
+          brew install xcodegen
+          xcodegen generate --spec project.yml
+          test -d "$PROJECT" || { echo "::error::$PROJECT was not generated."; exit 1; }
+
+      - name: Run the package tests
+        # Section 45. Not a substitute for the Swift Tests workflow — a
+        # duplicate of it, run against the exact tree about to be shipped, so a
+        # release cannot be cut from a commit whose tests were never green.
+        run: |
+          set -euo pipefail
+          swift test 2>&1 | tee "$LOG_DIR/testflight-tests.log"
+
+      - name: Archive for distribution
+        # Section 47 to 50. `generic/platform=iOS` is a device archive, not a
+        # simulator one. Manual signing throughout: no `-allowProvisioningUpdates`,
+        # so nothing regenerates a profile whose entitlements nobody reviewed.
+        #
+        # The build number and the three profile names are passed as build
+        # settings, which apply to every target in the project — which is what
+        # makes the app and both extensions agree on a CFBundleVersion. Three
+        # separate hand-edited values would not.
+        env:
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          ARCHIVE_PATH="$RUN_DIR/MetisAI.xcarchive"
+          echo "ARCHIVE_PATH=$ARCHIVE_PATH" >> "$GITHUB_ENV"
+
+          xcodebuild archive \
+            -project "$PROJECT" \
+            -scheme "$SCHEME" \
+            -configuration Release \
+            -destination "generic/platform=iOS" \
+            -archivePath "$ARCHIVE_PATH" \
+            -derivedDataPath "$DERIVED_DATA" \
+            CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
+            METIS_TEAM_ID="$APPLE_TEAM_ID" \
+            METIS_MAIN_PROFILE_NAME="$METIS_MAIN_PROFILE_NAME" \
+            METIS_WIDGETS_PROFILE_NAME="$METIS_WIDGETS_PROFILE_NAME" \
+            METIS_KEYBOARD_PROFILE_NAME="$METIS_KEYBOARD_PROFILE_NAME" \
+            OTHER_CODE_SIGN_FLAGS="--keychain $KEYCHAIN_PATH" \
+            2>&1 | tee "$LOG_DIR/archive.log"
+
+          test -d "$ARCHIVE_PATH" || { echo "::error::No archive was produced."; exit 1; }
+
+      - name: Verify the archive before exporting it
+        # Section 51 to 59. Everything checked here is something that produces a
+        # confusing failure much later: a missing extension is an App Store
+        # rejection, a mismatched build number is a TestFlight build that never
+        # appears, a missing App Group in the *signed* entitlements is widgets
+        # that show a placeholder forever on a real device.
+        #
+        # The signed entitlements are read from the binary, not from the
+        # `.entitlements` file in the repository. Those are the input; what
+        # matters is what codesign actually applied.
+        run: |
+          set -euo pipefail
+          APP="$ARCHIVE_PATH/Products/Applications/$SCHEME.app"
+          test -d "$APP" || { echo "::error::The archive contains no application bundle."; exit 1; }
+
+          MARKETING_VERSION="$(plutil -extract CFBundleShortVersionString raw "$APP/Info.plist")"
+          FAILED=0
+
+          check_bundle() {
+            local label="$1" path="$2" expected_id="$3"
+            if [ ! -d "$path" ]; then
+              echo "::error::The archive contains no $label bundle."
+              FAILED=1
+              return
+            fi
+            local actual_id actual_build actual_version
+            actual_id="$(plutil -extract CFBundleIdentifier raw "$path/Info.plist")"
+            actual_build="$(plutil -extract CFBundleVersion raw "$path/Info.plist")"
+            actual_version="$(plutil -extract CFBundleShortVersionString raw "$path/Info.plist")"
+
+            [ "$actual_id" = "$expected_id" ] || {
+              echo "::error::$label has bundle identifier $actual_id, expected $expected_id."
+              FAILED=1
+            }
+            [ "$actual_build" = "$BUILD_NUMBER" ] || {
+              echo "::error::$label has build number $actual_build, expected $BUILD_NUMBER."
+              FAILED=1
+            }
+            [ "$actual_version" = "$MARKETING_VERSION" ] || {
+              echo "::error::$label has marketing version $actual_version; the app has $MARKETING_VERSION."
+              FAILED=1
+            }
+
+            # A bundle with no embedded profile is a bundle that will not
+            # install on a device, and the archive gives no warning about it.
+            [ -f "$path/embedded.mobileprovision" ] || {
+              echo "::error::$label has no embedded provisioning profile."
+              FAILED=1
+            }
+
+            codesign --verify --strict --verbose=1 "$path" || {
+              echo "::error::$label failed signature verification."
+              FAILED=1
+            }
+
+            # `grep -a`: the entitlements come back as a plist that may be
+            # binary, and the strings are present verbatim either way.
+            if ! codesign -d --entitlements - "$path" 2>/dev/null \
+              | grep -aq "$APP_GROUP"; then
+              echo "::error::$label was signed without the App Group entitlement. Its shared container would resolve to nil on a device."
+              FAILED=1
+            fi
+
+            echo "$label: $actual_id $actual_version ($actual_build), signed, App Group present."
+          }
+
+          check_bundle "The app"       "$APP" "$APP_BUNDLE_ID"
+          check_bundle "The widgets"   "$APP/PlugIns/PersonalAssistantWidgets.appex" "$WIDGETS_BUNDLE_ID"
+          check_bundle "The keyboard"  "$APP/PlugIns/PersonalAssistantKeyboard.appex" "$KEYBOARD_BUNDLE_ID"
+
+          # dSYMs, or every crash a tester files is a column of hex addresses.
+          DSYM_COUNT="$(find "$ARCHIVE_PATH/dSYMs" -maxdepth 1 -name '*.dSYM' 2>/dev/null | wc -l | tr -d ' ' || true)"
+          DSYM_COUNT="${DSYM_COUNT:-0}"
+          if [ "$DSYM_COUNT" -eq 0 ]; then
+            echo "::warning::The archive carries no dSYMs; crash reports from testers will not symbolicate."
+          else
+            echo "Archive carries $DSYM_COUNT dSYM bundle(s)."
+          fi
+
+          [ "$FAILED" -eq 0 ] || exit 1
+          echo "MARKETING_VERSION=$MARKETING_VERSION" >> "$GITHUB_ENV"
+
+      # ------------------------------------------------------------------
+      # Export
+      # ------------------------------------------------------------------
+
+      - name: Write the export options
+        # Section 60 to 63. Generated from the profile names that were read out
+        # of the profiles themselves, so nothing here can drift from what was
+        # installed. Printed, because it contains no credential of any kind and
+        # an export failure is otherwise very hard to diagnose.
+        env:
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          EXPORT_OPTIONS="$RUN_DIR/ExportOptions.plist"
+          "$TFTOOL" export-options \
+            --out "$EXPORT_OPTIONS" \
+            --team "$APPLE_TEAM_ID" \
+            --main-profile "$METIS_MAIN_PROFILE_NAME" \
+            --widgets-profile "$METIS_WIDGETS_PROFILE_NAME" \
+            --keyboard-profile "$METIS_KEYBOARD_PROFILE_NAME"
+          echo "EXPORT_OPTIONS=$EXPORT_OPTIONS" >> "$GITHUB_ENV"
+
+      - name: Export the signed IPA
+        run: |
+          set -euo pipefail
+          EXPORT_DIR="$RUN_DIR/export"
+          mkdir -p "$EXPORT_DIR"
+
+          # No `-allowProvisioningUpdates`. Its absence is the point: the export
+          # must use the three profiles that were decoded, validated and
+          # installed, not whatever the portal would hand a runner that asked.
+          #
+          # The status is captured rather than allowed to abort the step,
+          # because `-exportArchive` has been known to report success and
+          # produce nothing, and the check below says something more useful
+          # about that than a bare non-zero exit.
+          set +e
+          xcodebuild -exportArchive \
+            -archivePath "$ARCHIVE_PATH" \
+            -exportOptionsPlist "$EXPORT_OPTIONS" \
+            -exportPath "$EXPORT_DIR" \
+            2>&1 | tee "$LOG_DIR/export.log"
+          EXPORT_STATUS=${PIPESTATUS[0]}
+          set -e
+
+          # The IPA is looked for rather than assumed: its name follows
+          # PRODUCT_NAME and is not worth predicting.
+          IPA="$(find "$EXPORT_DIR" -maxdepth 2 -name '*.ipa' -type f | head -n 1)"
+          if [ -z "$IPA" ]; then
+            echo "::error::The export produced no .ipa (xcodebuild exited $EXPORT_STATUS). See the export log."
+            grep -E "error:|Error Domain|exportArchive" "$LOG_DIR/export.log" | tail -n 20 || true
+            exit 1
+          fi
+          if [ "$EXPORT_STATUS" -ne 0 ]; then
+            echo "::error::xcodebuild -exportArchive exited $EXPORT_STATUS. Refusing to upload a build from a failed export."
+            exit 1
+          fi
+          echo "IPA=$IPA" >> "$GITHUB_ENV"
+          echo "Exported $(basename "$IPA") ($(du -h "$IPA" | cut -f1))"
+
+      - name: Verify the exported IPA
+        # Section 64 to 67, and section 110. The export re-signs every bundle,
+        # so everything verified on the archive is verified again on what will
+        # actually be uploaded — the archive being right does not make the IPA
+        # right.
+        run: |
+          set -euo pipefail
+          WORK="$RUN_DIR/ipa-check"
+          rm -rf "$WORK"
+          mkdir -p "$WORK"
+          unzip -q "$IPA" -d "$WORK"
+
+          APP="$(find "$WORK/Payload" -maxdepth 1 -name '*.app' -type d | head -n 1)"
+          test -n "$APP" || { echo "::error::The IPA contains no application bundle."; exit 1; }
+
+          FAILED=0
+          check() {
+            local label="$1" path="$2" expected_id="$3"
+            if [ ! -d "$path" ]; then
+              echo "::error::The IPA contains no $label bundle."
+              FAILED=1
+              return
+            fi
+            local id build
+            id="$(plutil -extract CFBundleIdentifier raw "$path/Info.plist")"
+            build="$(plutil -extract CFBundleVersion raw "$path/Info.plist")"
+            [ "$id" = "$expected_id" ] || {
+              echo "::error::$label in the IPA has identifier $id, expected $expected_id."
+              FAILED=1
+            }
+            [ "$build" = "$BUILD_NUMBER" ] || {
+              echo "::error::$label in the IPA has build $build, expected $BUILD_NUMBER."
+              FAILED=1
+            }
+            if ! codesign -d --entitlements - "$path" 2>/dev/null | grep -aq "$APP_GROUP"; then
+              echo "::error::$label lost the App Group entitlement during export."
+              FAILED=1
+            fi
+            echo "$label in the IPA: $id ($build), App Group present."
+          }
+
+          check "The app"      "$APP" "$APP_BUNDLE_ID"
+          check "The widgets"  "$APP/PlugIns/PersonalAssistantWidgets.appex" "$WIDGETS_BUNDLE_ID"
+          check "The keyboard" "$APP/PlugIns/PersonalAssistantKeyboard.appex" "$KEYBOARD_BUNDLE_ID"
+
+          # Section 109 and 110. The App Store Connect key and the distribution
+          # certificate are CI infrastructure; a copy of either inside a
+          # shipping binary would be handed to every tester.
+          #
+          # Checked by name and by content: a file called anything at all whose
+          # bytes contain a PEM private key header fails this.
+          echo "--- scanning the payload for build credentials ---"
+          LEAKS="$(find "$APP" \( \
+              -name 'AuthKey_*' -o -name '*.p8' -o -name '*.p12' \
+              -o -name '*.mobileprovision' -o -name '*.keychain*' -o -name 'ExportOptions.plist' \
+            \) ! -name 'embedded.mobileprovision' -print 2>/dev/null || true)"
+          if [ -n "$LEAKS" ]; then
+            echo "::error::The app bundle contains build credentials:"
+            echo "$LEAKS" | sed "s|$WORK||"
+            FAILED=1
+          fi
+          if grep -raq 'BEGIN PRIVATE KEY' "$APP" 2>/dev/null; then
+            echo "::error::A PEM private key is embedded somewhere in the app bundle."
+            FAILED=1
+          fi
+          echo "No build credentials found in the payload."
+
+          [ "$FAILED" -eq 0 ] || exit 1
+          rm -rf "$WORK"
+
+      # ------------------------------------------------------------------
+      # Upload
+      # ------------------------------------------------------------------
+
+      - name: Validate the IPA with App Store Connect
+        # Section 68. The same checks the upload performs, run first, because a
+        # rejection here costs seconds and a rejection after the transfer costs
+        # the build number.
+        env:
+          ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          xcrun altool --validate-app \
+            -f "$IPA" \
+            -t ios \
+            --apiKey "$ASC_KEY_ID" \
+            --apiIssuer "$ASC_ISSUER_ID" \
+            2>&1 | tee "$LOG_DIR/validate.log"
+
+      - name: Upload to App Store Connect
+        # Section 69 to 72. API key authentication only: no Apple ID, no
+        # app-specific password, nothing that depends on a person's account
+        # staying unlocked.
+        env:
+          ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          xcrun altool --upload-app \
+            -f "$IPA" \
+            -t ios \
+            --apiKey "$ASC_KEY_ID" \
+            --apiIssuer "$ASC_ISSUER_ID" \
+            2>&1 | tee "$LOG_DIR/upload.log"
+          echo "Transfer accepted for build $BUILD_NUMBER. This is not yet a usable build."
+
+      - name: Wait for App Store Connect to finish processing this build
+        # Section 73 to 81, and the reason this workflow does not end at the
+        # step above.
+        #
+        # `altool` exits zero when Apple has accepted the *transfer*. Whether
+        # the binary is usable is decided minutes later, and a build that fails
+        # processing simply never appears in TestFlight. So the Builds API is
+        # asked about this exact CFBundleVersion — not the newest build, which
+        # on a busy account is somebody else's — and anything other than VALID
+        # fails the job.
+        env:
+          ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          DEADLINE_MINUTES: ${{ inputs.poll_deadline_minutes || '45' }}
+        run: |
+          set -euo pipefail
+          "$TFTOOL" poll-build \
+            --bundle-id "$APP_BUNDLE_ID" \
+            --build-number "$BUILD_NUMBER" \
+            --deadline "$(( DEADLINE_MINUTES * 60 ))" \
+            --interval 30 \
+            | tee "$RUN_DIR/build.env"
+          # shellcheck disable=SC1090
+          . "$RUN_DIR/build.env"
+          {
+            echo "### TestFlight"
+            echo ""
+            echo "Build \`$BUILD_NUMBER\` of \`$APP_BUNDLE_ID\` (version $MARKETING_VERSION) "
+            echo "finished processing in state \`$BUILD_STATE\` and is available to testers."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # ------------------------------------------------------------------
+      # Cleanup
+      # ------------------------------------------------------------------
+
+      - name: Remove all signing material
+        # `always()`, because the whole point is that a failed job leaves
+        # nothing behind. GitHub-hosted runners are destroyed after a job, but
+        # this workflow must be correct on a self-hosted one too, where they are
+        # not.
+        if: always()
+        run: |
+          set -uo pipefail
+          security list-keychains -d user -s "$HOME/Library/Keychains/login.keychain-db" || true
+          if [ -n "${KEYCHAIN_PATH:-}" ] && [ -f "$KEYCHAIN_PATH" ]; then
+            security delete-keychain "$KEYCHAIN_PATH" || true
+          fi
+          rm -rf "$HOME/Library/MobileDevice/Provisioning Profiles" || true
+          rm -rf "$HOME/.appstoreconnect" || true
+          # The IPA, the archive, the decoded key and every profile lived here.
+          rm -rf "$RUN_DIR" || true
+          echo "Signing material removed."
+
+      - name: Upload build logs
+        # Section 83: logs only. Never the IPA, never the archive, never a
+        # profile, never a key — an artifact is downloadable by anyone with read
+        # access to the repository.
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: testflight-logs
+          path: artifacts/*.log
+          retention-days: 7
+          if-no-files-found: ignore

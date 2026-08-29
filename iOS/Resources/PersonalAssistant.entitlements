@@ -7,7 +7,7 @@
 	     because a mismatch resolves to nil rather than to an error. -->
 	<key>com.apple.security.application-groups</key>
 	<array>
-		<string>group.com.example.personalassistant</string>
+		<string>group.com.dimitrisefthymiou.MetisAI</string>
 	</array>
 </dict>
 </plist>

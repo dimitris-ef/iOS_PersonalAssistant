@@ -188,6 +188,11 @@ let package = Package(
         // from the app's dependencies once one is.
         .library(name: "DevSupport", targets: ["DevSupport"]),
         .executable(name: "assistant-dev", targets: ["DevHarness"]),
+        // Distribution tooling. Deliberately *not* referenced by `project.yml`:
+        // the App Store Connect key is CI infrastructure and must never reach an
+        // iOS bundle (Part 14, section 109), and the surest way to guarantee
+        // that is for no app target to be able to import it.
+        .executable(name: "testflight-tool", targets: ["TestFlightTool"]),
     ],
     targets: llamaBinaryTargets + whisperBinaryTargets + [
         // MARK: Core
@@ -410,9 +415,31 @@ let package = Package(
             ]
         ),
 
+        // MARK: Distribution
+        //
+        // Everything about shipping the app that can be decided without a Mac:
+        // reading a provisioning profile, building the export options, choosing
+        // a build number, signing an App Store Connect token, and deciding
+        // whether a build actually finished processing.
+        //
+        // No dependencies at all, and that is the design. It cannot import
+        // `SystemSurfaces`, so its copy of the shipping identifiers is a second
+        // statement of them that a test compares against the first — which is
+        // the only arrangement in which that test means anything.
+        .target(name: "ReleaseTooling"),
+
+        .executableTarget(name: "TestFlightTool", dependencies: ["ReleaseTooling"]),
+
         // MARK: Tests
 
         .testTarget(name: "AssistantDomainTests", dependencies: ["AssistantDomain"]),
+        // Reaches `IdentifierPlaceholderCheck`'s internal word lists, and
+        // imports `SystemSurfaces` alongside so the runtime identifiers and the
+        // distribution identifiers can be compared.
+        .testTarget(
+            name: "ReleaseToolingTests",
+            dependencies: ["ReleaseTooling", "SystemSurfaces"]
+        ),
         .testTarget(name: "SystemSurfacesTests", dependencies: ["SystemSurfaces"]),
         .testTarget(
             name: "SpeechToTextTests",

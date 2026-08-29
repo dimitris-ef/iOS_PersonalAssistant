@@ -18,8 +18,11 @@
 	<string>6.0</string>
 	<key>CFBundleName</key>
 	<string>$(PRODUCT_NAME)</string>
+	<!-- The name under the icon on the Home Screen, and the name TestFlight
+	     shows testers. Deliberately short: iOS truncates at roughly twelve
+	     characters, and a truncated name is worse than a chosen one. -->
 	<key>CFBundleDisplayName</key>
-	<string>Assistant</string>
+	<string>MetisAI</string>
 	<key>CFBundlePackageType</key>
 	<string>$(PRODUCT_BUNDLE_PACKAGE_TYPE)</string>
 	<key>CFBundleShortVersionString</key>
@@ -39,6 +42,29 @@
 	<string>$(REMOTE_AI_MODEL)</string>
 	<key>RemoteAIAPIKey</key>
 	<string>$(REMOTE_AI_API_KEY)</string>
+
+	<!--
+	  Export compliance (Part 14, section 82).
+
+	  Declared `false` after actually auditing what this binary does with
+	  cryptography, not to skip the question TestFlight would otherwise ask on
+	  every upload:
+
+	    · HTTPS to OpenAI, through URLSession — Apple-provided TLS, exempt.
+	    · Credentials in the Keychain, through Security.framework — exempt.
+	    · SHA-256 over downloaded model files — a hash, not encryption, and
+	      used for integrity rather than confidentiality.
+
+	  There is no bundled cipher, no custom TLS stack, no encrypted content
+	  format of our own. "Non-exempt" is the operative word: the app uses
+	  encryption, and every use of it falls inside the standard exemptions.
+
+	  If that ever stops being true — a proprietary sync protocol, an encrypted
+	  export file, a bundled crypto library — this key must be removed and the
+	  question answered honestly in App Store Connect.
+	-->
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 
 	<key>UILaunchScreen</key>
 	<dict/>
@@ -107,7 +133,7 @@
 	  reaches an AI provider.
 	-->
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Personal Assistant uses the microphone when you choose to speak to the assistant.</string>
+	<string>MetisAI uses the microphone when you choose to speak to the assistant.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>What you say is turned into text so the assistant can act on it. Your recordings are not saved.</string>
 	<!--
@@ -141,8 +167,22 @@
 	-->
 	<key>BGTaskSchedulerPermittedIdentifiers</key>
 	<array>
-		<string>com.example.personalassistant.refresh</string>
+		<string>com.dimitrisefthymiou.MetisAI.refresh</string>
 	</array>
+	<!--
+	  Live Activities. Required by ActivityKit in the *main app's* Info.plist,
+	  not the widget extension's: without it `Activity.request` throws
+	  `unsupported` on every device, and the executive-support Live Activity
+	  from Part 12 simply never appears. There is no build error and no log
+	  line — the feature is just absent, which is exactly the class of failure
+	  that only shows up on real hardware.
+
+	  Not a new capability: `ExecutiveSupportLiveActivity` and
+	  `AppleLiveActivityCoordinator` already ship. This is the declaration they
+	  were always missing.
+	-->
+	<key>NSSupportsLiveActivities</key>
+	<true/>
 	<!--
 	  The scheme widget deep links use. Must match
 	  `SystemSurfaceIdentifiers.urlScheme`; a test asserts the Swift side and
@@ -155,10 +195,10 @@
 			<key>CFBundleTypeRole</key>
 			<string>Editor</string>
 			<key>CFBundleURLName</key>
-			<string>com.example.personalassistant.surfaces</string>
+			<string>com.dimitrisefthymiou.MetisAI.surfaces</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<string>personalassistant</string>
+				<string>metisai</string>
 			</array>
 		</dict>
 	</array>

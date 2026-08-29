@@ -1,6 +1,7 @@
 import AssistantCore
 import AssistantDomain
 import Foundation
+import SystemSurfaces
 
 #if canImport(BackgroundTasks)
 import BackgroundTasks
@@ -118,7 +119,7 @@ final class AppLifecycleCoordinator {
     /// A constant, never built at runtime (section 41): iOS matches the string
     /// against the plist at registration, and a mismatch is a crash at launch
     /// rather than a warning.
-    static let refreshTaskIdentifier = "com.example.personalassistant.refresh"
+    static let refreshTaskIdentifier = SystemSurfaceIdentifiers.backgroundRefreshTaskID
 
     /// How far ahead to ask for the next refresh.
     ///

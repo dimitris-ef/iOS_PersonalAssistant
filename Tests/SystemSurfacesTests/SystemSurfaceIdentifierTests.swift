@@ -72,10 +72,10 @@ final class SystemSurfaceIdentifierTests: XCTestCase {
     func testForeignURLsAreRejected() {
         let foreign = [
             URL(string: "https://example.com/today")!,
-            URL(string: "personalassistant://elsewhere/today")!,
-            URL(string: "personalassistant://open/nonsense")!,
-            URL(string: "personalassistant://open/task")!,
-            URL(string: "personalassistant://open/task?id=not-a-uuid")!,
+            URL(string: "metisai://elsewhere/today")!,
+            URL(string: "metisai://open/nonsense")!,
+            URL(string: "metisai://open/task")!,
+            URL(string: "metisai://open/task?id=not-a-uuid")!,
         ]
 
         for url in foreign {

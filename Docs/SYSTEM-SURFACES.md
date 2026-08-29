@@ -227,7 +227,7 @@ the text does not sit in a file after the user changed their mind.
 
 ## App Group and entitlements
 
-One identifier, `group.com.example.personalassistant`, derived from the bundle
+One identifier, `group.com.dimitrisefthymiou.MetisAI`, derived from the bundle
 identifier and declared in `SystemSurfaceIdentifiers` — with entitlement files
 for the app and both extensions repeating it, because a plist cannot import
 Swift. A test asserts the Swift half.

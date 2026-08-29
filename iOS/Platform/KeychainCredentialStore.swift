@@ -4,6 +4,7 @@
 import AssistantPersistence
 import Foundation
 import Security
+import SystemSurfaces
 
 /// Keychain-backed secret storage.
 ///
@@ -18,7 +19,7 @@ import Security
 actor KeychainCredentialStore: CredentialStore {
     private let service: String
 
-    init(service: String = Bundle.main.bundleIdentifier ?? "com.example.personalassistant") {
+    init(service: String = Bundle.main.bundleIdentifier ?? SystemSurfaceIdentifiers.keychainService) {
         self.service = service
     }
 

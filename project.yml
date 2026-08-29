@@ -15,10 +15,27 @@
 # Apple SDK check generate the project from this file and compile it. What
 # remains unverified is opening the result in Xcode by hand.
 
+# ## Signing (Part 14)
+#
+# Debug is unsigned, so the simulator lanes need no identity and no
+# provisioning profile. Release is *manually* signed against three per-target
+# App Store distribution profiles, whose names arrive as build variables:
+#
+#     METIS_TEAM_ID              the Apple Developer team
+#     METIS_MAIN_PROFILE_NAME    profile for com.dimitrisefthymiou.MetisAI
+#     METIS_WIDGETS_PROFILE_NAME profile for …MetisAI.widgets
+#     METIS_KEYBOARD_PROFILE_NAME profile for …MetisAI.keyboard
+#
+# Names, not UUIDs, and never hardcoded here: the deploy workflow decodes each
+# profile, reads the name Apple actually put in it, and passes it on the
+# xcodebuild command line. A profile regenerated in the developer portal
+# changes its UUID and keeps its name, so a hardcoded UUID would break the
+# build the first time anyone renewed a certificate.
+
 name: PersonalAssistant
 
 options:
-  bundleIdPrefix: com.example.personalassistant
+  bundleIdPrefix: com.dimitrisefthymiou.MetisAI
   deploymentTarget:
     iOS: "17.0"
   createIntermediateGroups: true
@@ -151,7 +168,7 @@ targets:
     settings:
       base:
         INFOPLIST_FILE: iOS/Resources/Info.plist
-        PRODUCT_BUNDLE_IDENTIFIER: com.example.personalassistant
+        PRODUCT_BUNDLE_IDENTIFIER: com.dimitrisefthymiou.MetisAI
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         TARGETED_DEVICE_FAMILY: "1" # iPhone
@@ -163,11 +180,27 @@ targets:
         DEVELOPMENT_LANGUAGE: en
         MARKETING_VERSION: "0.1"
         CURRENT_PROJECT_VERSION: "1"
-        # Simulator builds in CI must not need a signing identity.
-        CODE_SIGNING_ALLOWED: NO
-        CODE_SIGNING_REQUIRED: NO
-        CODE_SIGN_IDENTITY: ""
         CODE_SIGN_ENTITLEMENTS: iOS/Resources/PersonalAssistant.entitlements
+      configs:
+        # Simulator builds in CI must not need a signing identity. This is the
+        # only thing keeping the two existing simulator lanes runnable on a
+        # runner with an empty keychain, so it stays exactly as it was.
+        Debug:
+          CODE_SIGNING_ALLOWED: NO
+          CODE_SIGNING_REQUIRED: NO
+          CODE_SIGN_IDENTITY: ""
+          CODE_SIGN_STYLE: Manual
+        # Distribution. Manual, because a headless runner has no Xcode account
+        # to fetch a profile with, and `-allowProvisioningUpdates` would make
+        # the build depend on what the portal happens to hand back rather than
+        # on the profile that was reviewed and installed.
+        Release:
+          CODE_SIGNING_ALLOWED: YES
+          CODE_SIGNING_REQUIRED: YES
+          CODE_SIGN_STYLE: Manual
+          CODE_SIGN_IDENTITY: "Apple Distribution"
+          DEVELOPMENT_TEAM: $(METIS_TEAM_ID)
+          PROVISIONING_PROFILE_SPECIFIER: $(METIS_MAIN_PROFILE_NAME)
 
   # MARK: Widgets, Lock Screen and Live Activities
   #
@@ -211,7 +244,7 @@ targets:
     settings:
       base:
         INFOPLIST_FILE: iOS/SystemSurfaces/Widgets/Info.plist
-        PRODUCT_BUNDLE_IDENTIFIER: com.example.personalassistant.widgets
+        PRODUCT_BUNDLE_IDENTIFIER: com.dimitrisefthymiou.MetisAI.widgets
         CODE_SIGN_ENTITLEMENTS: iOS/SystemSurfaces/Widgets/PersonalAssistantWidgets.entitlements
         TARGETED_DEVICE_FAMILY: "1"
         SWIFT_VERSION: "5.0"
@@ -220,9 +253,22 @@ targets:
         ENABLE_USER_SCRIPT_SANDBOXING: YES
         MARKETING_VERSION: "0.1"
         CURRENT_PROJECT_VERSION: "1"
-        CODE_SIGNING_ALLOWED: NO
-        CODE_SIGNING_REQUIRED: NO
-        CODE_SIGN_IDENTITY: ""
+      configs:
+        Debug:
+          CODE_SIGNING_ALLOWED: NO
+          CODE_SIGNING_REQUIRED: NO
+          CODE_SIGN_IDENTITY: ""
+          CODE_SIGN_STYLE: Manual
+        # Its own profile, because the App Group entitlement has to be granted
+        # to this bundle identifier specifically. An extension signed with the
+        # app's profile installs and then cannot see the shared container.
+        Release:
+          CODE_SIGNING_ALLOWED: YES
+          CODE_SIGNING_REQUIRED: YES
+          CODE_SIGN_STYLE: Manual
+          CODE_SIGN_IDENTITY: "Apple Distribution"
+          DEVELOPMENT_TEAM: $(METIS_TEAM_ID)
+          PROVISIONING_PROFILE_SPECIFIER: $(METIS_WIDGETS_PROFILE_NAME)
 
   # MARK: The custom keyboard
   #
@@ -243,7 +289,7 @@ targets:
     settings:
       base:
         INFOPLIST_FILE: iOS/SystemSurfaces/Keyboard/Info.plist
-        PRODUCT_BUNDLE_IDENTIFIER: com.example.personalassistant.keyboard
+        PRODUCT_BUNDLE_IDENTIFIER: com.dimitrisefthymiou.MetisAI.keyboard
         CODE_SIGN_ENTITLEMENTS: iOS/SystemSurfaces/Keyboard/PersonalAssistantKeyboard.entitlements
         TARGETED_DEVICE_FAMILY: "1"
         SWIFT_VERSION: "5.0"
@@ -252,6 +298,16 @@ targets:
         ENABLE_USER_SCRIPT_SANDBOXING: YES
         MARKETING_VERSION: "0.1"
         CURRENT_PROJECT_VERSION: "1"
-        CODE_SIGNING_ALLOWED: NO
-        CODE_SIGNING_REQUIRED: NO
-        CODE_SIGN_IDENTITY: ""
+      configs:
+        Debug:
+          CODE_SIGNING_ALLOWED: NO
+          CODE_SIGNING_REQUIRED: NO
+          CODE_SIGN_IDENTITY: ""
+          CODE_SIGN_STYLE: Manual
+        Release:
+          CODE_SIGNING_ALLOWED: YES
+          CODE_SIGNING_REQUIRED: YES
+          CODE_SIGN_STYLE: Manual
+          CODE_SIGN_IDENTITY: "Apple Distribution"
+          DEVELOPMENT_TEAM: $(METIS_TEAM_ID)
+          PROVISIONING_PROFILE_SPECIFIER: $(METIS_KEYBOARD_PROFILE_NAME)
