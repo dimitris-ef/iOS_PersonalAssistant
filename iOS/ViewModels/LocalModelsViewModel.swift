@@ -26,6 +26,9 @@ final class LocalModelsViewModel {
     private(set) var downloading: AIModelIdentifier?
     private(set) var progress: LocalModelDownloadProgress = .zero
     private(set) var isRefreshing = false
+    /// The model a load or unload is running for, so its row can show a
+    /// spinner while the runtime is busy and its controls stay out of reach.
+    private(set) var isWorking: AIModelIdentifier?
     /// Bytes the models directory occupies, and what is free right now.
     private(set) var storageUsed: Int64 = 0
     private(set) var storageAvailable: Int64 = 0
@@ -61,6 +64,57 @@ final class LocalModelsViewModel {
         let modelID: AIModelIdentifier
         let message: String
         let isRetryable: Bool
+        /// Which half failed. Retry means "fetch the bytes again" after a
+        /// download and "try the same file again" after a load, and offering
+        /// the wrong one turns a transient memory failure into a re-download.
+        let kind: LocalModelRowFailure.Kind
+    }
+
+    /// The failure attached to one row, in the form the presenter takes.
+    func rowFailure(for id: AIModelIdentifier) -> LocalModelRowFailure? {
+        guard let failure, failure.modelID == id else { return nil }
+        return LocalModelRowFailure(kind: failure.kind, message: failure.message)
+    }
+
+    /// What one row says and offers.
+    ///
+    /// Derived in the package rather than in the view: which control appears
+    /// for which state is a table with a wrong answer for every cell, and
+    /// `iOS/` has no test target.
+    func rowState(for status: LocalModelStatus) -> LocalModelRowState {
+        LocalModelRowPresenter.state(
+            for: status,
+            isDownloading: isDownloading(status.id),
+            failure: rowFailure(for: status.id)
+        )
+    }
+
+    /// Runs one row control.
+    ///
+    /// A single door so the view does not carry eight closures, and so every
+    /// control goes through the same refresh afterwards.
+    func perform(
+        _ action: LocalModelAction,
+        on status: LocalModelStatus,
+        manager: LocalModelManager
+    ) async {
+        switch action {
+        case .download, .retryDownload:
+            await download(status, manager: manager)
+        case .cancelDownload:
+            await cancelDownload(manager)
+        case .use:
+            await select(status, manager: manager)
+        case .load, .retryLoad:
+            await load(status, manager: manager)
+        case .unload:
+            await unload(manager)
+        case .delete:
+            // The only one that does not act immediately: deleting gigabytes
+            // on a single tap, with the row that was tapped ambiguous in a
+            // scrolling list, is not a decision to take without confirming.
+            pendingDeletion = status
+        }
     }
 
     func refresh(_ manager: LocalModelManager) async {
@@ -99,13 +153,15 @@ final class LocalModelsViewModel {
             failure = Failure(
                 modelID: status.id,
                 message: error.description,
-                isRetryable: error.isRetryable
+                isRetryable: error.isRetryable,
+                kind: .download
             )
         } catch {
             failure = Failure(
                 modelID: status.id,
                 message: error.localizedDescription,
-                isRetryable: true
+                isRetryable: true,
+                kind: .download
             )
         }
         await refresh(manager)
@@ -119,28 +175,58 @@ final class LocalModelsViewModel {
         await refresh(manager)
     }
 
-    /// Makes a model the one Local AI uses, and loads it.
+    /// Makes a model the one Local AI answers with. Nothing else.
     ///
-    /// The load is what turns "Downloaded" into "Ready", and doing it here
-    /// rather than at launch is the point of section 65: the cost lands when
-    /// the user asks for it, not on the app's startup path.
-    func use(_ status: LocalModelStatus, manager: LocalModelManager) async {
+    /// Sections 15, 16 and 24: selecting is a settings write, and the weights
+    /// are read into memory when the first message needs them. Loading here
+    /// would put a multi-second, multi-gigabyte operation behind a tap that
+    /// looks like flipping a switch — and would mean that choosing a model you
+    /// then never message had cost you the memory anyway.
+    func select(_ status: LocalModelStatus, manager: LocalModelManager) async {
         failure = nil
         do {
             try await manager.select(status.id)
-            _ = try await manager.load(status.id)
-        } catch let error as LocalRuntimeError {
-            failure = Failure(modelID: status.id, message: error.description, isRetryable: true)
         } catch {
             failure = Failure(
                 modelID: status.id,
                 message: error.localizedDescription,
-                isRetryable: true
+                isRetryable: true,
+                kind: .load
             )
         }
         await refresh(manager)
     }
 
+    /// Reads the weights into memory now.
+    ///
+    /// Separate from selection on purpose. This is the explicit "load it now"
+    /// of section 31 — useful before going offline, or to find out whether a
+    /// model will load at all without composing a message first.
+    func load(_ status: LocalModelStatus, manager: LocalModelManager) async {
+        failure = nil
+        isWorking = status.id
+        defer { isWorking = nil }
+        do {
+            _ = try await manager.load(status.id)
+        } catch let error as LocalRuntimeError {
+            failure = Failure(
+                modelID: status.id,
+                message: LocalTurnPreflight.loadFailureMessage(error),
+                isRetryable: true,
+                kind: .load
+            )
+        } catch {
+            failure = Failure(
+                modelID: status.id,
+                message: error.localizedDescription,
+                isRetryable: true,
+                kind: .load
+            )
+        }
+        await refresh(manager)
+    }
+
+    /// Releases the weights. The file, the record and the selection all stay.
     func unload(_ manager: LocalModelManager) async {
         await manager.unload()
         await refresh(manager)
@@ -159,7 +245,8 @@ final class LocalModelsViewModel {
             failure = Failure(
                 modelID: status.id,
                 message: error.localizedDescription,
-                isRetryable: false
+                isRetryable: false,
+                kind: .delete
             )
         }
         await refresh(manager)

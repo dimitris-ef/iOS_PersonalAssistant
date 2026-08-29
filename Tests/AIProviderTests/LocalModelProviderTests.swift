@@ -440,6 +440,71 @@ final class LocalModelProviderTests: XCTestCase {
         XCTAssertEqual(response.text, "You have one thing today: the dentist at ten.")
         XCTAssertEqual(offlineTransport.attempts, 0, "generation must not touch the network")
     }
+
+    // MARK: Context safety
+
+    /// Sections 52 and 53. The provider bounds what it sends by the context the
+    /// runtime was actually opened with — which is the manager's adaptive
+    /// figure, not the catalog's 4096 and certainly not the model's advertised
+    /// 32768. Nothing above this layer knows the context exists, so if the
+    /// provider does not do this, nothing does.
+    func testALongConversationIsTrimmedToTheLoadedContext() async throws {
+        let runtime = MockLocalModelRuntime()
+        await runtime.alwaysRespond(.text("Yes."))
+        let (provider, manager, _) = try await makeProvider(
+            descriptor: descriptor(), runtime: runtime
+        )
+
+        // Forty turns of a few hundred characters each: an ordinary afternoon's
+        // conversation, and far more than a phone context holds.
+        var messages: [AIMessage] = []
+        for index in 0..<40 {
+            messages.append(AIMessage(role: .user, content: "Question \(index). " + String(repeating: "detail ", count: 60)))
+            messages.append(AIMessage(role: .assistant, content: "Answer \(index). " + String(repeating: "reply ", count: 60)))
+        }
+        messages.append(AIMessage(role: .user, content: "So what should I do first?"))
+
+        _ = try await provider.respond(to: request(messages: messages))
+
+        let sent = await runtime.lastPrompt
+        let configuration = await manager.activeConfiguration()
+        let context = configuration?.contextLength ?? 0
+        XCTAssertGreaterThan(context, 0, "the manager did not record what it opened")
+
+        guard let sent else { return XCTFail("nothing reached the runtime") }
+        XCTAssertLessThanOrEqual(
+            LocalPromptBudget.estimatedTokens(in: sent),
+            configuration?.maximumPromptTokens ?? 0,
+            "the provider sent more than the loaded context holds"
+        )
+        // The newest message survives; asking a model to answer a conversation
+        // with the question removed is worse than asking it a short one.
+        XCTAssertEqual(sent.turns.last?.content, "So what should I do first?")
+        XCTAssertEqual(sent.turns.first?.role, "system")
+    }
+
+    /// The reply is bounded too. Bounding only the prompt still allows a full
+    /// context to be handed a nearly-full prompt and asked for 640 tokens back.
+    func testTheReplyLengthIsBoundedByTheLoadedContext() async throws {
+        let runtime = MockLocalModelRuntime()
+        await runtime.alwaysRespond(.text("Short."))
+        let (provider, manager, _) = try await makeProvider(
+            descriptor: descriptor(), runtime: runtime
+        )
+
+        _ = try await provider.respond(to: request())
+
+        let options = await runtime.lastOptions
+        let configuration = await manager.activeConfiguration()
+        guard let options, let configuration else {
+            return XCTFail("the runtime received no options, or nothing was loaded")
+        }
+        XCTAssertLessThanOrEqual(
+            options.maximumOutputTokens, configuration.maximumGenerationTokens
+        )
+        XCTAssertLessThan(options.maximumOutputTokens, configuration.contextLength)
+        XCTAssertGreaterThan(options.maximumOutputTokens, 0)
+    }
 }
 
 /// A transport that would fail if anything asked it for bytes.

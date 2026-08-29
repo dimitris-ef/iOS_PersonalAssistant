@@ -33,7 +33,19 @@ struct LocalModelsView: View {
                 Section {
                     FailureRow(failure: failure) {
                         guard let status = viewModel.status(for: failure.modelID) else { return }
-                        Task { await viewModel.download(status, manager: model.localModels) }
+                        // Retry means the thing that failed, not "download".
+                        // Re-fetching two gigabytes because a load ran out of
+                        // memory would be the wrong repair, and an expensive one.
+                        Task {
+                            switch failure.kind {
+                            case .download:
+                                await viewModel.download(status, manager: model.localModels)
+                            case .load:
+                                await viewModel.load(status, manager: model.localModels)
+                            case .delete:
+                                await viewModel.delete(status, manager: model.localModels)
+                            }
+                        }
                     }
                 }
             }
@@ -52,17 +64,17 @@ struct LocalModelsView: View {
                 ForEach(viewModel.visibleStatuses) { status in
                     LocalModelRow(
                         status: status,
+                        rowState: viewModel.rowState(for: status),
                         viewModel: viewModel,
                         isDownloading: viewModel.isDownloading(status.id),
+                        isWorking: viewModel.isWorking == status.id,
                         progress: viewModel.progress,
-                        onDownload: {
-                            Task { await viewModel.download(status, manager: model.localModels) }
-                        },
-                        onCancel: {
-                            Task { await viewModel.cancelDownload(model.localModels) }
-                        },
-                        onUse: {
-                            Task { await viewModel.use(status, manager: model.localModels) }
+                        onAction: { action in
+                            Task {
+                                await viewModel.perform(
+                                    action, on: status, manager: model.localModels
+                                )
+                            }
                         }
                     )
                 }
@@ -104,6 +116,27 @@ struct LocalModelsView: View {
         // loaded model both change while this screen is off screen.
         .refreshable { await viewModel.refresh(model.localModels) }
         .task { runtime = await model.localRuntimeDiagnostic() }
+        // Delete is confirmed here as well as on the detail screen, because it
+        // is now reachable from a row — and a destructive tap in a scrolling
+        // list is exactly where a confirmation earns its place.
+        .confirmationDialog(
+            viewModel.pendingDeletion.map { "Delete \($0.descriptor.displayName)?" } ?? "",
+            isPresented: Binding(
+                get: { viewModel.pendingDeletion != nil },
+                set: { if !$0 { viewModel.pendingDeletion = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Delete", role: .destructive) {
+                guard let pending = viewModel.pendingDeletion else { return }
+                Task { await viewModel.delete(pending, manager: model.localModels) }
+            }
+            Button("Cancel", role: .cancel) { viewModel.pendingDeletion = nil }
+        } message: {
+            if let pending = viewModel.pendingDeletion {
+                Text(LocalModelPresentation.deletionExplanation(pending))
+            }
+        }
     }
 
     // MARK: The runtime
@@ -169,6 +202,8 @@ struct LocalModelsView: View {
 /// One model in the list.
 private struct LocalModelRow: View {
     let status: LocalModelStatus
+    /// What this row says and offers, derived in the package.
+    let rowState: LocalModelRowState
     // The detail screen is pushed with a destination rather than a routed
     // value: `SettingsScreen` already registers a `navigationDestination` for
     // `Route`, and a second registration for the same type in one stack is
@@ -176,10 +211,10 @@ private struct LocalModelRow: View {
     // share this screen's view model instead of re-querying the manager.
     let viewModel: LocalModelsViewModel
     let isDownloading: Bool
+    /// A load or unload is running for this model.
+    let isWorking: Bool
     let progress: LocalModelDownloadProgress
-    let onDownload: () -> Void
-    let onCancel: () -> Void
-    let onUse: () -> Void
+    let onAction: (LocalModelAction) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
@@ -197,17 +232,23 @@ private struct LocalModelRow: View {
                                     .accessibilityLabel("In use")
                             }
                         }
-                        Text(LocalModelPresentation.specification(status.descriptor))
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        Text(LocalModelPresentation.size(status.descriptor.fileSizeBytes))
+                        // Size, precision and family on one line (section 42).
+                        // Every part is omitted when unknown rather than
+                        // guessed at — section 41.
+                        Text(specification)
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
                 }
             }
 
-            CompatibilityBadge(status: status)
+            HStack(spacing: Theme.Spacing.sm) {
+                CompatibilityBadge(status: status)
+                RuntimeStateLabel(state: rowState.runtime)
+                if isWorking {
+                    ProgressView().controlSize(.mini)
+                }
+            }
 
             if let summary = status.descriptor.summary {
                 Text(summary)
@@ -216,17 +257,21 @@ private struct LocalModelRow: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            if let detail = LocalModelPresentation.compatibilityDetail(status) {
+            if let detail = rowState.runtime.detail
+                ?? LocalModelPresentation.compatibilityDetail(status)
+            {
                 Text(detail)
                     .font(.caption)
                     .foregroundStyle(
-                        LocalModelPresentation.isWarning(status.compatibility) ? .orange : .secondary
+                        rowState.runtime.isError
+                            || LocalModelPresentation.isWarning(status.compatibility)
+                            ? .orange : .secondary
                     )
                     .fixedSize(horizontal: false, vertical: true)
             }
 
             if isDownloading {
-                DownloadProgressView(progress: progress, onCancel: onCancel)
+                DownloadProgressView(progress: progress) { onAction(.cancelDownload) }
             } else {
                 actions
             }
@@ -234,34 +279,47 @@ private struct LocalModelRow: View {
         .padding(.vertical, Theme.Spacing.xs)
     }
 
+    /// "1.2 GB · Q4_K_M · qwen3", with whatever parts are known.
+    private var specification: String {
+        [rowState.sizeLabel, rowState.precisionLabel, rowState.familyLabel]
+            .compactMap { $0 }
+            .joined(separator: " · ")
+    }
+
     @ViewBuilder
     private var actions: some View {
         HStack(spacing: Theme.Spacing.md) {
-            if status.lifecycle.isInstalled {
-                if !status.isSelected {
-                    Button("Use Model", action: onUse)
-                        .buttonStyle(.borderedProminent)
-                        .controlSize(.small)
-                } else if !status.lifecycle.isLoaded {
-                    // Selected but not resident: loading is what turns this into
-                    // Ready, and it happens on demand rather than at launch.
-                    Button("Load", action: onUse)
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
+            ForEach(rowState.actions) { action in
+                Button(
+                    action.title,
+                    role: action.isDestructive ? .destructive : nil
+                ) {
+                    onAction(action)
                 }
-                Text(LocalModelPresentation.statusLabel(status))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            } else if status.canDownload {
-                Button("Download", action: onDownload)
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-            } else if status.lifecycle.isBusy {
-                ProgressView()
-                    .controlSize(.small)
+                // Bordered rather than plain: a row in a `List` is itself a tap
+                // target, and an unadorned button on one gets absorbed by it.
+                .buttonStyle(.bordered)
+                .tint(action.isProminent ? Color.accentColor : .secondary)
+                .controlSize(.small)
+                .disabled(isWorking)
+            }
+            if rowState.runtime.isBusy && !isDownloading {
+                ProgressView().controlSize(.small)
             }
             Spacer(minLength: 0)
         }
+    }
+}
+
+/// The runtime half of a row's state, as a small caption.
+private struct RuntimeStateLabel: View {
+    let state: LocalModelRuntimeState
+
+    var body: some View {
+        Text(state.label)
+            .font(.caption2)
+            .foregroundStyle(state.isError ? Color.orange : .secondary)
+            .accessibilityLabel("Runtime state, \(state.label)")
     }
 }
 

@@ -13,6 +13,17 @@ struct LocalModelDetailView: View {
     @Environment(AppModel.self) private var model
     let status: LocalModelStatus
     @Bindable var viewModel: LocalModelsViewModel
+    /// Local rather than shared with the list's `pendingDeletion`.
+    ///
+    /// Both screens are in the navigation stack at once, and two
+    /// `confirmationDialog`s bound to the same value both try to present — one
+    /// wins, silently, and which one is not something to rely on.
+    @State private var isConfirmingDelete = false
+
+    /// Derived in the package, so what each state offers is testable.
+    private var rowState: LocalModelRowState {
+        viewModel.rowState(for: status)
+    }
 
     var body: some View {
         List {
@@ -95,48 +106,59 @@ struct LocalModelDetailView: View {
                 }
             }
 
-            if status.lifecycle.isInstalled {
-                Section {
-                    if !status.isSelected {
-                        Button("Use This Model") {
-                            Task { await viewModel.use(status, manager: model.localModels) }
-                        }
-                    } else if status.lifecycle.isLoaded {
-                        Button("Unload from memory") {
-                            Task { await viewModel.unload(model.localModels) }
-                        }
-                        Text(
-                            "Frees the memory it is using. It loads again the next time you "
-                                + "ask the assistant something."
-                        )
+            Section {
+                // Runtime state, spelled out in two halves. "Downloaded" and
+                // "Loaded" were one label until this pass, and a model that had
+                // finished downloading read as one that was ready to answer
+                // (section 39).
+                LabeledContent("Runtime") {
+                    Text(rowState.runtime.label)
+                        .foregroundStyle(rowState.runtime.isError ? Color.orange : .secondary)
+                }
+                if let detail = rowState.runtime.detail {
+                    Text(detail)
                         .font(.footnote)
-                        .foregroundStyle(.secondary)
-                    } else {
-                        Button("Load") {
-                            Task { await viewModel.use(status, manager: model.localModels) }
-                        }
-                    }
+                        .foregroundStyle(.orange)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
 
-                    Button("Delete Model", role: .destructive) {
-                        viewModel.pendingDeletion = status
+                ForEach(rowState.actions) { action in
+                    Button(action.title, role: action.isDestructive ? .destructive : nil) {
+                        if action == .delete {
+                            isConfirmingDelete = true
+                        } else {
+                            Task {
+                                await viewModel.perform(
+                                    action, on: status, manager: model.localModels
+                                )
+                            }
+                        }
                     }
                 }
+
+                if rowState.runtime.isResident {
+                    Text(
+                        "Unloading frees the memory it is using. It loads again the next "
+                            + "time you ask the assistant something."
+                    )
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                }
+            } header: {
+                Text("This model")
             }
         }
         .navigationTitle(status.descriptor.displayName)
         .navigationBarTitleDisplayMode(.inline)
         .confirmationDialog(
             "Delete \(status.descriptor.displayName)?",
-            isPresented: Binding(
-                get: { viewModel.pendingDeletion?.id == status.id },
-                set: { if !$0 { viewModel.pendingDeletion = nil } }
-            ),
+            isPresented: $isConfirmingDelete,
             titleVisibility: .visible
         ) {
             Button("Delete", role: .destructive) {
                 Task { await viewModel.delete(status, manager: model.localModels) }
             }
-            Button("Cancel", role: .cancel) { viewModel.pendingDeletion = nil }
+            Button("Cancel", role: .cancel) { isConfirmingDelete = false }
         } message: {
             // Says what survives, because "delete the thing the assistant runs
             // on" reasonably makes people wonder what goes with it.

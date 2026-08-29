@@ -57,6 +57,15 @@ final class AppModel {
     /// blocks the composer.
     private(set) var isAssistantResponding = false
 
+    /// Set while a local model is being read into memory for the turn that is
+    /// about to start, and holding the sentence to show.
+    ///
+    /// Section 46. A local load is seconds of nothing — a mmap of a couple of
+    /// gigabytes and a Metal warm-up — and the typing indicator alone cannot
+    /// tell that apart from a model that is thinking. Naming what is happening
+    /// is the difference between a wait and a hang.
+    private(set) var assistantLoadingNotice: String?
+
     /// What the OS currently allows, per capability.
     ///
     /// Read with `status(for:)`, which never prompts, so showing this screen
@@ -512,7 +521,8 @@ final class AppModel {
     /// The provider behind it is the scripted development stand-in, so the
     /// *words* are canned — but the tool decoding, authorization, reminder
     /// planning and (simulated) execution around them are the production path.
-    func send(_ text: String) async {
+    @discardableResult
+    func send(_ text: String) async -> Bool {
         await send(text, from: .typed)
     }
 
@@ -524,12 +534,25 @@ final class AppModel {
     /// the message and does not alter context assembly, memory retrieval, tool
     /// validation, authorization or follow-up planning. A sentence spoken and
     /// the same sentence typed produce byte-identical work.
-    func send(_ text: String, from source: MessageInputSource) async {
+    /// Returns false when nothing was sent, so the composer can put the text
+    /// back rather than swallowing a message that never reached the assistant.
+    @discardableResult
+    func send(_ text: String, from source: MessageInputSource) async -> Bool {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, !isAssistantResponding else { return }
+        guard !trimmed.isEmpty, !isAssistantResponding else { return false }
 
+        // Claimed before the preflight, not after: a local load takes seconds,
+        // and leaving the flag false through it would let a second tap start a
+        // second turn against a model that is still arriving.
         isAssistantResponding = true
         defer { isAssistantResponding = false }
+
+        // Sections 47 and 48. A local turn is decided before it starts: the
+        // weights load here, with something on screen saying so, rather than
+        // inside the provider where the only visible effect is a spinner that
+        // does not move. A state nothing can answer from refuses outright
+        // instead of spending the wait to arrive at the same answer.
+        guard await prepareLocalModelIfNeeded() else { return false }
 
         do {
             let result = try await environment.engine.send(trimmed, in: conversation.id)
@@ -548,6 +571,56 @@ final class AppModel {
             // user is told why, and the composer never sits in a silent
             // loading state.
             banner = BannerMessage(text: Self.describe(error), style: .warning)
+        }
+        return true
+    }
+
+    /// Loads the chosen local model before the turn, or explains why not.
+    ///
+    /// Returns false when the turn must not start. The load is idempotent —
+    /// `LocalModelManager.load` returns immediately for a model already
+    /// resident — so this costs a state read on every other send.
+    ///
+    /// Nothing here downloads. A model that is not on the device is a refusal
+    /// with a route to Manage Models, never a gigabyte started on somebody's
+    /// cellular connection because they typed a sentence (section 106).
+    private func prepareLocalModelIfNeeded() async -> Bool {
+        guard settings.preferredProviderID == AssistantLocalChoices.localProviderID else {
+            return true
+        }
+
+        let manager = environment.localModels
+        let name = activeAssistantChoice?.title
+        let decision = LocalTurnPreflight.decide(
+            availability: await manager.availability(),
+            modelName: name
+        )
+
+        switch decision {
+        case .proceed:
+            return true
+        case .refuse(let reason):
+            banner = BannerMessage(text: reason, style: .warning)
+            return false
+        case .loadFirst(let notice):
+            assistantLoadingNotice = notice
+            defer { assistantLoadingNotice = nil }
+            do {
+                _ = try await manager.ensureSelectedModelLoaded()
+                return true
+            } catch let error as LocalRuntimeError {
+                banner = BannerMessage(
+                    text: LocalTurnPreflight.loadFailureMessage(error),
+                    style: .warning
+                )
+                return false
+            } catch {
+                banner = BannerMessage(
+                    text: "The local model couldn't be loaded.",
+                    style: .warning
+                )
+                return false
+            }
         }
     }
 

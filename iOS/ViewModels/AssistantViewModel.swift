@@ -32,7 +32,13 @@ final class AssistantViewModel {
     func send(using model: AppModel) async {
         let text = draft
         draft = ""
-        await model.send(text)
+        // Put it back if the turn never started. A local model that will not
+        // load is a refusal the user has to act on, and losing what they typed
+        // while they do is a second failure on top of the first (section 47).
+        guard await model.send(text) else {
+            if draft.isEmpty { draft = text }
+            return
+        }
         scrollTarget = model.conversation.messages.last?.id
     }
 

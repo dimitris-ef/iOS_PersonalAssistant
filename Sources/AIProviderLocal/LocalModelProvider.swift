@@ -138,17 +138,31 @@ public struct LocalModelProvider: AIProvider {
         let toolSupport = descriptor?.toolSupport ?? .experimental
         let tools = toolSupport.offersTools ? request.tools : []
 
-        let prompt = makePrompt(
+        let unbounded = makePrompt(
             for: request,
             tools: tools,
             descriptor: descriptor,
             loaded: loaded
         )
-        let options = makeOptions(for: request, tools: tools, descriptor: descriptor)
+        var options = makeOptions(for: request, tools: tools, descriptor: descriptor)
+
+        // Sections 52 and 53. The context the runtime was opened with, not the
+        // one the catalog advertises: `LocalModelManager` shrinks it to fit
+        // memory, so a model whose record says 4096 may be running at 1024, and
+        // sending it 3000 tokens is one of the ways this crashes natively
+        // rather than returning an error anything can catch.
+        let configuration = await manager.activeConfiguration()
+            ?? LocalInferenceConfiguration.conservative.withContextLength(loaded.contextLength)
+        let fitted = LocalPromptBudget.fit(unbounded, configuration: configuration)
+        options.maximumOutputTokens = LocalPromptBudget.generationLimit(
+            promptTokens: LocalPromptBudget.estimatedTokens(in: fitted.prompt),
+            requested: min(options.maximumOutputTokens, configuration.maximumGenerationTokens),
+            configuration: configuration
+        )
 
         let output: LocalGenerationOutput
         do {
-            output = try await runtime.generate(prompt, options: options)
+            output = try await runtime.generate(fitted.prompt, options: options)
         } catch let error as LocalRuntimeError {
             throw Self.providerError(from: error)
         }

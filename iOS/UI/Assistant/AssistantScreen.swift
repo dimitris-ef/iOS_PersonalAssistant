@@ -42,7 +42,13 @@ struct AssistantScreen: View {
                             .id(turn.id)
                     }
 
-                    if model.isAssistantResponding {
+                    // The load comes first and says what it is. Three dots
+                    // during a two-gigabyte mmap is the same non-answer as no
+                    // indicator at all (section 46).
+                    if let notice = model.assistantLoadingNotice {
+                        ModelLoadingView(text: notice)
+                            .id(Self.typingIndicatorID)
+                    } else if model.isAssistantResponding {
                         TypingIndicatorView()
                             .id(Self.typingIndicatorID)
                     }
@@ -56,6 +62,12 @@ struct AssistantScreen: View {
                 guard let last = model.conversation.messages.last?.id else { return }
                 withAnimation(Theme.transition) {
                     proxy.scrollTo(last, anchor: .bottom)
+                }
+            }
+            .onChange(of: model.assistantLoadingNotice) { _, notice in
+                guard notice != nil else { return }
+                withAnimation(Theme.transition) {
+                    proxy.scrollTo(Self.typingIndicatorID, anchor: .bottom)
                 }
             }
             .onChange(of: model.isAssistantResponding) { _, isResponding in
@@ -232,6 +244,28 @@ private struct ProviderNoticeView: View {
                 Color(.secondarySystemBackground),
                 in: RoundedRectangle(cornerRadius: Theme.Radius.medium, style: .continuous)
             )
+    }
+}
+
+/// What is happening while a local model is read into memory.
+///
+/// Named, not anonymous. A load is seconds of nothing on a phone, and the
+/// difference between "Loading Qwen3 1.7B…" and three animating dots is the
+/// difference between a wait somebody understands and an app they force-quit.
+private struct ModelLoadingView: View {
+    let text: String
+
+    var body: some View {
+        HStack(spacing: Theme.Spacing.sm) {
+            ProgressView()
+                .controlSize(.small)
+            Text(text)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .padding(.vertical, Theme.Spacing.xs)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(text)
     }
 }
 

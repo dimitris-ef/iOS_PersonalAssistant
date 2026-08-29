@@ -174,6 +174,53 @@ Where the file's own header records block count, KV head count and key length,
 the KV figure is *measured* rather than guessed, and
 `LocalModelMemoryEstimate.kvCacheIsMeasured` says which happened.
 
+### The term that was missing
+
+A 3B model used to take the app down when a conversation *started*, not when it
+loaded — and that timing is the whole diagnosis. `llama_init_from_model`
+allocates the weights and the KV cache; the compute buffers are allocated
+lazily on the first `llama_decode` and are sized from the **micro batch**, not
+from the weights. The preflight modelled weights, KV, a flat overhead and 12% of
+the weights, and never modelled the micro batch — while the runtime opened
+contexts at `n_batch = n_ubatch = 512`, llama.cpp's desktop default, on a phone
+whose GPU is also drawing the interface. So the model passed the check, loaded,
+reported itself ready, and was killed by iOS on the first decode. Nothing in the
+Local AI path force-unwraps or traps, which is consistent with jetsam rather
+than a Swift crash.
+
+`LocalInferenceConfiguration` now holds every number the runtime is opened with,
+tiered on physical memory rather than a device-name table:
+
+| Physical memory | Context | Batch | Micro batch | Reply cap |
+| --- | --- | --- | --- | --- |
+| ≥ 7.5 GB | 4096 | 256 | 128 | 768 |
+| ≥ 5.5 GB | 3072 | 192 | 96 | 640 |
+| below | 2048 | 128 | 64 | 512 |
+
+Threads are half the cores, floored at 2 and capped at 4 — inference that
+saturates the CPU starves SwiftUI and reads as the app hanging.
+`computeBufferBytesPerMicroBatchTokenPerBillion` adds the missing term to the
+estimate, so the preflight now sees the allocation that happens on the first
+decode. None of this is user-editable (§106).
+
+### Bounding the prompt
+
+`LocalPromptBudget` trims a prompt to `maximumPromptTokens` for the
+configuration the runtime **actually got** — read from
+`LocalModelManager.activeConfiguration()`, because the adaptive reduction means
+a model whose record says 4096 may be running at 1024, and only one of those
+numbers is real. Every system turn survives, the newest user turn survives
+(truncated in place rather than dropped), and history goes oldest-first. The
+reply length is bounded by what is left of the context, because bounding the
+prompt alone still allows a full context to be handed a nearly-full prompt and
+asked for 640 tokens back.
+
+The token count is `characters / 4` plus per-turn template overhead, rounded up
+everywhere. There is no tokenizer at this layer on purpose: reaching for the
+real one means coupling the provider to llama.cpp for a number it needs only
+approximately, and erring toward trimming one turn too many costs a line of old
+conversation while erring the other way costs the app.
+
 ---
 
 ## 6. Download, verify, install
@@ -280,6 +327,41 @@ instruction the assistant runs on.
 
 A model whose catalog entry says `toolSupport: unsupported` is never shown the
 protocol at all, and the UI says "Chat only" (§55, §56).
+
+---
+
+## 7a. Download, load and selection are three things
+
+The rule, stated once because it is the one most easily reintroduced: **a
+completed download does not load the model, does not select it, and does not
+change which assistant answers** (§15, §16). The convenient thing to write is
+`download(); load(); select()`, and it looks helpful right up until a phone with
+three downloaded models is holding two gigabytes it was never asked to hold,
+answering from a model nobody picked.
+
+Three separate states, three separate controls:
+
+| State | What it means | Row says |
+| --- | --- | --- |
+| Downloaded | The file is on disk and verified | `Downloaded · Not loaded` |
+| Loaded | The weights are in memory | `Loaded · Not in use` |
+| Selected | This is what answers the next message | `Loaded · In use` |
+
+`LocalModelRowPresenter` derives what each row says and which of Download,
+Cancel, Use, Load, Unload, Retry and Delete it offers. It lives in the package
+rather than the view because `iOS/` has no test target and this is a table with
+a silent wrong answer in every cell — a Load button on a model whose file is
+missing looks exactly like one on a model that will load.
+
+Retry means the thing that failed: another *load* after a load failure, another
+*download* after a transfer failure. Re-fetching two gigabytes because a load
+ran out of memory is the wrong repair and an expensive one.
+
+`LocalTurnPreflight` decides what pressing Send does when Local AI is chosen:
+proceed, load first (with a named "Loading Qwen3 1.7B…" on screen, because an
+anonymous spinner during a two-gigabyte mmap is what made Send look frozen), or
+refuse with a sentence and a route to Manage Models. It never downloads, and it
+never falls back to the cloud — §128, asserted as a test.
 
 ---
 
