@@ -127,8 +127,7 @@ final class SystemSurfaceTests: XCTestCase {
             second.reloadedKinds.isEmpty,
             "an unchanged day should not spend a WidgetKit refresh"
         )
-        let reloads = await harness.reloader.reloads
-        XCTAssertEqual(reloads.count, first.reloadedKinds.count)
+        XCTAssertEqual(harness.reloader.reloads.count, first.reloadedKinds.count)
     }
 
     /// Section 85. A widget that cannot be written is a widget showing
@@ -609,13 +608,32 @@ final class SystemSurfaceTests: XCTestCase {
     }
 
     /// Counts reload requests, so section 36's restraint is assertable.
-    private actor RecordingReloader: SystemSurfaceReloader {
-        private(set) var reloads: [SystemSurfaceWidgetKind] = []
+    /// A lock rather than an actor, deliberately.
+    ///
+    /// `SystemSurfaceReloader.reload` is synchronous — it has to be, because
+    /// WidgetKit's own reload is — so an actor-backed double can only record by
+    /// spawning `Task { await record(kind) }`. That leaves three unawaited
+    /// tasks in flight, and a test that then hops to the actor to read the
+    /// count has no ordering guarantee against them. It wins that race almost
+    /// every time and loses it under load, which is the worst kind of test: one
+    /// that fails on a busy machine and passes on the machine you debug it on.
+    ///
+    /// A lock makes the record land before `reload` returns, so there is no
+    /// race left to lose.
+    private final class RecordingReloader: SystemSurfaceReloader, @unchecked Sendable {
+        private let lock = NSLock()
+        private var storage: [SystemSurfaceWidgetKind] = []
 
-        nonisolated func reload(_ kind: SystemSurfaceWidgetKind) {
-            Task { await self.record(kind) }
+        var reloads: [SystemSurfaceWidgetKind] {
+            lock.lock()
+            defer { lock.unlock() }
+            return storage
         }
 
-        private func record(_ kind: SystemSurfaceWidgetKind) { reloads.append(kind) }
+        func reload(_ kind: SystemSurfaceWidgetKind) {
+            lock.lock()
+            storage.append(kind)
+            lock.unlock()
+        }
     }
 }
