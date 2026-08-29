@@ -352,8 +352,11 @@ final class AppEnvironment: Sendable {
         //
         // A seeded preview writes to a throwaway directory: a SwiftUI preview
         // should not append to the trail a real crash investigation is reading.
-        let diagnosticStore =
-            launch.persistence == .inMemory
+        // `seedsDemoData` rather than the persistence case, matching the model
+        // store above: it is the flag that already means "this is a preview, a
+        // screenshot run or a test", and `PersistenceLocation` carries an
+        // associated `URL` so it is not `Equatable` anyway.
+        let diagnosticStore = launch.seedsDemoData
             ? LocalInferenceDiagnosticStore.temporary()
             : LocalInferenceDiagnosticStore.applicationSupport()
         let localDiagnostics = LocalInferenceDiagnosticLogger(
