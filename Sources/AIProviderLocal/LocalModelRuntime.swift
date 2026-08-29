@@ -202,6 +202,15 @@ public struct LocalModelLoadRequest: Hashable, Sendable {
     /// used to pass a preflight, load, and then be killed when a conversation
     /// started.
     public var microBatchSize: Int?
+    /// Whether the caller wants GPU offload.
+    ///
+    /// Carried rather than decided inside the runtime because it is a
+    /// diagnostic axis (section 70): "does this still crash on the CPU" is one
+    /// of the few questions that can be answered from a device without a
+    /// debugger attached. The runtime is still free to say no — a build with no
+    /// Metal cannot offload whatever is requested — which is why the log
+    /// records the request and the outcome separately (section 31).
+    public var gpuOffloadRequested: Bool
 
     public init(
         modelID: AIModelIdentifier,
@@ -209,7 +218,8 @@ public struct LocalModelLoadRequest: Hashable, Sendable {
         contextLength: Int,
         threadCount: Int? = nil,
         batchSize: Int? = nil,
-        microBatchSize: Int? = nil
+        microBatchSize: Int? = nil,
+        gpuOffloadRequested: Bool = true
     ) {
         self.modelID = modelID
         self.fileURL = fileURL
@@ -217,6 +227,7 @@ public struct LocalModelLoadRequest: Hashable, Sendable {
         self.threadCount = threadCount
         self.batchSize = batchSize
         self.microBatchSize = microBatchSize
+        self.gpuOffloadRequested = gpuOffloadRequested
     }
 }
 

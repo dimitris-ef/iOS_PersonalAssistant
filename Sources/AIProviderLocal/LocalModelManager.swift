@@ -36,6 +36,9 @@ public actor LocalModelManager {
     private let device: any DeviceResourceProvider
     private let policy: LocalModelCompatibilityPolicy
     private let dateProvider: any DateProvider
+    private let diagnostics: any LocalInferenceDiagnosticSink
+    /// Diagnostic handicaps, applied at load time and never stored (section 76).
+    private var overrides: LocalInferenceDiagnosticOverrides
 
     private var catalog: LocalModelCatalog
     /// Live download state, per model. Not persisted: a download does not
@@ -61,8 +64,12 @@ public actor LocalModelManager {
         device: any DeviceResourceProvider = SystemDeviceResources(),
         policy: LocalModelCompatibilityPolicy = .default,
         downloads: LocalModelDownloadManager? = nil,
-        dateProvider: any DateProvider = SystemDateProvider()
+        dateProvider: any DateProvider = SystemDateProvider(),
+        diagnostics: any LocalInferenceDiagnosticSink = NullLocalInferenceDiagnosticSink(),
+        overrides: LocalInferenceDiagnosticOverrides = .none
     ) {
+        self.diagnostics = diagnostics
+        self.overrides = overrides
         self.catalog = catalog
         self.repository = repository
         self.settingsRepository = settings
@@ -294,7 +301,34 @@ public actor LocalModelManager {
         // model was installed for. Never the model's advertised maximum: a 3B
         // model claiming 32768 tokens wants well over a gigabyte of KV cache
         // on its own (section 7).
-        let deviceConfiguration = LocalInferenceConfiguration.forDevice(device)
+        // Section 25. Everything knowable *before* anything is allocated, on
+        // disk before the first native call — because if the process does not
+        // come back, this is the whole description of what it was attempting.
+        diagnostics.info(
+            .loadRequested,
+            category: .model,
+            metadata: LocalInferenceMetadata()
+                .setting(.modelID, id.rawValue)
+                .setting(.architecture, ifPresent: record.architecture)
+                .setting(.quantization, ifPresent: record.quantization)
+                .setting(.modelFileBytes, record.fileSizeBytes)
+                // Section 20 and 86: the managed relative path, never the
+                // container path. It is different on every install, means
+                // nothing to a reader, and would be a needless disclosure in a
+                // log somebody pastes into an email.
+                .setting(.managedRelativePath, record.relativePath)
+                .setting(.physicalMemoryBytes, device.physicalMemoryBytes)
+                .setting(.processorCount, device.processorCount)
+                .setting(.thermalState, String(describing: device.thermalState))
+                .setting(.availableMemoryEstimateBytes, budget)
+        )
+        diagnostics.info(
+            .diagnosticOverrides, category: .configuration, metadata: overrides.metadata()
+        )
+
+        let deviceConfiguration = overrides.apply(
+            to: LocalInferenceConfiguration.forDevice(device)
+        )
         let preferredContext = min(deviceConfiguration.contextLength, record.contextLength)
 
         // Section 8: shrink before refusing. The weights are the same at 4096
@@ -319,6 +353,12 @@ public actor LocalModelManager {
                 microBatchSize: deviceConfiguration.microBatchSize,
                 parameterCount: parameters
             )
+            diagnostics.problem(
+                .memoryEstimate,
+                category: .memory,
+                metadata: Self.memoryMetadata(estimate, budget: budget, device: device)
+                    .setting(.errorKind, "insufficientMemory")
+            )
             throw LocalRuntimeError.insufficientMemory(
                 reason: "This model needs about "
                     + "\(LocalModelCompatibilityPolicy.format(estimate.totalBytes)) "
@@ -329,6 +369,26 @@ public actor LocalModelManager {
         }
 
         let configuration = deviceConfiguration.withContextLength(fittedContext)
+
+        // Sections 32 and 33. The numbers the preflight believed, recorded next
+        // to the load they authorised — so a termination during
+        // `context_create` can be read against what was predicted rather than
+        // against a guess made afterwards.
+        diagnostics.info(
+            .memoryEstimate,
+            category: .memory,
+            metadata: Self.memoryMetadata(
+                policy.estimator.estimate(
+                    weightsBytes: record.fileSizeBytes,
+                    contextLength: configuration.contextLength,
+                    kvBytesPerToken: kvPerToken,
+                    microBatchSize: configuration.microBatchSize,
+                    parameterCount: parameters
+                ),
+                budget: budget,
+                device: device
+            )
+        )
 
         // Unload first, always. Loading the new model while the old one is
         // still resident would briefly need both, which on the devices this
@@ -346,7 +406,8 @@ public actor LocalModelManager {
                 contextLength: configuration.contextLength,
                 threadCount: configuration.threadCount,
                 batchSize: configuration.batchSize,
-                microBatchSize: configuration.microBatchSize
+                microBatchSize: configuration.microBatchSize,
+                gpuOffloadRequested: overrides.wantsGPUOffload
             )
         )
         loadedConfiguration = configuration
@@ -360,6 +421,42 @@ public actor LocalModelManager {
     public func unload() async {
         await runtime?.unloadModel()
         loadedConfiguration = nil
+    }
+
+    /// Replaces the diagnostic overrides used by the *next* load.
+    ///
+    /// Section 77: it does not touch a model that is already resident. Metal
+    /// and thread counts are fixed when a `llama_context` is created, so
+    /// changing them under a live context would either be ignored or corrupt
+    /// it. The caller unloads first; the UI says so.
+    public func setDiagnosticOverrides(_ value: LocalInferenceDiagnosticOverrides) {
+        overrides = value
+        diagnostics.info(
+            .diagnosticOverrides, category: .configuration, metadata: value.metadata()
+        )
+    }
+
+    public func diagnosticOverrides() -> LocalInferenceDiagnosticOverrides { overrides }
+
+    /// The memory numbers, in the shape the log and the report both want.
+    static func memoryMetadata(
+        _ estimate: LocalModelMemoryEstimate,
+        budget: Int64,
+        device: any DeviceResourceProvider
+    ) -> LocalInferenceMetadata {
+        LocalInferenceMetadata()
+            .setting(.estimatedModelMemoryBytes, estimate.weightsBytes)
+            .setting(.estimatedKVCacheBytes, estimate.kvCacheBytes)
+            .setting(.estimatedComputeBufferBytes, estimate.computeBufferBytes)
+            .setting(.estimatedRuntimeOverheadBytes, estimate.runtimeOverheadBytes)
+            .setting(.estimatedTotalBytes, estimate.totalBytes)
+            .setting(.actualContextSize, estimate.contextLength)
+            .setting(.kvCacheIsMeasured, estimate.kvCacheIsMeasured)
+            .setting(.physicalMemoryBytes, device.physicalMemoryBytes)
+            // Section 33: this is the app's *budget*, a fraction of physical
+            // memory chosen by policy — not free RAM, which iOS does not
+            // publish. The key name says estimate because it is one.
+            .setting(.availableMemoryEstimateBytes, budget)
     }
 
     /// What the loaded model was actually opened with, if anything is loaded.
@@ -391,6 +488,24 @@ public actor LocalModelManager {
         guard settings.selectedLocalModelID != id else { return }
         settings.selectedLocalModelID = id
         try await settingsRepository.update(settings)
+
+        // Section 19. Recorded here rather than in the view, because this is
+        // the one function that actually changes which model answers, and a log
+        // line that fires from a screen would miss every other route to it.
+        if let id, let status = await status(of: id) {
+            diagnostics.info(
+                .localModelSelected,
+                category: .model,
+                metadata: LocalInferenceMetadata()
+                    .setting(.modelID, id.rawValue)
+                    .setting(.modelDisplayFamily, status.descriptor.architecture)
+                    .setting(.quantization, ifPresent: status.descriptor.quantization?.rawValue)
+                    .setting(.installed, status.lifecycle.isInstalled)
+                    .setting(.selected, true)
+                    .setting(.compatibility, status.compatibility.shortLabel)
+                    .setting(.modelFileBytes, ifPresent: status.descriptor.fileSizeBytes)
+            )
+        }
 
         // Switching away from the loaded model releases it. Not for tidiness:
         // it is gigabytes, and the user has just said they want a different one.

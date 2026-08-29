@@ -44,15 +44,18 @@ public struct LocalModelProvider: AIProvider {
     private let manager: LocalModelManager
     private let runtime: (any LocalModelRuntime)?
     private let adapter: LocalToolPromptAdapter
+    private let diagnostics: any LocalInferenceDiagnosticSink
 
     public init(
         manager: LocalModelManager,
         runtime: (any LocalModelRuntime)? = nil,
-        adapter: LocalToolPromptAdapter = LocalToolPromptAdapter()
+        adapter: LocalToolPromptAdapter = LocalToolPromptAdapter(),
+        diagnostics: any LocalInferenceDiagnosticSink = NullLocalInferenceDiagnosticSink()
     ) {
         self.manager = manager
         self.runtime = runtime
         self.adapter = adapter
+        self.diagnostics = diagnostics
         self.metadata = AIProviderMetadata(
             id: Self.providerID,
             displayName: "Local AI",
@@ -123,10 +126,42 @@ public struct LocalModelProvider: AIProvider {
 
         let modelID = try await resolveModel(request.model)
         let descriptor = await manager.catalogModels().first { $0.id == modelID }
+
+        // Section 98: one diagnostic inference session per attempted user
+        // generation, opened here because this is the single door every local
+        // turn goes through — including the lazy load that follows.
+        let inferenceOperation = diagnostics.criticalEnter(
+            .inference,
+            metadata: LocalInferenceMetadata()
+                .setting(.providerID, Self.providerID.rawValue)
+                .setting(.modelID, modelID.rawValue)
+        )
+        var completed = false
+        defer {
+            if !completed {
+                diagnostics.criticalFailure(
+                    .inference, operation: inferenceOperation,
+                    metadata: LocalInferenceMetadata().setting(.errorKind, "threw")
+                )
+            }
+        }
+
         let loaded: LoadedModelInfo
         do {
             loaded = try await manager.load(modelID)
         } catch let error as LocalRuntimeError {
+            // Section 47: a native failure is recorded before it is mapped, so
+            // the log keeps the runtime's own vocabulary rather than only the
+            // sentence the user was shown.
+            diagnostics.problem(
+                .nativeError,
+                category: .runtime,
+                stage: .modelLoad,
+                metadata: LocalInferenceMetadata()
+                    .setting(.modelID, modelID.rawValue)
+                    .setting(.errorKind, Self.errorKind(of: error))
+                    .setting(.errorReason, error.description)
+            )
             throw Self.providerError(from: error)
         }
 
@@ -138,6 +173,14 @@ public struct LocalModelProvider: AIProvider {
         let toolSupport = descriptor?.toolSupport ?? .experimental
         let tools = toolSupport.offersTools ? request.tools : []
 
+        // Section 34. The ENTER carries only shapes and counts; the EXIT carries
+        // the size of what was built. Section 35 is absolute and this is where
+        // it would be broken if it were going to be: the prompt object exists
+        // right here, in scope, and nothing below writes a character of it.
+        let promptOperation = diagnostics.criticalEnter(
+            .promptConstruct,
+            metadata: Self.promptMetadata(for: request, tools: tools)
+        )
         let unbounded = makePrompt(
             for: request,
             tools: tools,
@@ -154,18 +197,50 @@ public struct LocalModelProvider: AIProvider {
         let configuration = await manager.activeConfiguration()
             ?? LocalInferenceConfiguration.conservative.withContextLength(loaded.contextLength)
         let fitted = LocalPromptBudget.fit(unbounded, configuration: configuration)
+        let promptTokens = LocalPromptBudget.estimatedTokens(in: fitted.prompt)
         options.maximumOutputTokens = LocalPromptBudget.generationLimit(
-            promptTokens: LocalPromptBudget.estimatedTokens(in: fitted.prompt),
+            promptTokens: promptTokens,
             requested: min(options.maximumOutputTokens, configuration.maximumGenerationTokens),
             configuration: configuration
+        )
+
+        diagnostics.criticalExit(
+            .promptConstruct,
+            operation: promptOperation,
+            metadata: LocalInferenceMetadata()
+                .setting(.estimatedTokenCount, promptTokens)
+                .setting(.characterCount, fitted.prompt.turns.reduce(0) { $0 + $1.content.count })
+                .setting(.contextBudget, configuration.maximumPromptTokens)
+                .setting(.generationReserve, options.maximumOutputTokens)
+                .setting(.actualContextSize, configuration.contextLength)
+                .setting(.promptWasTrimmed, fitted.wasTrimmed)
+                .setting(.droppedTurnCount, fitted.droppedTurns)
         )
 
         let output: LocalGenerationOutput
         do {
             output = try await runtime.generate(fitted.prompt, options: options)
         } catch let error as LocalRuntimeError {
+            diagnostics.problem(
+                .generationFailed,
+                category: .generation,
+                metadata: LocalInferenceMetadata()
+                    .setting(.modelID, modelID.rawValue)
+                    .setting(.errorKind, Self.errorKind(of: error))
+                    .setting(.errorReason, error.description)
+                    .setting(.generatedTokenCount, 0)
+            )
             throw Self.providerError(from: error)
         }
+        completed = true
+        diagnostics.criticalExit(
+            .inference,
+            operation: inferenceOperation,
+            metadata: LocalInferenceMetadata()
+                .setting(.generatedTokenCount, output.generatedTokens)
+                .setting(.promptTokenCount, output.promptTokens)
+                .setting(.stopReason, output.stop.rawValue)
+        )
 
         if output.stop == .cancelled {
             throw AIProviderError.cancelled
@@ -320,6 +395,63 @@ public struct LocalModelProvider: AIProvider {
             throw AIProviderError.modelNotFound(requested ?? "no local model selected")
         }
         return selected
+    }
+
+    /// Everything about a prompt that is safe to write down.
+    ///
+    /// Sections 34, 87, 88 and 89 — counts and nothing else. Read it against
+    /// section 35: the request in scope holds the user's message, the system
+    /// prompt, the retrieved memories and every tool result, and the only thing
+    /// that leaves this function is how many of each there were.
+    static func promptMetadata(
+        for request: AIRequest,
+        tools: [AIToolSchema]
+    ) -> LocalInferenceMetadata {
+        var system = request.systemPrompt.isEmpty ? 0 : 1
+        var user = 0
+        var assistant = 0
+        var tool = 0
+        var characters = request.systemPrompt.count
+
+        for message in request.messages {
+            characters += message.content.count
+            switch message.role {
+            case .system: system += 1
+            case .user: user += 1
+            case .assistant: assistant += 1
+            case .tool: tool += 1
+            }
+        }
+
+        return LocalInferenceMetadata()
+            .setting(.messageCount, request.messages.count)
+            .setting(.systemMessageCount, system)
+            .setting(.userMessageCount, user)
+            .setting(.assistantMessageCount, assistant)
+            .setting(.toolMessageCount, tool)
+            .setting(.characterCount, characters)
+            .setting(.toolCount, tools.count)
+        // Section 89 asks for a retrieved-memory count, and this layer honestly
+        // does not have one: `ContextAssembler` folds the selected memories into
+        // the system prompt before an `AIRequest` exists, so from here they are
+        // indistinguishable from the rest of the instructions. The key stays in
+        // the allowlist for whoever wires it from the engine; inventing a number
+        // to fill the field would be worse than leaving it empty.
+    }
+
+    /// A short symbolic name for a runtime failure (section 47).
+    static func errorKind(of error: LocalRuntimeError) -> String {
+        switch error {
+        case .runtimeUnavailable: return "runtimeUnavailable"
+        case .modelFileMissing: return "modelFileMissing"
+        case .unsupportedFormat: return "unsupportedFormat"
+        case .unsupportedArchitecture: return "unsupportedArchitecture"
+        case .loadFailed: return "loadFailed"
+        case .insufficientMemory: return "insufficientMemory"
+        case .noModelLoaded: return "noModelLoaded"
+        case .generationFailed: return "generationFailed"
+        case .cancelled: return "cancelled"
+        }
     }
 
     /// Maps a runtime failure onto the vocabulary every provider shares.

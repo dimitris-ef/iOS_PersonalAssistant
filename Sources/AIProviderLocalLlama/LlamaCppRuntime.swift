@@ -68,13 +68,22 @@ public actor LlamaCppRuntime: LocalModelRuntime {
     private var cancellationRequested = false
     private var isGenerating = false
 
+    /// Where breadcrumbs go.
+    ///
+    /// A protocol, so this file contains no file-writing code (section 1) and
+    /// no knowledge of where a log lives. Every call on it is synchronous by
+    /// contract — an ENTER that suspended before reaching the disk would be an
+    /// ENTER that does not survive the call it precedes.
+    private let diagnostics: any LocalInferenceDiagnosticSink
+
     #if canImport(llama)
     private var model: OpaquePointer?
     private var context: OpaquePointer?
     private var vocab: OpaquePointer?
     #endif
 
-    public init() {
+    public init(diagnostics: any LocalInferenceDiagnosticSink = NullLocalInferenceDiagnosticSink()) {
+        self.diagnostics = diagnostics
         #if canImport(llama)
         LlamaBackend.start()
         #endif
@@ -112,7 +121,13 @@ public actor LlamaCppRuntime: LocalModelRuntime {
         // and GPU share memory, so a partial offload costs bandwidth without
         // saving any, and the parameter is negative-means-all rather than a
         // layer count this file would have to keep in step with each model.
-        modelParams.n_gpu_layers = LlamaCppRuntime.hasMetal ? -1 : 0
+        //
+        // Zero when the caller asked for CPU-only (section 70). Note the two
+        // conditions: the build must have Metal *and* the caller must want it,
+        // and the log records both separately so "GPU offload was requested"
+        // and "GPU offload happened" cannot be confused (section 31).
+        let wantsGPU = LlamaCppRuntime.hasMetal && request.gpuOffloadRequested
+        modelParams.n_gpu_layers = wantsGPU ? -1 : 0
         // Tensor validation walks every weight. The file has already been
         // checksummed and structurally validated before it was installed, and
         // repeating that on every load would add seconds to opening a model.
@@ -124,6 +139,17 @@ public actor LlamaCppRuntime: LocalModelRuntime {
             !LlamaBackend.loadCancellation.isCancelled
         }
 
+        // Section 26. The breadcrumb is on disk before the call, so a process
+        // that never comes back leaves `ENTER model_load` as its last word.
+        let loadOperation = diagnostics.criticalEnter(
+            .modelLoad,
+            metadata: LocalInferenceMetadata()
+                .setting(.modelID, request.modelID.rawValue)
+                .setting(.managedRelativePath, request.fileURL.lastPathComponent)
+                .setting(.requestedGPUOffload, wantsGPU)
+                .setting(.compiledWithMetal, LlamaCppRuntime.hasMetal)
+                .setting(.gpuLayers, Int(modelParams.n_gpu_layers))
+        )
         let handle = request.fileURL.path.withCString { path in
             llama_model_load_from_file(path, modelParams)
         }
@@ -132,6 +158,14 @@ public actor LlamaCppRuntime: LocalModelRuntime {
             // was not enough memory" in its return value. The caller has
             // already run a conservative preflight and a structural check, so
             // the message names both rather than guessing.
+            diagnostics.criticalFailure(
+                .modelLoad,
+                operation: loadOperation,
+                metadata: LocalInferenceMetadata()
+                    .setting(.errorKind, "loadFailed")
+                    .setting(.nativeSymbol, "llama_model_load_from_file")
+                    .setting(.errorReason, "returned null")
+            )
             throw LocalRuntimeError.loadFailed(
                 reason: "llama.cpp could not open \(request.fileURL.lastPathComponent). "
                     + "The file may be damaged, or the device may be out of memory."
@@ -139,6 +173,15 @@ public actor LlamaCppRuntime: LocalModelRuntime {
         }
         model = handle
         vocab = llama_model_get_vocab(handle)
+        diagnostics.criticalExit(
+            .modelLoad,
+            operation: loadOperation,
+            metadata: LocalInferenceMetadata()
+                .setting(.architecture, LlamaCppRuntime.metadataValue(handle, key: "general.architecture") ?? "unknown")
+                .setting(.parameterCount, Int64(llama_model_n_params(handle)))
+                .setting(.trainedContextLength, Int(llama_model_n_ctx_train(handle)))
+                .setting(.hasEmbeddedChatTemplate, llama_model_chat_template(handle, nil) != nil)
+        )
 
         var contextParams = llama_context_default_params()
         contextParams.n_ctx = UInt32(max(512, request.contextLength))
@@ -161,7 +204,32 @@ public actor LlamaCppRuntime: LocalModelRuntime {
         }
         contextParams.no_perf = true
 
+        // Section 27, and the reason this is a separate stage from the load
+        // above: `llama_init_from_model` is where the KV cache is allocated,
+        // and it fails for entirely different reasons than opening the weights.
+        // A recovery report that said only "load" would leave the two
+        // indistinguishable, which is exactly the ambiguity this pass exists to
+        // remove. The requested numbers go in the ENTER, because if the process
+        // dies here they are the evidence.
+        let contextOperation = diagnostics.criticalEnter(
+            .contextCreate,
+            metadata: LocalInferenceMetadata()
+                .setting(.requestedContextSize, Int(contextParams.n_ctx))
+                .setting(.batchSize, Int(contextParams.n_batch))
+                .setting(.microBatchSize, Int(contextParams.n_ubatch))
+                .setting(.threadCount, Int(contextParams.n_threads))
+                .setting(.batchThreadCount, Int(contextParams.n_threads_batch))
+                .setting(.gpuLayers, Int(modelParams.n_gpu_layers))
+        )
         guard let newContext = llama_init_from_model(handle, contextParams) else {
+            diagnostics.criticalFailure(
+                .contextCreate,
+                operation: contextOperation,
+                metadata: LocalInferenceMetadata()
+                    .setting(.errorKind, "insufficientMemory")
+                    .setting(.nativeSymbol, "llama_init_from_model")
+                    .setting(.errorReason, "returned null")
+            )
             releaseNativeResources()
             // A model that opened and a context that would not is very nearly
             // always the KV cache failing to allocate — the one failure the
@@ -172,6 +240,15 @@ public actor LlamaCppRuntime: LocalModelRuntime {
             )
         }
         context = newContext
+        diagnostics.criticalExit(
+            .contextCreate,
+            operation: contextOperation,
+            // Section 28: what was actually allocated, which llama.cpp may have
+            // clamped below what was asked for.
+            metadata: LocalInferenceMetadata()
+                .setting(.actualContextSize, Int(llama_n_ctx(newContext)))
+                .setting(.requestedContextSize, Int(contextParams.n_ctx))
+        )
 
         let info = LoadedModelInfo(
             modelID: request.modelID,
@@ -183,6 +260,38 @@ public actor LlamaCppRuntime: LocalModelRuntime {
             hasEmbeddedChatTemplate: llama_model_chat_template(handle, nil) != nil
         )
         loaded = info
+
+        // Section 90: one line holding every number the native runtime is
+        // actually running with. This is what a recovery report quotes, and it
+        // is read from the context rather than from the request — the request
+        // is what was asked for and this is what was granted.
+        diagnostics.info(
+            .runtimeConfiguration,
+            category: .configuration,
+            metadata: LocalInferenceMetadata()
+                .setting(.modelID, request.modelID.rawValue)
+                .setting(.architecture, info.architecture)
+                .setting(.runtimeImplementation, "LlamaCppRuntime")
+                .setting(.llamaCppVersion, LlamaCppRuntime.pinnedVersion)
+                .setting(.actualContextSize, Int(llama_n_ctx(newContext)))
+                .setting(.requestedContextSize, request.contextLength)
+                .setting(.batchSize, Int(llama_n_batch(newContext)))
+                .setting(.microBatchSize, Int(llama_n_ubatch(newContext)))
+                .setting(.threadCount, Int(contextParams.n_threads))
+                .setting(.batchThreadCount, Int(contextParams.n_threads_batch))
+                .setting(.compiledWithMetal, LlamaCppRuntime.hasMetal)
+                .setting(.requestedGPUOffload, request.gpuOffloadRequested)
+                // Section 31 again, and the honest version of it: this build
+                // cannot interrogate ggml for which backend a tensor landed on,
+                // so "active" means the offload was both compiled in and asked
+                // for. Claiming more would be claiming a measurement nothing
+                // took.
+                .setting(.runtimeGPUOffloadActive, wantsGPU)
+                .setting(.gpuLayers, Int(modelParams.n_gpu_layers))
+                .setting(.parameterCount, info.parameterCount ?? 0)
+                .setting(.trainedContextLength, ifPresent: info.trainedContextLength)
+                .setting(.hasEmbeddedChatTemplate, info.hasEmbeddedChatTemplate)
+        )
         return info
         #else
         throw LocalRuntimeError.runtimeUnavailable(
@@ -192,8 +301,17 @@ public actor LlamaCppRuntime: LocalModelRuntime {
     }
 
     public func unloadModel() async {
+        // Section 46. Freeing is native too, and a context holding a KV cache
+        // that ggml is mid-way through releasing is as capable of taking the
+        // process down as allocating one.
+        guard loaded != nil else {
+            releaseNativeResources()
+            return
+        }
+        let operation = diagnostics.criticalEnter(.modelUnload, metadata: .empty)
         releaseNativeResources()
         loaded = nil
+        diagnostics.criticalExit(.modelUnload, operation: operation, metadata: .empty)
     }
 
     /// Frees every native allocation. Idempotent.
@@ -204,8 +322,13 @@ public actor LlamaCppRuntime: LocalModelRuntime {
     private func releaseNativeResources() {
         #if canImport(llama)
         if let context {
+            // Section 46: `llama_free` walks the KV cache and the Metal
+            // buffers, and a crash there looks nothing like a crash allocating
+            // them. Worth its own stage so the two cannot be confused.
+            let operation = diagnostics.criticalEnter(.contextDestroy, metadata: .empty)
             llama_free(context)
             self.context = nil
+            diagnostics.criticalExit(.contextDestroy, operation: operation, metadata: .empty)
         }
         if let model {
             llama_model_free(model)
@@ -237,19 +360,105 @@ public actor LlamaCppRuntime: LocalModelRuntime {
         cancellationRequested = false
         defer { isGenerating = false }
 
+        let generationOperation = diagnostics.criticalEnter(
+            .generation,
+            metadata: LocalInferenceMetadata()
+                .setting(.messageCount, prompt.turns.count)
+                .setting(.actualContextSize, Int(llama_n_ctx(context)))
+        )
+        var generationFinished = false
+        defer {
+            // Belt and braces around every `throw` below: an unresolved
+            // `generation` would otherwise be reported as the crash site for a
+            // turn that merely failed. `defer` runs on the throwing path too.
+            if !generationFinished {
+                diagnostics.criticalFailure(
+                    .generation, operation: generationOperation,
+                    metadata: LocalInferenceMetadata().setting(.errorKind, "threw")
+                )
+            }
+        }
+
+        // Section 36. The template is applied natively — `llama_chat_apply_template`
+        // runs the Jinja the weights shipped with — so it is native code that
+        // can fail, and it gets a stage. What it produces is the fully rendered
+        // prompt, and that is never logged (section 35): only its size.
+        let templateOperation = diagnostics.criticalEnter(
+            .chatTemplate,
+            metadata: LocalInferenceMetadata()
+                .setting(.templateSource, llama_model_chat_template(model, nil) != nil ? "model" : "fallback")
+                .setting(.templateName, prompt.fallback.rawValue)
+        )
         let text = renderPrompt(prompt, model: model)
-        var tokens = try tokenize(text, vocab: vocab, addSpecial: true)
+        diagnostics.criticalExit(
+            .chatTemplate,
+            operation: templateOperation,
+            metadata: LocalInferenceMetadata().setting(.characterCount, text.count)
+        )
+
+        // Section 37.
+        let tokenizeOperation = diagnostics.criticalEnter(
+            .tokenize,
+            metadata: LocalInferenceMetadata().setting(.characterCount, text.count)
+        )
+        let tokenized: [llama_token]
+        do {
+            tokenized = try tokenize(text, vocab: vocab, addSpecial: true)
+        } catch {
+            diagnostics.criticalFailure(
+                .tokenize, operation: tokenizeOperation,
+                metadata: LocalInferenceMetadata().setting(.errorKind, "tokenizeFailed")
+            )
+            throw error
+        }
+        var tokens = tokenized
+        let contextLength = Int(llama_n_ctx(context))
+        diagnostics.criticalExit(
+            .tokenize,
+            operation: tokenizeOperation,
+            metadata: LocalInferenceMetadata()
+                .setting(.tokenCount, tokens.count)
+                .setting(.contextBudget, contextLength)
+                .setting(.generationReserve, options.maximumOutputTokens)
+        )
+
         guard !tokens.isEmpty else {
             throw LocalRuntimeError.generationFailed(reason: "The prompt produced no tokens.")
         }
 
-        let contextLength = Int(llama_n_ctx(context))
         let room = contextLength - options.maximumOutputTokens - 8
-        if tokens.count > room, room > 0 {
+        // Section 38. Refusing here rather than decoding is the point: a prompt
+        // that cannot fit alongside its own reply is a request the native layer
+        // must never be handed, and "fail with an error" beats "find out inside
+        // ggml".
+        guard room > 0 else {
+            diagnostics.problem(
+                .contextBudgetExceeded,
+                category: .prompt,
+                stage: .promptDecode,
+                metadata: LocalInferenceMetadata()
+                    .setting(.tokenCount, tokens.count)
+                    .setting(.contextBudget, contextLength)
+                    .setting(.generationReserve, options.maximumOutputTokens)
+            )
+            throw LocalRuntimeError.generationFailed(
+                reason: "The reply reserve of \(options.maximumOutputTokens) tokens leaves no "
+                    + "room in a \(contextLength)-token context."
+            )
+        }
+        if tokens.count > room {
             // Keeping the tail rather than refusing. The context budget is
             // already respected upstream — `ContextAssembler` trims memory and
             // history — so arriving here means one unusually long message, and
             // answering its most recent part beats an error about token counts.
+            diagnostics.record(
+                .contextBudgetExceeded, type: .warning, level: .warning, category: .prompt,
+                stage: .promptDecode,
+                metadata: LocalInferenceMetadata()
+                    .setting(.tokenCount, tokens.count)
+                    .setting(.contextBudget, room)
+                    .setting(.promptWasTrimmed, true)
+            )
             tokens = Array(tokens.suffix(room))
         }
 
@@ -260,6 +469,23 @@ public actor LlamaCppRuntime: LocalModelRuntime {
         llama_memory_clear(llama_get_memory(context), true)
 
         let promptTokens = tokens.count
+
+        // Section 39, and the most important breadcrumb in the file.
+        //
+        // This is the first `llama_decode` of the turn, and it is where the
+        // compute buffers are allocated — lazily, sized from the micro batch,
+        // *after* the model reported itself loaded and ready. A model that
+        // passed every preflight and answered "Ready" dies here, which is
+        // exactly the shape of the crash being investigated. If the next
+        // recovery report names `prompt_decode`, this line is why it can.
+        let decodeOperation = diagnostics.criticalEnter(
+            .promptDecode,
+            metadata: LocalInferenceMetadata()
+                .setting(.promptTokenCount, promptTokens)
+                .setting(.actualContextSize, contextLength)
+                .setting(.batchSize, Int(llama_n_batch(context)))
+                .setting(.microBatchSize, Int(llama_n_ubatch(context)))
+        )
         // The batch borrows the token buffer and `llama_decode` reads it, so
         // the pointer has to stay valid across both calls. `&tokens` would
         // produce one that is valid only for the duration of `batch_get_one`.
@@ -268,10 +494,23 @@ public actor LlamaCppRuntime: LocalModelRuntime {
             return llama_decode(context, batch)
         }
         guard promptStatus == 0 else {
+            diagnostics.criticalFailure(
+                .promptDecode,
+                operation: decodeOperation,
+                metadata: LocalInferenceMetadata()
+                    .setting(.errorKind, "decodeFailed")
+                    .setting(.nativeSymbol, "llama_decode")
+                    .setting(.nativeCode, Int(promptStatus))
+            )
             throw LocalRuntimeError.generationFailed(
                 reason: "The model could not read the prompt."
             )
         }
+        diagnostics.criticalExit(
+            .promptDecode,
+            operation: decodeOperation,
+            metadata: LocalInferenceMetadata().setting(.promptTokenCount, promptTokens)
+        )
 
         guard let sampler = makeSampler(options: options) else {
             throw LocalRuntimeError.generationFailed(reason: "The sampler could not be created.")
@@ -281,6 +520,19 @@ public actor LlamaCppRuntime: LocalModelRuntime {
         var output = ""
         var generated = 0
         var stop = LocalGenerationStop.maximumTokens
+
+        // Section 40: one breadcrumb around the whole loop, not one per token.
+        // A pair of `fsync`s per token would be thousands of synchronous writes
+        // during a single reply — enough to dominate the runtime and change the
+        // timing of the thing being measured.
+        let samplingOperation = diagnostics.criticalEnter(
+            .generationDecode,
+            metadata: LocalInferenceMetadata()
+                .setting(.promptTokenCount, promptTokens)
+                .setting(.generationReserve, options.maximumOutputTokens)
+        )
+        let startedAt = DispatchTime.now()
+        var decodeStatus: Int32 = 0
 
         while generated < options.maximumOutputTokens {
             if cancellationRequested {
@@ -297,6 +549,40 @@ public actor LlamaCppRuntime: LocalModelRuntime {
             output += piece(for: token, vocab: vocab)
             generated += 1
 
+            if generated == 1 {
+                // Section 41. First-token latency is the number that separates
+                // "the model is slow" from "the model never started", and it is
+                // the one figure a person watching a spinner actually has an
+                // intuition about. The token itself is never recorded.
+                diagnostics.info(
+                    .firstToken,
+                    category: .generation,
+                    stage: .generationDecode,
+                    metadata: LocalInferenceMetadata()
+                        .setting(.latencyMs, Int(LlamaCppRuntime.milliseconds(since: startedAt)))
+                        .setting(.generatedTokenCount, 1)
+                )
+            } else if generated % LlamaCppRuntime.progressTokenInterval == 0 {
+                // Section 42, verbose only. Measured values, so the rate is a
+                // real observation rather than a claim (section 121 of Part 10
+                // forbids inventing a speed; this one was counted).
+                diagnostics.verbose(
+                    .generationProgress,
+                    category: .generation,
+                    stage: .generationDecode,
+                    metadata: {
+                        let elapsed = LlamaCppRuntime.milliseconds(since: startedAt) / 1000
+                        return LocalInferenceMetadata()
+                            .setting(.generatedTokenCount, generated)
+                            .setting(.elapsedSeconds, elapsed)
+                            .setting(
+                                .tokensPerSecond,
+                                elapsed > 0 ? Double(generated) / elapsed : 0
+                            )
+                    }()
+                )
+            }
+
             if let trimmed = LlamaCppRuntime.truncate(output, atAnyOf: options.stopSequences) {
                 output = trimmed
                 stop = .stopSequence
@@ -311,6 +597,7 @@ public actor LlamaCppRuntime: LocalModelRuntime {
                 // Non-zero mid-generation is nearly always a full KV cache.
                 // Whatever has been generated is real text and is returned
                 // rather than thrown away.
+                decodeStatus = status
                 stop = .maximumTokens
                 break
             }
@@ -320,6 +607,41 @@ public actor LlamaCppRuntime: LocalModelRuntime {
             // until the model finishes on its own.
             await Task.yield()
         }
+
+        let elapsedSeconds = LlamaCppRuntime.milliseconds(since: startedAt) / 1000
+        diagnostics.criticalExit(
+            .generationDecode,
+            operation: samplingOperation,
+            metadata: LocalInferenceMetadata()
+                .setting(.generatedTokenCount, generated)
+                .setting(.stopReason, stop.rawValue)
+                .setting(.nativeCode, Int(decodeStatus))
+        )
+
+        // Sections 43 and 45. Counts, timings and a stop reason — no text.
+        let outcome = LocalInferenceMetadata()
+            .setting(.generatedTokenCount, generated)
+            .setting(.promptTokenCount, promptTokens)
+            .setting(.elapsedSeconds, elapsedSeconds)
+            .setting(.tokensPerSecond, elapsedSeconds > 0 ? Double(generated) / elapsedSeconds : 0)
+            .setting(.stopReason, stop.rawValue)
+            .setting(.cancelled, stop == .cancelled)
+            // Cancellation and a full KV cache both leave the context usable —
+            // nothing was freed and nothing was corrupted — so the next turn can
+            // reuse it. Said explicitly because "did the runtime survive" is the
+            // question a reader has after a failure.
+            .setting(.runtimeHealthy, true)
+        diagnostics.info(
+            stop == .cancelled ? .generationCancelled : .generationFinished,
+            category: .generation,
+            stage: .generationDecode,
+            metadata: outcome
+        )
+
+        generationFinished = true
+        diagnostics.criticalExit(
+            .generation, operation: generationOperation, metadata: outcome
+        )
 
         return LocalGenerationOutput(
             text: output.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -339,6 +661,19 @@ public actor LlamaCppRuntime: LocalModelRuntime {
         #if canImport(llama)
         LlamaBackend.loadCancellation.cancel()
         #endif
+    }
+
+    /// How often a verbose progress line is written during generation.
+    ///
+    /// Section 42. Sixteen tokens is roughly a second or two on a phone — often
+    /// enough to show a stall, rare enough that the log stays readable and the
+    /// writing stays free next to the decode it sits between.
+    static let progressTokenInterval = 16
+
+    static func milliseconds(since start: DispatchTime) -> Double {
+        let now = DispatchTime.now().uptimeNanoseconds
+        guard now > start.uptimeNanoseconds else { return 0 }
+        return Double(now - start.uptimeNanoseconds) / 1_000_000
     }
 
     /// Cuts the output at the first stop sequence, if one has appeared.
