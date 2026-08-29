@@ -55,15 +55,6 @@ final class LocalModelsViewModel {
         !query.trimmingCharacters(in: .whitespaces).isEmpty || filter != .all
     }
 
-    /// How many models are installed, and how many of those could actually run.
-    ///
-    /// Shown in the runtime diagnostic. Section 12: "no runtime" and "no model"
-    /// are different problems and the report has to distinguish them.
-    var installedCount: Int { statuses.filter { $0.lifecycle.isInstalled }.count }
-
-    var runnableCount: Int {
-        statuses.filter { $0.lifecycle.isInstalled && $0.compatibility.permitsLoad }.count
-    }
 
     struct Failure: Identifiable {
         let id = UUID()
@@ -185,5 +176,14 @@ final class LocalModelsViewModel {
 
     var installedCount: Int {
         statuses.filter { $0.lifecycle.isInstalled }.count
+    }
+
+    /// How many installed models this build could actually load.
+    ///
+    /// Reported beside `installedCount` in the runtime diagnostic, because
+    /// "four models installed, none runnable" and "no models installed" are
+    /// different problems and only the first points at the runtime.
+    var runnableCount: Int {
+        statuses.filter { $0.lifecycle.isInstalled && $0.compatibility.permitsLoad }.count
     }
 }
