@@ -517,7 +517,7 @@ final class AppEnvironment: Sendable {
     /// which is the only thing in the app that touches FoundationModels. No
     /// SwiftUI file imports the framework, and none needs to.
     func appleFoundationModelsDiagnostic() async -> AppleFoundationModelsDiagnostic {
-        await appleProvider.diagnostic(now: dateProvider.now())
+        await appleProvider.diagnostic(now: dateProvider.now)
     }
 
     // MARK: Remote credentials
