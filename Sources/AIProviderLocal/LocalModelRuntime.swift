@@ -192,17 +192,31 @@ public struct LocalModelLoadRequest: Hashable, Sendable {
     public var contextLength: Int
     /// Threads for prompt processing and generation. Nil lets the runtime pick.
     public var threadCount: Int?
+    /// Tokens per `llama_decode`.
+    public var batchSize: Int?
+    /// Tokens per compute-graph pass.
+    ///
+    /// Carried explicitly rather than derived inside the runtime because it is
+    /// the term the memory preflight has to know about: the compute buffer is
+    /// allocated on the first decode and scales with this, which is how a model
+    /// used to pass a preflight, load, and then be killed when a conversation
+    /// started.
+    public var microBatchSize: Int?
 
     public init(
         modelID: AIModelIdentifier,
         fileURL: URL,
         contextLength: Int,
-        threadCount: Int? = nil
+        threadCount: Int? = nil,
+        batchSize: Int? = nil,
+        microBatchSize: Int? = nil
     ) {
         self.modelID = modelID
         self.fileURL = fileURL
         self.contextLength = contextLength
         self.threadCount = threadCount
+        self.batchSize = batchSize
+        self.microBatchSize = microBatchSize
     }
 }
 

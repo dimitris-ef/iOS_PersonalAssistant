@@ -1,3 +1,4 @@
+import AIProviderLocal
 import AssistantDomain
 import AssistantVoice
 import SwiftUI
@@ -145,6 +146,13 @@ struct AssistantScreen: View {
 }
 
 /// The header: identity, and today's date for context.
+/// The title, and underneath it what will answer the next message.
+///
+/// The picker lives here rather than above the composer for a reason: it is a
+/// statement about the whole conversation, not about the message being typed,
+/// and putting it by the text field invites the reading that it applies to one
+/// send. It is a caption-sized menu — visible without competing with the
+/// conversation (section 20).
 private struct AssistantHeaderView: View {
     @Environment(AppModel.self) private var model
 
@@ -152,11 +160,61 @@ private struct AssistantHeaderView: View {
         VStack(spacing: 1) {
             Text("Assistant")
                 .font(.headline)
-            Text(AppFormatters.shared.fullDate(model.now))
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            AssistantModelMenu()
         }
-        .accessibilityElement(children: .combine)
+        .task { await model.refreshAssistantChoices() }
+    }
+}
+
+/// Which provider and model answers, as a menu.
+private struct AssistantModelMenu: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        Menu {
+            ForEach(model.assistantChoices) { choice in
+                Button {
+                    Task { await model.selectAssistantChoice(choice) }
+                } label: {
+                    // A checkmark rather than a highlight: the menu is read at
+                    // a glance and "which one is on" has to survive that.
+                    if isActive(choice) {
+                        Label(label(for: choice), systemImage: "checkmark")
+                    } else {
+                        Text(label(for: choice))
+                    }
+                }
+            }
+            if model.assistantChoices.isEmpty {
+                Text("No model is available")
+            }
+        } label: {
+            HStack(spacing: 3) {
+                Text(currentTitle)
+                    .lineLimit(1)
+                Image(systemName: "chevron.down")
+                    .font(.caption2)
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+        .accessibilityLabel("Assistant model")
+        .accessibilityValue(currentTitle)
+    }
+
+    /// Never a bare "Local AI": with three models downloaded that names a
+    /// category, not an answer (section 23).
+    private var currentTitle: String {
+        model.activeAssistantChoice?.title ?? "Choose a model"
+    }
+
+    private func isActive(_ choice: AssistantModelChoice) -> Bool {
+        model.activeAssistantChoice == choice
+    }
+
+    private func label(for choice: AssistantModelChoice) -> String {
+        guard let subtitle = choice.subtitle else { return choice.title }
+        return "\(choice.title) — \(subtitle)"
     }
 }
 

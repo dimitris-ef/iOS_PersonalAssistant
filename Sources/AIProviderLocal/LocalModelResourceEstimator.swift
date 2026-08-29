@@ -80,6 +80,22 @@ public struct LocalModelResourceEstimator: Sendable {
     /// Compute buffers also scale with the model; this is the share of weights
     /// added on top of the floor.
     public var computeBufferWeightFraction: Double
+    /// Bytes of compute buffer per micro-batch token, per billion parameters.
+    ///
+    /// **The term this estimator was missing.** llama.cpp allocates its compute
+    /// graph lazily, on the first `llama_decode`, and its size scales with the
+    /// micro batch and the model's hidden dimension — not with the weights.
+    /// A model could therefore pass a preflight that modelled only the weights,
+    /// load, report itself ready, and then be killed by iOS the moment a
+    /// conversation started, which is precisely what a 3B model did.
+    ///
+    /// Derived from the shape of these models rather than measured: hidden
+    /// dimension scales roughly with the cube root of parameter count, and for
+    /// the 0.5B–7B range a linear approximation in billions is close enough for
+    /// a figure whose only job is to be conservative. 1.5 MB per token per
+    /// billion parameters puts a 3B model at ubatch 128 near 576 MB, which is
+    /// the right order of magnitude and errs high.
+    public var computeBufferBytesPerMicroBatchTokenPerBillion: Int64
     /// KV bytes per token when the model file did not say.
     ///
     /// Derived from what phone-sized instruct models actually look like: around
@@ -99,6 +115,7 @@ public struct LocalModelResourceEstimator: Sendable {
         runtimeOverheadBytes: Int64 = 96 * .megabyte,
         minimumComputeBufferBytes: Int64 = 128 * .megabyte,
         computeBufferWeightFraction: Double = 0.12,
+        computeBufferBytesPerMicroBatchTokenPerBillion: Int64 = 1_500_000,
         fallbackKVBytesPerToken: Int = 48 * 1024,
         storageHeadroomBytes: Int64 = 1024 * .megabyte
     ) {
@@ -107,6 +124,8 @@ public struct LocalModelResourceEstimator: Sendable {
         self.runtimeOverheadBytes = runtimeOverheadBytes
         self.minimumComputeBufferBytes = minimumComputeBufferBytes
         self.computeBufferWeightFraction = computeBufferWeightFraction
+        self.computeBufferBytesPerMicroBatchTokenPerBillion =
+            computeBufferBytesPerMicroBatchTokenPerBillion
         self.fallbackKVBytesPerToken = fallbackKVBytesPerToken
         self.storageHeadroomBytes = storageHeadroomBytes
     }
@@ -129,15 +148,33 @@ public struct LocalModelResourceEstimator: Sendable {
     public func estimate(
         weightsBytes: Int64,
         contextLength: Int,
-        kvBytesPerToken: Int?
+        kvBytesPerToken: Int?,
+        microBatchSize: Int? = nil,
+        parameterCount: Int64? = nil
     ) -> LocalModelMemoryEstimate {
         let perToken = kvBytesPerToken ?? fallbackKVBytesPerToken
         let context = max(0, contextLength)
         let kv = Int64(context) * Int64(max(0, perToken))
-        let compute = max(
+
+        // Three ways to size the compute buffer, and the largest wins.
+        //
+        // The micro-batch term is the one that matters and the one that used to
+        // be absent. It is only available when the caller knows both the batch
+        // it will open with and roughly how big the model is; when it does not,
+        // the weight-fraction estimate stands, which is what every pre-download
+        // catalog check uses.
+        var compute = max(
             minimumComputeBufferBytes,
             Int64(Double(weightsBytes) * computeBufferWeightFraction)
         )
+        if let microBatchSize, microBatchSize > 0, let parameterCount, parameterCount > 0 {
+            let billions = Double(parameterCount) / 1_000_000_000
+            let graph = Int64(
+                Double(microBatchSize) * billions
+                    * Double(computeBufferBytesPerMicroBatchTokenPerBillion)
+            )
+            compute = max(compute, graph)
+        }
         return LocalModelMemoryEstimate(
             weightsBytes: weightsBytes,
             kvCacheBytes: kv,
@@ -151,12 +188,15 @@ public struct LocalModelResourceEstimator: Sendable {
     /// The same, for a catalog entry the app has not downloaded yet.
     public func estimate(
         for descriptor: LocalModelDescriptor,
-        contextLength: Int? = nil
+        contextLength: Int? = nil,
+        microBatchSize: Int? = nil
     ) -> LocalModelMemoryEstimate {
         estimate(
             weightsBytes: descriptor.fileSizeBytes ?? expectedFileSize(for: descriptor) ?? 0,
             contextLength: contextLength ?? descriptor.defaultContextLength,
-            kvBytesPerToken: descriptor.kvCacheBytesPerToken
+            kvBytesPerToken: descriptor.kvCacheBytesPerToken,
+            microBatchSize: microBatchSize,
+            parameterCount: descriptor.parameterCount
         )
     }
 
@@ -184,6 +224,8 @@ public struct LocalModelResourceEstimator: Sendable {
         kvBytesPerToken: Int?,
         preferred: Int,
         minimum: Int = 1024,
+        microBatchSize: Int? = nil,
+        parameterCount: Int64? = nil,
         on device: any DeviceResourceProvider
     ) -> Int? {
         let budget = modelMemoryBudget(on: device)
@@ -192,7 +234,9 @@ public struct LocalModelResourceEstimator: Sendable {
             let estimate = estimate(
                 weightsBytes: weightsBytes,
                 contextLength: candidate,
-                kvBytesPerToken: kvBytesPerToken
+                kvBytesPerToken: kvBytesPerToken,
+                microBatchSize: microBatchSize,
+                parameterCount: parameterCount
             )
             if estimate.totalBytes <= budget { return candidate }
             candidate /= 2

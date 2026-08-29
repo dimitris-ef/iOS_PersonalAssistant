@@ -396,6 +396,7 @@ final class AppModel {
         remoteConfiguration = environment.remoteConfiguration.current
         hasRemoteAPIKey = await environment.hasRemoteAPIKey()
         providerOptions = await environment.providerOptions()
+        await refreshAssistantChoices()
     }
 
     /// Re-reads the on-device model's full runtime state.
@@ -903,6 +904,80 @@ final class AppModel {
     /// in the repositories, which the provider never touches.
     func selectProvider(_ id: AIProviderIdentifier) async {
         await updateSettings { $0.preferredProviderID = id }
+        await refreshProviderState()
+        banner = BannerMessage(
+            text: "Model changed. Nothing else moved.",
+            style: .neutral
+        )
+    }
+
+    /// The assistant choices the chat picker offers.
+    ///
+    /// Built from the provider registry plus the installed local models, so
+    /// there is one source of truth rather than a hardcoded list in the view
+    /// (section 21 and 61). Local entries are filtered by
+    /// `AssistantLocalChoices`, which is the rule worth testing.
+    private(set) var assistantChoices: [AssistantModelChoice] = []
+
+    /// What will answer the next message.
+    var activeAssistantChoice: AssistantModelChoice? {
+        let providerID = settings.preferredProviderID
+        return assistantChoices.first { choice in
+            guard choice.providerID == providerID else { return false }
+            guard choice.modelID != nil else { return true }
+            return choice.modelID == settings.selectedLocalModelID
+        }
+    }
+
+    /// Re-reads the pickable assistants.
+    func refreshAssistantChoices() async {
+        var choices: [AssistantModelChoice] = []
+        for option in providerOptions {
+            if option.metadata.kind == .downloadedLocalModel {
+                // One entry per downloaded, compatible model rather than a
+                // single "Local AI": which model answers is the actual choice.
+                choices.append(
+                    contentsOf: AssistantLocalChoices.choices(
+                        from: await environment.localModels.statuses()
+                    )
+                )
+            } else if option.isAvailable {
+                choices.append(
+                    AssistantModelChoice(
+                        providerID: option.id,
+                        modelID: nil,
+                        title: option.metadata.displayName,
+                        subtitle: option.metadata.requiresNetwork ? "Cloud" : "On device"
+                    )
+                )
+            }
+        }
+        assistantChoices = choices
+    }
+
+    /// Applies a pick from the chat selector.
+    ///
+    /// Selection only. Section 24 and 25: choosing a local model records the
+    /// choice and stops — the weights are loaded when the first message needs
+    /// them, not here, because a multi-gigabyte load on a menu tap is how a
+    /// picker becomes a hang.
+    func selectAssistantChoice(_ choice: AssistantModelChoice) async {
+        if let modelID = choice.modelID {
+            // Switching models releases whatever was resident. `select` does
+            // that, and does it before the new one is ever loaded, so two large
+            // models are never in memory at once (section 26).
+            try? await environment.localModels.select(modelID)
+            await updateSettings {
+                $0.preferredProviderID = choice.providerID
+                $0.selectedLocalModelID = modelID
+            }
+        } else {
+            // Leaving Local AI frees the runtime rather than leaving gigabytes
+            // resident behind a provider nobody is using (section 27).
+            await environment.localModels.unload()
+            await updateSettings { $0.preferredProviderID = choice.providerID }
+        }
+        // Refreshing provider state re-derives the choice list too.
         await refreshProviderState()
         banner = BannerMessage(
             text: "Model changed. Nothing else moved.",

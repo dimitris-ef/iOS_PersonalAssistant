@@ -142,12 +142,19 @@ public actor LlamaCppRuntime: LocalModelRuntime {
 
         var contextParams = llama_context_default_params()
         contextParams.n_ctx = UInt32(max(512, request.contextLength))
-        // The batch bounds one `llama_decode`. Larger is faster for prompt
-        // processing and costs a proportionally larger compute buffer; 512 is a
-        // reasonable middle on a phone, capped by the context so a small
-        // context does not allocate a batch it can never fill.
-        contextParams.n_batch = UInt32(min(512, max(64, request.contextLength)))
-        contextParams.n_ubatch = contextParams.n_batch
+        // The batch bounds one `llama_decode`; the micro batch bounds one
+        // compute-graph pass and is what the Metal compute buffer is sized
+        // from. Both come from `LocalInferenceConfiguration` so that the memory
+        // preflight and the allocation agree — they did not before, and a 3B
+        // model that passed the check was then killed on its first decode.
+        //
+        // The fallbacks are the conservative tier rather than llama.cpp's 512,
+        // which is tuned for a machine with swap and a GPU not also drawing a
+        // user interface.
+        let batch = request.batchSize ?? 128
+        let microBatch = request.microBatchSize ?? 64
+        contextParams.n_batch = UInt32(max(32, min(batch, request.contextLength)))
+        contextParams.n_ubatch = UInt32(max(32, min(microBatch, Int(contextParams.n_batch))))
         if let threads = request.threadCount {
             contextParams.n_threads = Int32(threads)
             contextParams.n_threads_batch = Int32(threads)

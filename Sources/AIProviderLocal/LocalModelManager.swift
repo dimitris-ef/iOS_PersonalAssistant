@@ -44,6 +44,13 @@ public actor LocalModelManager {
     private var activeStates: [AIModelIdentifier: LocalModelLifecycle] = [:]
     /// Set while a load is in flight, so two callers do not both try.
     private var loadingModelID: AIModelIdentifier?
+    /// The configuration the currently loaded model was opened with.
+    ///
+    /// Kept because the context the runtime actually got is often smaller than
+    /// the one the record asked for — the adaptive reduction in `load` may have
+    /// halved it — and the provider has to bound its prompt by what the model
+    /// really has, not by what the catalog advertises (section 53).
+    private var loadedConfiguration: LocalInferenceConfiguration?
 
     public init(
         catalog: LocalModelCatalog,
@@ -274,22 +281,54 @@ public actor LocalModelManager {
             throw LocalRuntimeError.modelFileMissing(fileURL)
         }
 
-        // Preflight. Section 35: a runtime allocation failure is catchable and
-        // a jetsam kill is not, so the check that matters is the one made
-        // before any allocation happens.
-        let estimate = policy.estimator.estimate(
-            weightsBytes: record.fileSizeBytes,
-            contextLength: record.contextLength,
-            kvBytesPerToken: catalog.descriptor(for: id)?.kvCacheBytesPerToken
-        )
+        // Preflight, re-run now rather than trusted from install time. Section
+        // 44: a jetsam kill is not catchable, so the check that matters is the
+        // one made before any allocation happens — and free memory now is not
+        // free memory when the file was downloaded.
+        let descriptor = catalog.descriptor(for: id)
+        let kvPerToken = descriptor?.kvCacheBytesPerToken
+        let parameters = descriptor?.parameterCount
         let budget = policy.estimator.modelMemoryBudget(on: device)
-        guard estimate.totalBytes <= budget else {
+
+        // Start from what this device can be asked to do, capped by what the
+        // model was installed for. Never the model's advertised maximum: a 3B
+        // model claiming 32768 tokens wants well over a gigabyte of KV cache
+        // on its own (section 7).
+        let deviceConfiguration = LocalInferenceConfiguration.forDevice(device)
+        let preferredContext = min(deviceConfiguration.contextLength, record.contextLength)
+
+        // Section 8: shrink before refusing. The weights are the same at 4096
+        // and at 1024; only the KV cache is linear in context, so a model that
+        // will not fit at the preferred size very often fits at half of it, and
+        // a shorter conversation is a better outcome than no model at all.
+        guard
+            let fittedContext = policy.estimator.largestFittingContext(
+                weightsBytes: record.fileSizeBytes,
+                kvBytesPerToken: kvPerToken,
+                preferred: preferredContext,
+                minimum: 1024,
+                microBatchSize: deviceConfiguration.microBatchSize,
+                parameterCount: parameters,
+                on: device
+            )
+        else {
+            let estimate = policy.estimator.estimate(
+                weightsBytes: record.fileSizeBytes,
+                contextLength: 1024,
+                kvBytesPerToken: kvPerToken,
+                microBatchSize: deviceConfiguration.microBatchSize,
+                parameterCount: parameters
+            )
             throw LocalRuntimeError.insufficientMemory(
-                reason: "\(record.id) needs about "
-                    + "\(LocalModelCompatibilityPolicy.format(estimate.totalBytes)), "
-                    + "and about \(LocalModelCompatibilityPolicy.format(budget)) is available."
+                reason: "This model needs about "
+                    + "\(LocalModelCompatibilityPolicy.format(estimate.totalBytes)) "
+                    + "even at its smallest usable context, and about "
+                    + "\(LocalModelCompatibilityPolicy.format(budget)) is safely "
+                    + "available on this iPhone. Try a smaller model."
             )
         }
+
+        let configuration = deviceConfiguration.withContextLength(fittedContext)
 
         // Unload first, always. Loading the new model while the old one is
         // still resident would briefly need both, which on the devices this
@@ -304,10 +343,13 @@ public actor LocalModelManager {
             LocalModelLoadRequest(
                 modelID: id,
                 fileURL: fileURL,
-                contextLength: record.contextLength,
-                threadCount: Self.threadCount(for: device)
+                contextLength: configuration.contextLength,
+                threadCount: configuration.threadCount,
+                batchSize: configuration.batchSize,
+                microBatchSize: configuration.microBatchSize
             )
         )
+        loadedConfiguration = configuration
 
         var touched = record
         touched.lastUsedAt = dateProvider.now
@@ -317,6 +359,16 @@ public actor LocalModelManager {
 
     public func unload() async {
         await runtime?.unloadModel()
+        loadedConfiguration = nil
+    }
+
+    /// What the loaded model was actually opened with, if anything is loaded.
+    ///
+    /// Nil when nothing is loaded. The provider asks for this rather than
+    /// assuming the catalog's numbers, because the adaptive reduction means the
+    /// two frequently disagree and only one of them is real.
+    public func activeConfiguration() -> LocalInferenceConfiguration? {
+        loadedConfiguration
     }
 
     /// Loads the selected model if it is not already in memory.
