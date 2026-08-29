@@ -291,3 +291,68 @@ Intelligence, select **Apple On-Device**, and ask "remind me tomorrow at 10 AM
 to call the dentist". What to watch for is not the reply but the action cards
 beneath it — they should say *simulated*, because the platform services are
 still mocks and the reminder is not real.
+
+## Why "unavailable" was not enough
+
+A real iPhone with Apple Intelligence switched on and in daily use reported
+only **"Apple on-device unavailable"**. Investigating it found the adapter was
+not at fault: `AppleModelAvailabilityState.init(_:)` already switched on
+`SystemLanguageModel.default.availability` directly, mapped Apple's three
+documented reasons distinctly, and carried an `@unknown default`. It never used
+`isAvailable` as the source of the reason. Composition was clean too — Release
+registers a real `AppleFoundationModelsProvider()` unconditionally, the demo
+branch is compiled out of Release entirely, and neither the provider nor the
+registry caches an answer.
+
+The loss happened one layer up. `providerAvailability` maps **four** distinct
+states — `deviceNotEligible`, `operatingSystemTooOld`, `frameworkMissingFromSDK`
+and `unrecognised` — onto `.unsupported`, and `modelNotReady` onto
+`.temporarilyUnavailable`. The status pill rendered one word from the case. So
+"buy a different phone", "this build has no framework in it" and "wait four
+minutes" were the same row on screen.
+
+That coarseness is *correct* for a list that also describes a cloud endpoint and
+a downloaded GGUF file. It is only a bug when it is the only thing available.
+
+### What changed
+
+`AppleFoundationModelsDiagnostic` carries the whole picture, on demand:
+
+| Field | Answers |
+| --- | --- |
+| `frameworkCompiled` | was `#if canImport(FoundationModels)` true for this binary |
+| `runtimeSupported` | does this OS satisfy the same `#available` guard the provider uses |
+| `providerImplementation` | which `AIProvider` answered |
+| `systemModelIsAvailable` | `SystemLanguageModel.default.isAvailable`, for comparison only |
+| `rawAvailability` | Apple's own description, module prefix stripped |
+| `reasonToken` | `available` / `appleIntelligenceNotEnabled` / `deviceNotEligible` / `modelNotReady` / `unknown` / `frameworkMissingFromSDK` / `operatingSystemTooOld` |
+| `mappedAvailability` | what the provider reports upward, beside what it collapsed |
+| `currentLocaleSupported` | kept deliberately separate from eligibility |
+
+The model selector names the token beside the status — "Unavailable —
+modelNotReady" — and **Settings › AI Model › Apple On-Device** shows the full
+snapshot with **Refresh Status** and **Copy Diagnostics**.
+
+### The distinction most likely to be behind a confused report
+
+**Apple Intelligence and FoundationModels are not the same requirement.** Apple
+Intelligence has shipped since iOS 18.1; the FoundationModels *developer
+framework* is iOS 26 and later. A phone actively using Apple Intelligence on
+iOS 18 correctly reports `operatingSystemTooOld` — the app was right, it simply
+could not say so. The diagnostics screen shows the OS version beside the token,
+which settles that in one look.
+
+### Rules this pass kept
+
+* Nothing is cached. `modelNotReady` is transient, and a stored first answer is
+  exactly the bug that would leave a phone unavailable forever after its assets
+  finished downloading. Returning to the foreground re-reads it, because
+  switching Apple Intelligence on happens in Settings and not here.
+* No fallback. An unavailable Apple provider still fails visibly rather than
+  quietly answering from the cloud or the scripted stand-in.
+* No SwiftUI file imports FoundationModels. The snapshot is plain types,
+  produced by the same reader `respond(to:)` consults — a diagnostic can never
+  report a state the provider would not act on.
+* `contextSize` is deliberately omitted rather than risked, which section 18 of
+  the brief explicitly permits.
+
