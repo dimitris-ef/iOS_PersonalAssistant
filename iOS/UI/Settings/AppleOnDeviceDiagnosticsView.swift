@@ -2,42 +2,51 @@ import AIProviderApple
 import SwiftUI
 import UIKit
 
-/// What Apple actually reports about the on-device model, on this device, now.
+/// Whether the on-device model is usable yet, and what Apple actually reports.
 ///
-/// ## Why this screen exists
+/// ## The question this screen answers
 ///
-/// "Apple On-Device — Unavailable" is the same six words for six unrelated
-/// situations: the model is still downloading, Apple Intelligence is switched
-/// off, the hardware is ineligible, the OS predates the framework, the *build*
-/// has no framework in it, or Apple returned a reason released after this app
-/// was compiled. One of those resolves itself in minutes and one of them never
-/// will, and until this screen existed there was no way to tell them apart from
-/// the phone in your hand.
+/// Two questions, in the order a person asks them. First: *can I use it, and if
+/// not, is that going to change?* Second, only if something looks wrong: *what
+/// exactly did Apple say?*
 ///
-/// So it shows both halves: a sentence for the person reading it, and the exact
-/// token Apple's API returned, which is the thing worth putting in a bug report.
+/// So the status comes first, in plain words, and the diagnostic rows from the
+/// previous debug pass follow underneath. Improving the first was not a reason
+/// to remove the second — a tester who can read "modelPreparing" off the screen
+/// can put it in a message, and that is worth keeping.
 ///
-/// ## What it is not
+/// ## What is deliberately absent
 ///
-/// Not a second source of truth. Every value comes through `AppModel` →
-/// `AppEnvironment` → `AppleFoundationModelsProvider` → its availability
-/// reader — the same path `respond(to:)` uses to decide whether it can answer.
-/// This file does not import FoundationModels and could not read the framework
-/// if it wanted to.
+/// A progress bar, a percentage, a byte count, a rate, an estimate. Apple
+/// exposes availability and nothing else, and every one of those would be
+/// invented. An invented bar that stalls is worse than no bar: it makes a
+/// person conclude the app is broken when iOS is simply still working.
+///
+/// An indeterminate spinner is the honest shape — something is happening, and
+/// nobody can say how much of it is left.
+///
+/// ## Ownership
+///
+/// The polling lives in `AppleModelStatusCoordinator`, not in this body, and
+/// the framework query lives in `AppleFoundationModelsProvider`, not in the
+/// coordinator. This file does not import FoundationModels.
 struct AppleOnDeviceDiagnosticsView: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.scenePhase) private var scenePhase
 
-    @State private var snapshot: AppleFoundationModelsDiagnostic?
-    @State private var isRefreshing = false
+    /// Created once per appearance of this screen, and stopped when it goes.
+    @State private var status: AppleModelStatusCoordinator?
     @State private var didCopy = false
 
     var body: some View {
         List {
-            if let snapshot {
-                statusSection(snapshot)
-                frameworkSection(snapshot)
-                systemSection(snapshot)
-                actionsSection(snapshot)
+            if let status {
+                statusSection(status)
+                if let snapshot = status.diagnostic {
+                    frameworkSection(snapshot)
+                    systemSection(snapshot)
+                    copySection(snapshot)
+                }
             } else {
                 Section {
                     HStack(spacing: Theme.Spacing.sm) {
@@ -50,38 +59,118 @@ struct AppleOnDeviceDiagnosticsView: View {
         }
         .navigationTitle("Apple On-Device")
         .navigationBarTitleDisplayMode(.inline)
-        .task { await refresh() }
+        .task {
+            // One coordinator per appearance. `.task` can run again if the view
+            // is rebuilt, so the existing one is reused rather than replaced —
+            // two would mean two loops.
+            let coordinator = status ?? model.makeAppleModelStatusCoordinator()
+            status = coordinator
+            await coordinator.begin()
+        }
+        .onDisappear {
+            // The single most important line here. Without it, walking away
+            // from a preparing model leaves a timer running for the rest of the
+            // session.
+            status?.end()
+        }
+        .onChange(of: scenePhase) { _, phase in
+            // Backgrounding suspends the loop rather than leaving it to fire on
+            // return; coming back does one immediate read, which is what
+            // somebody who just switched Apple Intelligence on expects to see.
+            guard let status else { return }
+            switch phase {
+            case .active:
+                Task {
+                    await status.refresh()
+                    status.startAutomaticRefreshIfNeeded()
+                }
+            case .background:
+                status.end()
+            default:
+                break
+            }
+        }
     }
 
     // MARK: Status
 
-    private func statusSection(_ snapshot: AppleFoundationModelsDiagnostic) -> some View {
+    private func statusSection(_ coordinator: AppleModelStatusCoordinator) -> some View {
         Section {
             LabeledContent("Status") {
-                Text(snapshot.state == .ready ? "Available" : "Unavailable")
-                    .foregroundStyle(snapshot.state == .ready ? Color.green : Color.orange)
+                Text(coordinator.status.title)
+                    .multilineTextAlignment(.trailing)
+                    .foregroundStyle(tint(for: coordinator.status))
             }
-            // Section 6 and 7: the token, verbatim, not a friendly paraphrase.
-            // This is the value that makes a bug report actionable.
-            LabeledContent("Reason") {
-                Text(snapshot.reasonToken)
-                    .font(.body.monospaced())
+
+            Text(coordinator.status.detail)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            // Indeterminate, always. There is no number to put here.
+            if coordinator.status.showsActivityIndicator {
+                HStack(spacing: Theme.Spacing.sm) {
+                    ProgressView().controlSize(.small)
+                    Text("Preparing…")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            LabeledContent("Last checked") {
+                Text(lastCheckedText(coordinator))
+                    .font(.footnote.monospaced())
                     .foregroundStyle(.secondary)
             }
+
+            Button {
+                Task { await coordinator.refresh() }
+            } label: {
+                HStack {
+                    Text("Check Again")
+                    Spacer()
+                    if coordinator.isChecking { ProgressView().controlSize(.small) }
+                }
+            }
+            .disabled(coordinator.isChecking)
         } header: {
-            Text("Foundation Models")
+            Text("Apple On-Device")
         } footer: {
-            Text(snapshot.headline)
+            if coordinator.isAutomaticallyRefreshing {
+                Text(
+                    "Checking again every \(Int(AppleModelStatusCoordinator.automaticRefreshInterval)) "
+                        + "seconds while this screen is open. It will switch to Ready on its own."
+                )
+            } else {
+                Text("iOS decides when the model is ready. MetisAI only reads what it reports.")
+            }
+        }
+    }
+
+    /// The timestamp of the last completed check, in the reader's own locale.
+    ///
+    /// Time only, not the date: this screen is watched while something is
+    /// happening, and a date would be noise on every line.
+    private func lastCheckedText(_ coordinator: AppleModelStatusCoordinator) -> String {
+        guard let date = coordinator.lastCheckedAt else { return "—" }
+        return date.formatted(date: .omitted, time: .standard)
+    }
+
+    private func tint(for status: AppleModelStatus) -> Color {
+        switch status {
+        case .ready: return .green
+        case .modelPreparing, .appleIntelligenceDisabled: return .orange
+        case .deviceNotEligible, .unknownUnavailable: return .secondary
+        case .checkFailed: return .red
         }
     }
 
     // MARK: The framework path
 
-    /// The section that answers "is the integration even in this build".
+    /// Kept from the previous debug pass.
     ///
-    /// If `Framework compiled` is No in a TestFlight build, nothing else on
-    /// this screen matters and no amount of Apple Intelligence on the device
-    /// will help — the code that talks to the model was compiled out.
+    /// If `Framework compiled` is No in a TestFlight build, nothing above it
+    /// matters — the code that talks to the model was compiled out.
     private func frameworkSection(_ snapshot: AppleFoundationModelsDiagnostic) -> some View {
         Section {
             DiagnosticRow("Framework compiled", yesNo(snapshot.frameworkCompiled))
@@ -92,6 +181,7 @@ struct AppleOnDeviceDiagnosticsView: View {
                 snapshot.systemModelIsAvailable.map(yesNo) ?? "Not read"
             )
             DiagnosticRow("Raw availability", snapshot.rawAvailability)
+            DiagnosticRow("Reason token", snapshot.reasonToken)
             DiagnosticRow("Mapped state", snapshot.mappedAvailabilityToken)
         } header: {
             Text("Framework Path")
@@ -117,28 +207,12 @@ struct AppleOnDeviceDiagnosticsView: View {
         } header: {
             Text("System")
         } footer: {
-            // Section 19: kept explicitly separate from eligibility.
-            Text(
-                "An unsupported language is not the same thing as an ineligible device."
-            )
+            Text("An unsupported language is not the same thing as an ineligible device.")
         }
     }
 
-    // MARK: Actions
-
-    private func actionsSection(_ snapshot: AppleFoundationModelsDiagnostic) -> some View {
+    private func copySection(_ snapshot: AppleFoundationModelsDiagnostic) -> some View {
         Section {
-            Button {
-                Task { await refresh() }
-            } label: {
-                HStack {
-                    Text("Refresh Status")
-                    Spacer()
-                    if isRefreshing { ProgressView().controlSize(.small) }
-                }
-            }
-            .disabled(isRefreshing)
-
             Button {
                 UIPasteboard.general.string = snapshot.report
                 didCopy = true
@@ -146,23 +220,8 @@ struct AppleOnDeviceDiagnosticsView: View {
                 Text(didCopy ? "Copied" : "Copy Diagnostics")
             }
         } footer: {
-            Text(
-                "Nothing here is stored. Refreshing asks the system again, so a model "
-                    + "that was still downloading can become available without "
-                    + "reinstalling the app."
-            )
+            Text("Nothing on this screen is stored. Every value is read when it is shown.")
         }
-    }
-
-    private func refresh() async {
-        isRefreshing = true
-        didCopy = false
-        snapshot = await model.appleFoundationModelsDiagnostic()
-        // The selector's own status pill is read from the same provider, so it
-        // is refreshed together — otherwise this screen could say "available"
-        // while the list behind it still said otherwise.
-        await model.refreshProviderState()
-        isRefreshing = false
     }
 
     private func yesNo(_ value: Bool) -> String { value ? "Yes" : "No" }

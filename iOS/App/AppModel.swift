@@ -407,6 +407,18 @@ final class AppModel {
         await environment.appleFoundationModelsDiagnostic()
     }
 
+    /// A status coordinator for the Apple On-Device screen.
+    ///
+    /// Built per screen rather than held here, because its automatic refresh is
+    /// scoped to that screen being open. A long-lived one on `AppModel` would
+    /// be a polling loop the rest of the app has no way to stop.
+    ///
+    /// It is handed the same provider instance the engine uses, so the status
+    /// it reports is the status `respond(to:)` would act on.
+    func makeAppleModelStatusCoordinator() -> AppleModelStatusCoordinator {
+        AppleModelStatusCoordinator(source: environment.appleProvider)
+    }
+
     /// Saves the remote endpoint and model, and the key if one was entered.
     ///
     /// `apiKey` is `nil` when the user did not touch the field, which leaves any
