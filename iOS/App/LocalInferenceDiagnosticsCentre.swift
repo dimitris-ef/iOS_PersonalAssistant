@@ -267,10 +267,17 @@ final class LocalInferenceDiagnosticsCentre {
         #else
         var info = utsname()
         uname(&info)
-        let identifier = withUnsafePointer(to: &info.machine) { pointer in
-            pointer.withMemoryRebound(to: CChar.self, capacity: MemoryLayout.size(ofValue: info.machine)) {
-                String(cString: $0)
-            }
+        // `withUnsafeBytes(of:)` rather than the more common
+        // `withMemoryRebound` incantation: that one reads
+        // `MemoryLayout.size(ofValue: info.machine)` *inside* a closure that
+        // already holds `info.machine` exclusively, which is an overlapping
+        // access and a compile error. This form borrows once and asks the
+        // buffer for its own length.
+        //
+        // The tuple is a fixed-size C char array, so it is padded with zeros —
+        // taking the prefix up to the first zero is the string.
+        let identifier = withUnsafeBytes(of: &info.machine) { buffer -> String in
+            String(decoding: buffer.prefix { $0 != 0 }, as: UTF8.self)
         }
         return identifier.isEmpty ? UIDevice.current.model : identifier
         #endif
