@@ -235,9 +235,9 @@ final class ProvisioningProfileTests: XCTestCase {
         let now = Date(timeIntervalSince1970: 1_000_000_000)
         let profile = try ProvisioningProfile.parse(
             profilePlist(
+                uuid: "DEADBEEF-0000-0000-0000-000000000000",
                 team: "SECRETTEAM",
                 applicationIdentifier: "SECRETTEAM.com.private.internal",
-                uuid: "DEADBEEF-0000-0000-0000-000000000000",
                 groups: ["group.com.private.internal"],
                 expires: now.addingTimeInterval(-1)
             )

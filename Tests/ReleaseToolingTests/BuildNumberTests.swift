@@ -29,11 +29,21 @@ final class BuildNumberTests: XCTestCase {
         // "412".
         let low = try BuildNumber.make(runNumber: "9", runAttempt: "1")
         let high = try BuildNumber.make(runNumber: "412", runAttempt: "1")
-        XCTAssertLessThan(numeric(low), numeric(high))
+        XCTAssertEqual(compare(low, high), .orderedAscending)
+        XCTAssertEqual(compare(high, low), .orderedDescending)
+        XCTAssertEqual(compare(low, low), .orderedSame)
     }
 
-    private func numeric(_ value: String) -> [Int] {
-        value.split(separator: ".").compactMap { Int($0) }
+    /// Component-wise integer comparison — the same ordering App Store Connect
+    /// applies, and the reason a string comparison would be wrong.
+    private func compare(_ lhs: String, _ rhs: String) -> ComparisonResult {
+        let left = lhs.split(separator: ".").compactMap { Int($0) }
+        let right = rhs.split(separator: ".").compactMap { Int($0) }
+        for (a, b) in zip(left, right) where a != b {
+            return a < b ? .orderedAscending : .orderedDescending
+        }
+        if left.count == right.count { return .orderedSame }
+        return left.count < right.count ? .orderedAscending : .orderedDescending
     }
 
     // MARK: Refusals

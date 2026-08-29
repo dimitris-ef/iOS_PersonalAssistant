@@ -40,6 +40,10 @@ exists:
 - **a bounded multi-round agent loop**: one message can need several coordinated
   actions, the model sees what each one really did before choosing the next, and
   nothing can happen twice
+- **a signed distribution path**: production bundle identifiers, per-target
+  manual App Store signing on Release only, and a deploy workflow that archives,
+  verifies, uploads and then waits for App Store Connect to report the exact
+  build it uploaded as `VALID` — see [`Docs/DEPLOYMENT.md`](Docs/DEPLOYMENT.md)
 
 The UI is the production interface, not a prototype: it is SwiftUI, it sits on
 the existing architecture, and it calls the same protocols the Apple
@@ -157,6 +161,7 @@ PhonePersonalAI/
 │   ├── SystemSurfaces/         Keyboard extension, widget extension, shared
 │   ├── UI/                     Views and reusable components
 │   ├── Platform/               Keychain credential store
+│   ├── Voice/                  Speech-to-text composition root
 │   └── Resources/              Assets, Info.plist
 ├── project.yml                 XcodeGen spec for the app target
 └── Docs/
@@ -177,7 +182,8 @@ PhonePersonalAI/
     ├── SYSTEM-SURFACES.md   Keyboard, widgets, Lock Screen, Dynamic Island
     ├── SPEECH.md            Interchangeable speech-to-text providers
     ├── MEMORY.md            Retrieval, ranking, deduplication
-    └── SEMANTIC-MEMORY.md   Meaning, consolidation, aging, lifecycle
+    ├── SEMANTIC-MEMORY.md   Meaning, consolidation, aging, lifecycle
+    └── DEPLOYMENT.md        Signing, TestFlight and the production identifiers
 ```
 
 Dependencies point one way: `AssistantDomain` ← everything else, and the engine

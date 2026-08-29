@@ -73,10 +73,12 @@ jobs:
       KEYBOARD_BUNDLE_ID: com.dimitrisefthymiou.MetisAI.keyboard
       APP_GROUP: group.com.dimitrisefthymiou.MetisAI
       DERIVED_DATA: ${{ github.workspace }}/.ci-deriveddata
-      # Everything run-specific lives under one directory so cleanup is a single
-      # `rm -rf` and two runs can never read each other's files.
-      RUN_DIR: ${{ runner.temp }}/testflight-${{ github.run_id }}-${{ github.run_attempt }}
       LOG_DIR: ${{ github.workspace }}/artifacts
+      # RUN_DIR is set by the first step rather than here. The `runner` context
+      # is not available in a job-level `env` block — GitHub rejects the whole
+      # workflow file with "Unrecognized named-value: 'runner'" — and it has to
+      # be `RUNNER_TEMP` rather than the workspace, because decoded signing
+      # material must not live inside a checked-out git repository.
 
     steps:
       - name: Checkout repository
@@ -85,8 +87,12 @@ jobs:
       - name: Show toolchain
         run: |
           set -euo pipefail
+          # Everything run-specific lives under one directory, so cleanup is a
+          # single `rm -rf` and two runs can never read each other's files.
+          RUN_DIR="$RUNNER_TEMP/testflight-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
           mkdir -p "$LOG_DIR" "$RUN_DIR"
           chmod 700 "$RUN_DIR"
+          echo "RUN_DIR=$RUN_DIR" >> "$GITHUB_ENV"
           sw_vers
           xcodebuild -version
           swift --version
@@ -718,7 +724,9 @@ jobs:
           rm -rf "$HOME/Library/MobileDevice/Provisioning Profiles" || true
           rm -rf "$HOME/.appstoreconnect" || true
           # The IPA, the archive, the decoded key and every profile lived here.
-          rm -rf "$RUN_DIR" || true
+          # Guarded, because this step runs even when the job failed before the
+          # first step could set the variable.
+          if [ -n "${RUN_DIR:-}" ]; then rm -rf "$RUN_DIR" || true; fi
           echo "Signing material removed."
 
       - name: Upload build logs
