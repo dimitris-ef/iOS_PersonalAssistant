@@ -216,20 +216,38 @@ final class LocalInferenceDiagnosticLoggerTests: XCTestCase {
         XCTAssertTrue(remaining.contains(ids.last!.rawValue), "the newest was deleted")
     }
 
+    /// Writes a session file directly, without a logger.
+    ///
+    /// Constructing a `LocalInferenceDiagnosticLogger` rotates as part of its
+    /// initialiser, so building fixtures out of loggers means rotation has
+    /// already run several times before the test calls it — which is how the
+    /// first version of the test below passed for the wrong reason.
+    private func writeSessionFile(
+        _ id: LocalInferenceSessionID,
+        modifiedAt: Date,
+        lines: Int = 1
+    ) throws {
+        let body = (0..<lines)
+            .map { #"{"seq":\#($0 + 1),"event":"INFO","name":"APP_LAUNCH","app":"\#(id.rawValue)"}"# }
+            .joined(separator: "\n")
+        let url = store.url(forSession: id)
+        try Data((body + "\n").utf8).write(to: url)
+        try FileManager.default.setAttributes(
+            [.modificationDate: modifiedAt], ofItemAtPath: url.path
+        )
+    }
+
     /// Section 81. The evidence must survive the launch that reads it.
     func testRotationProtectsTheSessionBeingRecovered() throws {
         var ids: [LocalInferenceSessionID] = []
         for index in 0...LocalInferenceDiagnosticStore.retainedSessionCount + 2 {
-            let logger = makeLogger()
-            logger.info(.appLaunch, category: .lifecycle)
-            ids.append(logger.appSessionID)
-            try FileManager.default.setAttributes(
-                [.modificationDate: Date(timeIntervalSince1970: 1_000_000 + Double(index))],
-                ofItemAtPath: store.url(forSession: logger.appSessionID).path
-            )
+            let id = LocalInferenceSessionID()
+            try writeSessionFile(id, modifiedAt: Date(timeIntervalSince1970: 1_000_000 + Double(index)))
+            ids.append(id)
         }
 
-        // The oldest file is the one that would normally go first.
+        // The oldest file is the one that would normally go first — and, on a
+        // launch after a crash, it is exactly the one being read.
         let evidence = ids[0]
         store.rotate(keeping: LocalInferenceSessionID(), protecting: evidence)
 
@@ -237,6 +255,25 @@ final class LocalInferenceDiagnosticLoggerTests: XCTestCase {
             store.sessionFiles().contains { $0.id == evidence },
             "rotation destroyed the unclean session on the launch that was reading it"
         )
+        XCTAssertFalse(
+            store.sessionFiles().contains { $0.id == ids[1] },
+            "nothing was rotated at all, so the protection proved nothing"
+        )
+    }
+
+    /// The protection is not permanent — section 81 says it survives *until it
+    /// falls outside the retention policy naturally*. A logger that pinned the
+    /// same file forever would leak one session slot for the life of the app.
+    func testAProtectedSessionStillAgesOutWhenItIsNoLongerProtected() throws {
+        var ids: [LocalInferenceSessionID] = []
+        for index in 0...LocalInferenceDiagnosticStore.retainedSessionCount + 2 {
+            let id = LocalInferenceSessionID()
+            try writeSessionFile(id, modifiedAt: Date(timeIntervalSince1970: 1_000_000 + Double(index)))
+            ids.append(id)
+        }
+
+        store.rotate(keeping: LocalInferenceSessionID(), protecting: nil)
+        XCTAssertFalse(store.sessionFiles().contains { $0.id == ids[0] })
     }
 
     func testTheTotalSizeCapIsRespected() throws {
