@@ -123,7 +123,7 @@ struct LocalModelDetailView: View {
                 }
 
                 ForEach(rowState.actions) { action in
-                    Button(action.title, role: action.isDestructive ? .destructive : nil) {
+                    Button(action.title, role: action.isDestructive ? ButtonRole.destructive : nil) {
                         if action == .delete {
                             isConfirmingDelete = true
                         } else {

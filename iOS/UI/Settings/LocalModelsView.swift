@@ -292,7 +292,7 @@ private struct LocalModelRow: View {
             ForEach(rowState.actions) { action in
                 Button(
                     action.title,
-                    role: action.isDestructive ? .destructive : nil
+                    role: action.isDestructive ? ButtonRole.destructive : nil
                 ) {
                     onAction(action)
                 }
