@@ -94,7 +94,13 @@ public enum LocalInferenceDiagnosticReport {
         return parts.joined(separator: " ")
     }
 
-    static func describe(_ value: LocalInferenceMetadataValue) -> String {
+    /// One metadata value as it appears in a report or on screen.
+    ///
+    /// Public because the diagnostics screen renders individual values in
+    /// labelled rows as well as whole lines, and a second formatter in the view
+    /// would be a second thing to keep in step — with the drift showing up as a
+    /// number that reads differently in the UI and in the export somebody sent.
+    public static func describe(_ value: LocalInferenceMetadataValue) -> String {
         switch value {
         case .int(let number): return String(number)
         case .int64(let number): return String(number)
