@@ -365,6 +365,118 @@ never falls back to the cloud — §128, asserted as a test.
 
 ---
 
+## 7b. The crash trail
+
+The app still dies when the first message reaches a local model. It dies
+somewhere native, where no Swift error is thrown, no console survives and iOS
+does not tell the next process what happened. So rather than guess again, this
+layer guarantees that the *next* crash is legible:
+
+```
+last successful stage
+  ↓
+next critical ENTER stage
+  ↓
+process died before EXIT
+```
+
+### Where the files are
+
+`Application Support/Diagnostics/LocalInference/`, one JSONL file per app
+session (`session-<uuid>.jsonl`), plus an atomically-replaced
+`current-stage.json` naming the stage open right now. Application Support
+rather than Caches, because the system evicts Caches under storage pressure and
+storage pressure correlates with the conditions being investigated.
+
+Not SwiftData (§5). The store this has to survive is a process being killed,
+and a database that must be opened, migrated and saved through is the opposite
+of what that needs.
+
+### Why the logger is a lock and not an actor
+
+Every actor call is an `await`, and `await` means the ENTER is *scheduled*
+rather than written — the native call would then happen on whichever side of
+that suspension the scheduler chose. `LocalInferenceDiagnosticLogger` is
+therefore a `final class` with an `NSLock`, fully synchronous. It is also the
+only shape callable from inside `LlamaCppRuntime`'s own actor without a second
+isolation domain to deadlock against (§9).
+
+### What actually makes a breadcrumb survive
+
+Writes go through `write(2)` on a descriptor opened `O_APPEND`, with no
+`FileHandle` in between. **Once `write` returns, the bytes belong to the file
+rather than to the process** — a jetsam kill, a native abort and a Swift trap
+all leave them intact, because they are already in the kernel's page cache.
+`fsync` protects against something else: the device losing power. It is called
+on critical events as belt to that pair of braces, and `F_FULLFSYNC` is
+deliberately *not* used — it waits for the storage device to empty its own
+cache, which on the line before every native call would change the timing of
+the thing being measured.
+
+### Pairing
+
+Each ENTER carries an operation identifier and each EXIT quotes it.
+`model_load` runs twice when a model is switched and `prompt_decode` once per
+message, so pairing by stage name would resolve the second ENTER against the
+first EXIT and name a completed stage as the crash site. The scan walks events
+in sequence order, pushes on ENTER, removes by identifier on EXIT, and reports
+what is left — innermost first, because "it was inside `generation`" is true and
+useless next to "it was inside the decode". A stage that *threw* is resolved: it
+came back.
+
+`model_load` and `context_create` are separate stages on purpose (§27). The
+first maps weights, the second allocates the KV cache; they fail for different
+reasons, and collapsing them would throw away the distinction the whole
+investigation turns on. `prompt_decode` is the current prime suspect — it is
+the first `llama_decode`, where the compute buffers are allocated lazily after
+the model has already reported itself ready.
+
+### What it refuses to say
+
+iOS does not tell an app why its predecessor died. An out-of-memory kill, a
+native abort, a watchdog termination and a user force-quit are indistinguishable
+from in here. So the recovery summary names a **place**, never a cause, and says
+so out loud; a test asserts it never contains "out of memory", "jetsam" or
+"crashed". The banner is additionally gated on the previous session having
+actually reached local inference (§97) — blaming Local AI for a crash in the
+calendar code would cost somebody a week.
+
+### Privacy
+
+The metadata keys are a **closed enum**. A call site cannot log the user's
+prompt because there is no key that would hold it — that is the redaction layer
+§84 asks for, enforced by the compiler rather than by discipline. The one
+untyped door, `LocalInferenceMetadata(sanitizing:)`, drops anything not on the
+allowlist, and free text is flattened and capped at 200 characters.
+
+The regression test runs a whole turn through a real provider with a marker
+string in the system prompt, the user's message, the history *and* the model's
+reply, then searches the raw file, the decoded events, the export and the
+sidecar for it. Its companion asserts the same run still recorded the load, the
+estimate and the breadcrumbs — otherwise a logger that wrote nothing would pass
+the privacy suite perfectly.
+
+### Rotation
+
+Eight sessions, 8 MB total, oldest completed session first. Two files are never
+eligible: the one being written, and the most recent session that ended without
+a clean marker — that one is the evidence, and deleting it on the launch that
+reads it would be the one unforgivable bug here. It ages out normally once it is
+no longer the newest unclean session.
+
+### Advanced Diagnostics
+
+CPU-only, GPU offload, conservative context, conservative batch, and a thread
+mode (automatic / low / single). These are handicaps, not settings: each removes
+one variable at the cost of speed. CPU-only wins over the GPU switch rather than
+contradicting it, the micro batch is re-clamped after every override, and
+turning them all off restores the automatic configuration exactly — they
+override at load time and never rewrite a stored default (§76). They take effect
+on the next load, because Metal and thread counts are fixed when a
+`llama_context` is created (§77).
+
+---
+
 ## 8. Testing
 
 `MockLocalModelRuntime` scripts load success, load failure, text, tool calls,
