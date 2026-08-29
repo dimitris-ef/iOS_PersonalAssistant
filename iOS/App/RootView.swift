@@ -1,6 +1,7 @@
 import AssistantDomain
 import SwiftUI
 import SystemSurfaces
+import UIKit
 
 /// The four primary destinations, plus the presentations that can appear over
 /// any of them.
@@ -69,6 +70,18 @@ struct RootView: View {
         // application-level coordinator, so a view being recreated, appearing
         // twice or being replaced by a preview cannot change whether the user's
         // reminders get reconciled.
+        // Section 93. `willTerminate` is the only callback that means the
+        // process is ending on purpose, and iOS delivers it for a fraction of
+        // terminations — never for a jetsam kill, which is the case this whole
+        // system exists for. So its arrival is good news and its absence proves
+        // nothing, which is exactly how the recovery wording treats it.
+        .onReceive(
+            NotificationCenter.default.publisher(
+                for: UIApplication.willTerminateNotification
+            )
+        ) { _ in
+            model.localDiagnostics.recordCleanShutdown(reason: "willTerminate")
+        }
         .onChange(of: scenePhase) { _, phase in
             guard let lifecycle else { return }
             switch phase {
@@ -84,6 +97,12 @@ struct RootView: View {
                 // read rather than a poll.
                 Task { await model.refreshProviderState() }
             case .background:
+                // Section 94: backgrounding is *not* a clean shutdown. A
+                // suspended app resumes, and writing a clean marker here would
+                // hide every crash that happens after the user switches away —
+                // which, for a local model that runs for tens of seconds, is a
+                // large share of them. Nothing is written.
+                model.localDiagnostics.applicationDidEnterBackground()
                 Task { await lifecycle.applicationDidEnterBackground() }
             default:
                 break

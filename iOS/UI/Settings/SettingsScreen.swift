@@ -66,6 +66,8 @@ struct SettingsScreen: View {
                     SystemSurfacesView()
                 case .appleDiagnostics:
                     AppleOnDeviceDiagnosticsView()
+                case .localDiagnostics:
+                    LocalInferenceDiagnosticsView()
                 case .privacy(let topic):
                     PrivacyDetailView(topic: topic)
                 }

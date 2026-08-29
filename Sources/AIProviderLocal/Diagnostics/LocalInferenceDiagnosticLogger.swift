@@ -445,7 +445,7 @@ public final class LocalInferenceDiagnosticLogger: LocalInferenceDiagnosticSink,
         fallingBackTo stillOpen: (id: LocalInferenceOperationID, stage: LocalInferenceStage)?
     ) {
         guard let sidecar = LocalInferenceSessionRecovery.readCurrentStage(in: store) else { return }
-        guard sidecar.operationID == operation else { return }
+        guard sidecar.operationID == operation.rawValue else { return }
         // An enclosing stage is still open — name it, rather than leaving the
         // sidecar pointing at something that has finished. `generation_decode`
         // exiting inside `generation` should leave `generation` named.

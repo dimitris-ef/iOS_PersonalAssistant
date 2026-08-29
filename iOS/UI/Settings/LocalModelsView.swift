@@ -51,6 +51,7 @@ struct LocalModelsView: View {
             }
 
             runtimeSection
+            diagnosticsSection
 
             Section {
                 if viewModel.visibleStatuses.isEmpty {
@@ -182,6 +183,39 @@ struct LocalModelsView: View {
             } footer: {
                 Text(runtime.detail)
             }
+        }
+    }
+
+    // MARK: Diagnostics
+
+    /// The way in to the crash trail (section 53), and the banner that says
+    /// there is something in it worth reading (section 96).
+    @ViewBuilder
+    private var diagnosticsSection: some View {
+        Section {
+            if model.localDiagnostics.shouldShowRecoveryBanner,
+                let recovery = model.localDiagnostics.recovery
+            {
+                VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
+                    Label(recovery.headline, systemImage: "exclamationmark.triangle.fill")
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(.orange)
+                    if let stage = recovery.deepestUnresolvedStage {
+                        Text("Last stage: \(stage.stage.rawValue)")
+                            .font(.footnote.monospaced())
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .padding(.vertical, Theme.Spacing.xs)
+            }
+            NavigationLink(value: SettingsViewModel.Route.localDiagnostics) {
+                Label("Local AI Diagnostics", systemImage: "stethoscope")
+            }
+        } footer: {
+            Text(
+                "Records where on-device inference reached, so a termination can be "
+                    + "traced. Never records your messages or the assistant's replies."
+            )
         }
     }
 

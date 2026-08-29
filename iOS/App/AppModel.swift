@@ -121,9 +121,20 @@ final class AppModel {
     /// be a second API to keep in step for no benefit.
     var localModels: LocalModelManager { environment.localModels }
 
+    /// The local-inference crash trail, and the previous session's remains.
+    ///
+    /// Held on the app model rather than created per screen so the recovery
+    /// summary is read once, at launch, and the acknowledgement of its banner
+    /// survives navigation.
+    let localDiagnostics: LocalInferenceDiagnosticsCentre
+
     init(environment: AppEnvironment) {
         self.environment = environment
         self.conversation = Conversation(createdAt: environment.dateProvider.now)
+        self.localDiagnostics = LocalInferenceDiagnosticsCentre(
+            logger: environment.localDiagnostics,
+            store: environment.localDiagnosticStore
+        )
     }
 
     // MARK: Loading
@@ -137,6 +148,10 @@ final class AppModel {
     /// developer's debug build — never in a shipped app. See
     /// `AppLaunchConfiguration`.
     func bootstrap() async {
+        // First line of the session, before anything can fail. Section 17: if
+        // the process dies during bootstrap, the launch record and the previous
+        // session's recovery are already on disk.
+        localDiagnostics.recordLaunch()
         // Connected first, before anything that can fail. A "Done" tapped on
         // the lock screen is already queued inside the coordinator by the time
         // this runs, and it should be applied even if loading the screens goes

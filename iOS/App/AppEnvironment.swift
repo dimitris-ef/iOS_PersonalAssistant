@@ -85,6 +85,15 @@ final class AppEnvironment: Sendable {
     /// provider reads from it — one manager, one view of what is installed. It
     /// owns no inference: that is the runtime's, behind `LocalModelRuntime`.
     let localModels: LocalModelManager
+    /// The crash trail for local inference.
+    ///
+    /// Built here rather than found through a singleton because the runtime,
+    /// the manager and the provider all have to be handed *this* logger — a
+    /// second instance would open a second file, claim its own sequence numbers
+    /// and interleave two half-trails that no recovery scan could pair up.
+    let localDiagnostics: LocalInferenceDiagnosticLogger
+    /// Where those files live, for the screen that reads them back.
+    let localDiagnosticStore: LocalInferenceDiagnosticStore
     /// Speech recognition and synthesis.
     ///
     /// Always present — on a platform without the Speech framework the input
@@ -145,6 +154,8 @@ final class AppEnvironment: Sendable {
         launch: AppLaunchConfiguration,
         memory: MemoryService,
         localModels: LocalModelManager,
+        localDiagnostics: LocalInferenceDiagnosticLogger,
+        localDiagnosticStore: LocalInferenceDiagnosticStore,
         notificationCoordinator: AppleNotificationCoordinator?,
         voice: VoiceServices?,
         commands: AssistantCommandService,
@@ -170,6 +181,8 @@ final class AppEnvironment: Sendable {
         self.launch = launch
         self.memory = memory
         self.localModels = localModels
+        self.localDiagnostics = localDiagnostics
+        self.localDiagnosticStore = localDiagnosticStore
         self.notificationCoordinator = notificationCoordinator
         self.voice = voice
         self.commands = commands
@@ -332,14 +345,31 @@ final class AppEnvironment: Sendable {
         // presents as "Ready" followed by "no model is loaded" — the manager
         // decides what is resident, and the provider must be asking the same
         // object about it.
-        let localRuntime = LocalRuntimeResolver.best()
+        // One logger, handed to all three of the runtime, the manager and the
+        // provider. They each write into the same file and share one sequence
+        // counter, which is what makes `ENTER prompt_construct` and
+        // `ENTER prompt_decode` orderable against each other at all.
+        //
+        // A seeded preview writes to a throwaway directory: a SwiftUI preview
+        // should not append to the trail a real crash investigation is reading.
+        let diagnosticStore =
+            launch.persistence == .inMemory
+            ? LocalInferenceDiagnosticStore.temporary()
+            : LocalInferenceDiagnosticStore.applicationSupport()
+        let localDiagnostics = LocalInferenceDiagnosticLogger(
+            store: diagnosticStore,
+            verbose: UserDefaults.standard.bool(forKey: "metisai.diagnostics.local.verbose")
+        )
+        let localRuntime = LocalRuntimeResolver.best(diagnostics: localDiagnostics)
         let localModels = LocalModelManager(
             catalog: LocalModelCatalog.bundled(),
             repository: repositories.localModels,
             settings: repositories.settings,
             store: modelStore,
             runtime: localRuntime,
-            dateProvider: dateProvider
+            dateProvider: dateProvider,
+            diagnostics: localDiagnostics,
+            overrides: LocalInferenceDiagnosticsCentre.storedOverrides()
         )
 
         // One instance, referenced twice. Two would be harmless today — the
@@ -350,7 +380,9 @@ final class AppEnvironment: Sendable {
 
         let providers = AIProviderRegistry(providers: [
             appleProvider,
-            LocalModelProvider(manager: localModels, runtime: localRuntime),
+            LocalModelProvider(
+                manager: localModels, runtime: localRuntime, diagnostics: localDiagnostics
+            ),
             remoteProvider,
             ScriptedDevProvider(dateProvider: dateProvider),
         ])
@@ -417,6 +449,8 @@ final class AppEnvironment: Sendable {
             launch: launch,
             memory: memory,
             localModels: localModels,
+            localDiagnostics: localDiagnostics,
+            localDiagnosticStore: diagnosticStore,
             notificationCoordinator: platform?.notifications,
             voice: voice,
             commands: commands,

@@ -19,6 +19,8 @@ final class SettingsViewModel {
         case systemSurfaces
         /// Apple's own runtime answer about the on-device model.
         case appleDiagnostics
+        /// The local inference crash trail.
+        case localDiagnostics
         case privacy(PrivacyTopic)
 
         var id: String {
@@ -29,6 +31,7 @@ final class SettingsViewModel {
             case .voice: return "voice"
             case .systemSurfaces: return "system-surfaces"
             case .appleDiagnostics: return "apple-diagnostics"
+            case .localDiagnostics: return "local-diagnostics"
             case .privacy(let topic): return "privacy-\(topic.rawValue)"
             }
         }

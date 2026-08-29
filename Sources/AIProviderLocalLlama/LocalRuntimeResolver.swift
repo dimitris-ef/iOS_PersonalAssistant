@@ -59,8 +59,10 @@ public enum LocalRuntimeResolver {
     /// the failure this file exists to make impossible, and it would look
     /// identical from the outside to a build whose binary target failed to
     /// resolve. `LlamaCppRuntime` decides for itself whether it has an engine.
-    public static func best() -> any LocalModelRuntime {
-        LlamaCppRuntime()
+    public static func best(
+        diagnostics: any LocalInferenceDiagnosticSink = NullLocalInferenceDiagnosticSink()
+    ) -> any LocalModelRuntime {
+        LlamaCppRuntime(diagnostics: diagnostics)
     }
 
     /// What this build actually has, for the settings screen and bug reports.
