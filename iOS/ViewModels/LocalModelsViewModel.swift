@@ -35,6 +35,36 @@ final class LocalModelsViewModel {
     var failure: Failure?
     var pendingDeletion: LocalModelStatus?
 
+    /// What the person typed into the search field.
+    var query = ""
+    /// Which slice of the list they asked for.
+    var filter: LocalModelFilter = .all
+
+    /// What the list actually shows.
+    ///
+    /// Both criteria are applied together — a filter that ignored the query
+    /// would produce a list that looks authoritative and is wrong. The rule
+    /// itself lives in `LocalModelSearch`, in the package, because `iOS/` has no
+    /// test target and which models a person can see is worth testing.
+    var visibleStatuses: [LocalModelStatus] {
+        LocalModelSearch.apply(filter: filter, query: query, to: statuses)
+    }
+
+    /// True when a search or filter is hiding models that exist.
+    var isFiltering: Bool {
+        !query.trimmingCharacters(in: .whitespaces).isEmpty || filter != .all
+    }
+
+    /// How many models are installed, and how many of those could actually run.
+    ///
+    /// Shown in the runtime diagnostic. Section 12: "no runtime" and "no model"
+    /// are different problems and the report has to distinguish them.
+    var installedCount: Int { statuses.filter { $0.lifecycle.isInstalled }.count }
+
+    var runnableCount: Int {
+        statuses.filter { $0.lifecycle.isInstalled && $0.compatibility.permitsLoad }.count
+    }
+
     struct Failure: Identifiable {
         let id = UUID()
         let modelID: AIModelIdentifier

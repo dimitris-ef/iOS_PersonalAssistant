@@ -66,6 +66,26 @@ jobs:
     timeout-minutes: 120
 
     env:
+      # ------------------------------------------------------------------
+      # The on-device inference runtime.
+      #
+      # `Package.swift` reads this at *manifest evaluation* and only then adds
+      # the llama.cpp binary target. Without it the manifest produces no `llama`
+      # module, `#if canImport(llama)` is false in `LlamaCppRuntime`, and the
+      # app ships a runtime that reports itself unavailable — which is exactly
+      # what every TestFlight build before this one did. The app was correct;
+      # it had simply been archived without the engine.
+      #
+      # Set at job level so `xcodegen generate`, `xcodebuild` and `swift test`
+      # all evaluate the *same* package graph. Set on only some of them and
+      # SwiftPM re-resolves between steps, which is slower and invites exactly
+      # the mismatch this is meant to remove.
+      #
+      # This is safe here and nowhere else: the pinned XCFramework has an
+      # `ios-arm64` slice and no iOS Simulator slice, and this is the only
+      # workflow that builds for a device. The simulator lanes must keep
+      # resolving without it or they will fail to link.
+      PPAI_LLAMA_RUNTIME: "1"
       SCHEME: PersonalAssistant
       PROJECT: PersonalAssistant.xcodeproj
       APP_BUNDLE_ID: com.dimitrisefthymiou.MetisAI
@@ -384,6 +404,50 @@ jobs:
           xcodegen generate --spec project.yml
           test -d "$PROJECT" || { echo "::error::$PROJECT was not generated."; exit 1; }
 
+      - name: Resolve llama.cpp and prove it has an iPhone slice
+        # The check that stops another stub build reaching a tester.
+        #
+        # Resolution is forced here rather than left to the archive, so a
+        # missing or simulator-only artifact fails in seconds instead of after
+        # a two-minute compile — and so `lipo` can be run against the exact
+        # binary the archive is about to link.
+        run: |
+          set -euo pipefail
+          xcodebuild -resolvePackageDependencies \
+            -project "$PROJECT" \
+            -scheme "$SCHEME" \
+            -derivedDataPath "$DERIVED_DATA" \
+            2>&1 | tail -n 20
+
+          XCFRAMEWORK="$(find "$DERIVED_DATA/SourcePackages/artifacts" \
+            -name 'llama.xcframework' -type d 2>/dev/null | head -n 1)"
+          if [ -z "$XCFRAMEWORK" ]; then
+            echo "::error::llama.cpp did not resolve. PPAI_LLAMA_RUNTIME is set, so the binary target should exist — check the pinned URL and checksum in Package.swift."
+            exit 1
+          fi
+          echo "Resolved $(basename "$XCFRAMEWORK")"
+          echo "Slices: $(ls "$XCFRAMEWORK" | tr '\n' ' ')"
+
+          DEVICE_BINARY="$XCFRAMEWORK/ios-arm64/llama.framework/llama"
+          if [ ! -f "$DEVICE_BINARY" ]; then
+            echo "::error::The resolved llama.xcframework has no ios-arm64 slice. A simulator-only artifact would archive and then be useless on every iPhone."
+            exit 1
+          fi
+
+          # `lipo` rather than trusting the directory name: an `ios-arm64`
+          # folder containing an x86_64 binary would pass a name check and fail
+          # on hardware.
+          ARCHS="$(lipo -archs "$DEVICE_BINARY")"
+          echo "ios-arm64 slice architectures: $ARCHS"
+          case " $ARCHS " in
+            *" arm64 "*) ;;
+            *)
+              echo "::error::The device slice is not arm64. It reports: $ARCHS"
+              exit 1
+              ;;
+          esac
+          file "$DEVICE_BINARY"
+
       - name: Run the package tests
         # Section 45. Not a substitute for the Swift Tests workflow — a
         # duplicate of it, run against the exact tree about to be shipped, so a
@@ -504,6 +568,54 @@ jobs:
             echo "Archive carries $DSYM_COUNT dSYM bundle(s)."
           fi
 
+          # ----------------------------------------------------------------
+          # The on-device inference runtime.
+          #
+          # Source configuration being right is not evidence the binary is:
+          # the whole reason TestFlight shipped a stub was a build setting, and
+          # a check that reads build settings would have agreed with it. So
+          # this reads the archive.
+          #
+          # llama.cpp is a *dynamic* framework, so there are two facts to
+          # establish — it is embedded, and the app actually loads it. Either
+          # alone can be true while the runtime is unusable.
+          echo "--- on-device inference runtime ---"
+          LLAMA="$APP/Frameworks/llama.framework/llama"
+          if [ ! -f "$LLAMA" ]; then
+            echo "::error::The archive does not embed llama.framework. This build would report \"this build does not include the on-device inference runtime\" on every iPhone."
+            ls "$APP/Frameworks" 2>/dev/null || echo "(no Frameworks directory at all)"
+            FAILED=1
+          else
+            LLAMA_ARCHS="$(lipo -archs "$LLAMA")"
+            echo "llama.framework: $LLAMA_ARCHS"
+            case " $LLAMA_ARCHS " in
+              *" arm64 "*) ;;
+              *)
+                echo "::error::The embedded llama.framework is not arm64 ($LLAMA_ARCHS)."
+                FAILED=1
+                ;;
+            esac
+            if ! otool -L "$APP/$SCHEME" 2>/dev/null | grep -q 'llama.framework/llama'; then
+              echo "::error::The app binary does not load llama.framework. It was embedded but not linked, so the runtime would still be absent at launch."
+              FAILED=1
+            else
+              echo "The app binary loads llama.framework."
+            fi
+          fi
+
+          # Section 23: the extensions must not carry an inference engine. A
+          # keyboard gets a fraction of an app's memory and has no use for one,
+          # and linking it there is pure binary size and signing risk.
+          for EXTENSION in "$APP/PlugIns"/*.appex; do
+            [ -d "$EXTENSION" ] || continue
+            NAME="$(basename "$EXTENSION")"
+            if [ -d "$EXTENSION/Frameworks/llama.framework" ]; then
+              echo "::error::$NAME embeds llama.framework. Only the main app should."
+              FAILED=1
+            fi
+          done
+          echo "No extension embeds the inference runtime."
+
           [ "$FAILED" -eq 0 ] || exit 1
           echo "MARKETING_VERSION=$MARKETING_VERSION" >> "$GITHUB_ENV"
 
@@ -611,6 +723,24 @@ jobs:
           check "The app"      "$APP" "$APP_BUNDLE_ID"
           check "The widgets"  "$APP/PlugIns/PersonalAssistantWidgets.appex" "$WIDGETS_BUNDLE_ID"
           check "The keyboard" "$APP/PlugIns/PersonalAssistantKeyboard.appex" "$KEYBOARD_BUNDLE_ID"
+
+          # The export re-signs and can strip. Everything proved about the
+          # archive is proved again here, because this is the binary that
+          # actually goes to Apple.
+          echo "--- on-device inference runtime in the IPA ---"
+          IPA_LLAMA="$APP/Frameworks/llama.framework/llama"
+          if [ ! -f "$IPA_LLAMA" ]; then
+            echo "::error::llama.framework did not survive the export. Refusing to upload a build with no inference runtime."
+            FAILED=1
+          elif ! lipo -archs "$IPA_LLAMA" | grep -q arm64; then
+            echo "::error::The exported llama.framework is not arm64."
+            FAILED=1
+          elif ! otool -L "$APP/$SCHEME" 2>/dev/null | grep -q 'llama.framework/llama'; then
+            echo "::error::The exported app binary no longer loads llama.framework."
+            FAILED=1
+          else
+            echo "The IPA embeds and loads llama.framework ($(lipo -archs "$IPA_LLAMA"))."
+          fi
 
           # Section 109 and 110. The App Store Connect key and the distribution
           # certificate are CI infrastructure; a copy of either inside a

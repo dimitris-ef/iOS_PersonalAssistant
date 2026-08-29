@@ -1,5 +1,6 @@
 import AIProviderApple
 import AIProviderLocal
+import AIProviderLocalLlama
 import AIProviderRemote
 import AssistantAI
 import AssistantCore
@@ -405,6 +406,16 @@ final class AppModel {
     /// downloading. Every caller gets a fresh read.
     func appleFoundationModelsDiagnostic() async -> AppleFoundationModelsDiagnostic {
         await environment.appleFoundationModelsDiagnostic()
+    }
+
+    /// What this build's on-device inference runtime is, and whether it works.
+    ///
+    /// Read fresh, like the Apple one, and for the same reason: "is llama.cpp
+    /// in this binary" is a compile-time fact, but "did it initialize" is not,
+    /// and caching the pair would hide a runtime that came up on the second
+    /// attempt.
+    func localRuntimeDiagnostic() async -> LocalRuntimeDiagnostic {
+        await LocalRuntimeResolver.diagnostic()
     }
 
     /// A status coordinator for the Apple On-Device screen.

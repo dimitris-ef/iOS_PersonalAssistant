@@ -1,7 +1,9 @@
 import AIProviderLocal
+import AIProviderLocalLlama
 import AssistantDomain
 import NativeModelKit
 import SwiftUI
+import UIKit
 
 /// Manage Models: what can be downloaded, what is here, and what is in use.
 ///
@@ -20,9 +22,13 @@ import SwiftUI
 struct LocalModelsView: View {
     @Environment(AppModel.self) private var model
     @State private var viewModel = LocalModelsViewModel()
+    @State private var runtime: LocalRuntimeDiagnostic?
+    @State private var didCopyRuntime = false
 
     var body: some View {
         List {
+            filterSection
+
             if let failure = viewModel.failure {
                 Section {
                     FailureRow(failure: failure) {
@@ -32,8 +38,18 @@ struct LocalModelsView: View {
                 }
             }
 
+            runtimeSection
+
             Section {
-                ForEach(viewModel.statuses) { status in
+                if viewModel.visibleStatuses.isEmpty {
+                    Text(
+                        viewModel.isFiltering
+                            ? "No models match this search."
+                            : "No models are available."
+                    )
+                    .foregroundStyle(.secondary)
+                }
+                ForEach(viewModel.visibleStatuses) { status in
                     LocalModelRow(
                         status: status,
                         viewModel: viewModel,
@@ -51,7 +67,15 @@ struct LocalModelsView: View {
                     )
                 }
             } header: {
-                Text("Models")
+                HStack {
+                    Text("Models")
+                    Spacer()
+                    if viewModel.isFiltering {
+                        Text("\(viewModel.visibleStatuses.count) of \(viewModel.statuses.count)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
             } footer: {
                 Text(LocalModelPresentation.privacySummary)
             }
@@ -67,10 +91,78 @@ struct LocalModelsView: View {
         }
         .navigationTitle("Manage Models")
         .navigationBarTitleDisplayMode(.inline)
+        // Searchable rather than a text field in a row: it gets the system
+        // keyboard dismissal, the clear button and the scroll-to-reveal
+        // behaviour people already expect, none of which is worth rebuilding.
+        .searchable(
+            text: $viewModel.query,
+            placement: .navigationBarDrawer(displayMode: .automatic),
+            prompt: "Search models"
+        )
         .task { await viewModel.refresh(model.localModels) }
         // Refreshed on every appearance rather than once: free space and the
         // loaded model both change while this screen is off screen.
         .refreshable { await viewModel.refresh(model.localModels) }
+        .task { runtime = await model.localRuntimeDiagnostic() }
+    }
+
+    // MARK: The runtime
+
+    /// Whether this build can run a local model at all.
+    ///
+    /// First, because it is the precondition for everything below it. A phone
+    /// with four downloaded models and no inference engine can do nothing with
+    /// any of them, and until this row existed the only clue was a compatibility
+    /// warning on each model that read as though the *models* were the problem.
+    @ViewBuilder
+    private var runtimeSection: some View {
+        if let runtime {
+            Section {
+                LabeledContent("Status") {
+                    Text(runtime.title)
+                        .foregroundStyle(runtime.isReadyToRun ? Color.green : Color.orange)
+                }
+                LabeledContent("Runtime") {
+                    Text(runtime.implementation + (runtime.pinnedVersion.map { " \($0)" } ?? ""))
+                        .font(.footnote.monospaced())
+                        .foregroundStyle(.secondary)
+                }
+                LabeledContent("Platform") {
+                    Text(runtime.platform)
+                        .font(.footnote.monospaced())
+                        .foregroundStyle(.secondary)
+                }
+                LabeledContent("GPU (Metal)") {
+                    Text(runtime.usesMetal ? "Enabled" : "Disabled")
+                        .font(.footnote.monospaced())
+                        .foregroundStyle(.secondary)
+                }
+                Button(didCopyRuntime ? "Copied" : "Copy Runtime Diagnostics") {
+                    UIPasteboard.general.string = runtime.report(
+                        installedModels: viewModel.installedCount,
+                        runnableModels: viewModel.runnableCount
+                    )
+                    didCopyRuntime = true
+                }
+            } header: {
+                Text("On-Device Inference Runtime")
+            } footer: {
+                Text(runtime.detail)
+            }
+        }
+    }
+
+    // MARK: Filtering
+
+    private var filterSection: some View {
+        Section {
+            Picker("Show", selection: $viewModel.filter) {
+                ForEach(LocalModelFilter.allCases) { option in
+                    Text(option.displayName).tag(option)
+                }
+            }
+            .pickerStyle(.menu)
+        }
     }
 }
 
