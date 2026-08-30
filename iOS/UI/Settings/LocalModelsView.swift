@@ -284,6 +284,18 @@ private struct LocalModelRow: View {
                 }
             }
 
+            // Section 7. Next to the size and the quantization, because "will
+            // this actually set my reminder" belongs with the other facts
+            // somebody weighs before downloading a gigabyte.
+            Label(
+                status.descriptor.toolSupport.badge,
+                systemImage: status.descriptor.toolSupport.symbolName
+            )
+            .font(.caption)
+            .foregroundStyle(
+                status.descriptor.toolSupport == .supported ? Color.secondary : Color.orange
+            )
+
             if let summary = status.descriptor.summary {
                 Text(summary)
                     .font(.footnote)

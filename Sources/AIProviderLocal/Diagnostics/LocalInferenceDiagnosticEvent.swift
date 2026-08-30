@@ -181,6 +181,14 @@ public enum LocalInferenceEventName: String, Hashable, Sendable, CaseIterable, C
     case promptPrefillPlan = "PROMPT_PREFILL_PLAN"
     /// One chunk's preflight: range, positions, flags (section 30).
     case promptChunk = "PROMPT_CHUNK"
+    /// What the model's raw output turned out to be — text, a valid call, a
+    /// malformed attempt, or the model reciting its own tool schema.
+    case localToolParse = "LOCAL_TOOL_PARSE"
+    /// The single constrained repair generation, and what it produced.
+    case localToolRepair = "LOCAL_TOOL_REPAIR"
+    /// A proposed call refused before validation — an identifier for an
+    /// existing resource that no tool result produced.
+    case localToolRejected = "LOCAL_TOOL_REJECTED"
     case contextBudgetExceeded = "CONTEXT_BUDGET_EXCEEDED"
 
     case firstToken = "FIRST_TOKEN"

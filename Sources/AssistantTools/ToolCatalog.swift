@@ -30,7 +30,12 @@ public enum ToolCatalog {
         case .createCalendarEvent:
             return ToolSpecification(
                 kind: kind,
-                summary: "Add an event to the user's calendar.",
+                // Section 32 and 33. "Add a NEW event" rather than "add an
+                // event": a small model choosing between create and update is
+                // choosing between two summaries, and the word that separates
+                // them has to be in both.
+                summary: "Create a NEW event in the user's calendar. "
+                    + "No existing event identifier is needed.",
                 parameters: .object(
                     properties: [
                         "title": .string(description: "Short name of the event."),
@@ -53,10 +58,32 @@ public enum ToolCatalog {
         case .updateCalendarEvent:
             return ToolSpecification(
                 kind: kind,
-                summary: "Change an existing calendar event.",
+                // Sections 13 and 32. The negative case is stated because it is
+                // the one that went wrong: a request to be reminded of
+                // something became an attempt to update an event that did not
+                // exist, with an invented identifier.
+                summary: "Modify an EXISTING calendar event. Requires the event's "
+                    + "identifier from an earlier action result. Never use this to "
+                    + "create anything, and never invent an identifier.",
                 parameters: .object(
                     properties: [
-                        "eventID": .string(description: "Identifier of the event.", format: .uuid),
+                        // Section 15, audited: `CalendarItem.ID` is
+                        // `Identifier<CalendarItem>`, whose `rawValue` is a
+                        // `UUID`, so the domain contract really does guarantee
+                        // this format and the declaration is correct. The
+                        // platform's own opaque EventKit string is mapped to
+                        // and from this UUID inside `AppleEventKitStore` and
+                        // never reaches a model.
+                        //
+                        // What was missing was not the format but the
+                        // provenance: a model shown "format: uuid" and no way
+                        // to obtain one will produce a well-formed invention.
+                        // Hence the sentence rather than a looser type.
+                        "eventID": .string(
+                            description: "Identifier of an existing event, exactly as "
+                                + "returned by an earlier action result.",
+                            format: .uuid
+                        ),
                         "title": .string(),
                         "start": .string(format: .dateTime),
                         "end": .string(format: .dateTime),
@@ -80,7 +107,11 @@ public enum ToolCatalog {
         case .createReminder:
             return ToolSpecification(
                 kind: kind,
-                summary: "Add an entry to the system reminders list.",
+                // Section 12: the tool "remind me …" is meant to reach. Named in
+                // the summary in the user's own words, because that phrasing is
+                // what the model is matching against.
+                summary: "Create a NEW reminder. Use this for \"remind me…\" requests. "
+                    + "Set dueDate for a time or a delay.",
                 parameters: .object(
                     properties: [
                         "title": .string(),

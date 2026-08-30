@@ -197,6 +197,24 @@ public enum LocalInferenceMetadataKey: String, Hashable, Sendable, CaseIterable,
     case nextPosition
     case tokensDecoded
 
+    // MARK: Local tool calling
+
+    /// The catalog's `toolSupport` for the model that ran: supported,
+    /// experimental or unsupported.
+    case toolCapability
+    /// Whether the latest user message read like a request to act. A heuristic,
+    /// and named as one — it gates containment, never behaviour.
+    case actionIntentLikely
+    /// What the raw output was classified as. Section 37.
+    case parserResult
+    /// 0 for the first generation, 1 for the single repair.
+    case repairAttempt
+    case repairResult
+    /// The tool name the model chose — a name from the app's own catalog, never
+    /// anything the model invented, because an unknown name never gets this far.
+    case selectedTool
+    case toolCallCount
+
     // MARK: Session
 
     case clean

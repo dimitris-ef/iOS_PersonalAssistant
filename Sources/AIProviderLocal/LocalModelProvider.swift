@@ -44,6 +44,8 @@ public struct LocalModelProvider: AIProvider {
     private let manager: LocalModelManager
     private let runtime: (any LocalModelRuntime)?
     private let adapter: LocalToolPromptAdapter
+    /// Decides what the model's raw output was before any of it is shown.
+    private let parser: LocalToolCallParser
     private let diagnostics: any LocalInferenceDiagnosticSink
 
     public init(
@@ -55,6 +57,7 @@ public struct LocalModelProvider: AIProvider {
         self.manager = manager
         self.runtime = runtime
         self.adapter = adapter
+        self.parser = LocalToolCallParser(adapter: adapter)
         self.diagnostics = diagnostics
         self.metadata = AIProviderMetadata(
             id: Self.providerID,
@@ -172,6 +175,33 @@ public struct LocalModelProvider: AIProvider {
         // see — where the honest behaviour is a normal conversational reply.
         let toolSupport = descriptor?.toolSupport ?? .experimental
         let tools = toolSupport.offersTools ? request.tools : []
+        let expectsAction = !tools.isEmpty && LocalActionIntent.isLikely(in: request.messages)
+
+        // Section 8. A chat-only model asked to do something is told so, rather
+        // than being allowed to answer as if it had done it. This is checked
+        // before generation because there is nothing to generate: the model has
+        // no tools and the app already knows the answer.
+        if !toolSupport.offersTools,
+            !request.tools.isEmpty,
+            LocalActionIntent.isLikely(in: request.messages) {
+            completed = true
+            diagnostics.criticalExit(
+                .inference,
+                operation: inferenceOperation,
+                metadata: LocalInferenceMetadata()
+                    .setting(.toolCapability, toolSupport.rawValue)
+                    .setting(.actionIntentLikely, true)
+                    .setting(.parserResult, "chatOnlyRefusal")
+            )
+            return AIResponse(
+                text: Self.chatOnlyMessage,
+                toolCalls: [],
+                stopReason: .other,
+                usage: AIUsage(),
+                providerID: metadata.id,
+                modelID: modelID
+            )
+        }
 
         // Section 34. The ENTER carries only shapes and counts; the EXIT carries
         // the size of what was built. Section 35 is absolute and this is where
@@ -246,30 +276,263 @@ public struct LocalModelProvider: AIProvider {
             throw AIProviderError.cancelled
         }
 
-        let parsed: LocalModelOutput
-        do {
-            parsed = try adapter.parse(
-                output.text,
-                offeredTools: tools,
-                maximumCalls: request.options.maximumToolCalls
+        // Sections 3 and 4. Raw output is classified before any of it can reach
+        // the screen. The regression this replaces: schema prose had no
+        // envelope, so the old parser called it an ordinary reply and showed it.
+        let provenance = LocalResourceProvenance.harvested(from: request.messages)
+        var outcome = parser.classify(
+            output.text,
+            offeredTools: tools,
+            expectsAction: expectsAction,
+            maximumCalls: request.options.maximumToolCalls
+        )
+        outcome = applyProvenance(to: outcome, provenance: provenance)
+        diagnostics.info(
+            .localToolParse,
+            category: .generation,
+            metadata: LocalInferenceMetadata()
+                .setting(.parserResult, outcome.diagnosticSymbol)
+                .setting(.actionIntentLikely, expectsAction)
+                .setting(.toolCapability, toolSupport.rawValue)
+                .setting(.repairAttempt, 0)
+                .merging(Self.selectedToolMetadata(outcome))
+        )
+
+        // Section 22: exactly one repair, and only for output that was an
+        // attempt at an action. An ordinary reply is never regenerated.
+        var repairAttempts = 0
+        if outcome.isRepairable, !tools.isEmpty {
+            repairAttempts = 1
+            outcome = await repair(
+                previous: outcome,
+                request: request,
+                tools: tools,
+                descriptor: descriptor,
+                loaded: loaded,
+                configuration: configuration,
+                provenance: provenance,
+                runtime: runtime
             )
-        } catch let error as LocalToolParseError {
-            // Section 57: a structured-output failure, reported as one. Not a
-            // partial execution, and not prose passed off as an answer.
-            throw AIProviderError.invalidResponse(error.description)
         }
 
-        return AIResponse(
-            text: parsed.text,
-            toolCalls: parsed.toolCalls,
-            stopReason: stopReason(for: output, hasToolCalls: !parsed.toolCalls.isEmpty),
-            usage: AIUsage(
-                inputTokens: output.promptTokens,
-                outputTokens: output.generatedTokens
-            ),
-            providerID: metadata.id,
-            modelID: modelID
+        return response(
+            for: outcome,
+            output: output,
+            modelID: modelID,
+            repairAttempts: repairAttempts
         )
+    }
+
+    /// Turns a classified outcome into the provider's answer.
+    ///
+    /// Sections 4, 21 and 26: the two failure branches produce one short
+    /// sentence each. No schema, no JSON, no internal reason — those went to the
+    /// diagnostic log at the point they were classified.
+    private func response(
+        for outcome: LocalAssistantOutcome,
+        output: LocalGenerationOutput,
+        modelID: AIModelIdentifier,
+        repairAttempts: Int
+    ) -> AIResponse {
+        let usage = AIUsage(
+            inputTokens: output.promptTokens, outputTokens: output.generatedTokens
+        )
+        switch outcome {
+        case .text(let text):
+            return AIResponse(
+                text: text,
+                toolCalls: [],
+                stopReason: stopReason(for: output, hasToolCalls: false),
+                usage: usage,
+                providerID: metadata.id,
+                modelID: modelID
+            )
+        case .toolCalls(let calls, let message):
+            return AIResponse(
+                text: message,
+                toolCalls: calls,
+                stopReason: stopReason(for: output, hasToolCalls: true),
+                usage: usage,
+                providerID: metadata.id,
+                modelID: modelID
+            )
+        case .malformedToolAttempt, .schemaLeak, .failure:
+            return AIResponse(
+                text: Self.actionFailureMessage,
+                toolCalls: [],
+                stopReason: .other,
+                usage: usage,
+                providerID: metadata.id,
+                modelID: modelID
+            )
+        }
+    }
+
+    /// Section 26. Concise, honest, and pointing at the one thing that helps.
+    static let actionFailureMessage =
+        "This local model couldn't perform that action reliably. "
+        + "Try a model that supports actions."
+
+    /// Section 8. A model that was never offered tools cannot have failed to use
+    /// them, so this says what is actually true rather than blaming the model
+    /// for a refusal the app made on its behalf.
+    static let chatOnlyMessage =
+        "This local model supports chat but not reliable actions. "
+        + "Choose a model that supports actions."
+
+    // MARK: Provenance
+
+    /// Rejects calls that name a resource nothing produced.
+    ///
+    /// Section 16 and 42. A well-formed invented UUID is indistinguishable from
+    /// a real one by inspection, so the test is not what it looks like but where
+    /// it came from.
+    private func applyProvenance(
+        to outcome: LocalAssistantOutcome,
+        provenance: LocalResourceProvenance
+    ) -> LocalAssistantOutcome {
+        guard case .toolCalls(let calls, let message) = outcome else { return outcome }
+        let split = provenance.partition(calls)
+        guard !split.rejected.isEmpty else { return outcome }
+
+        for (call, failure) in split.rejected {
+            diagnostics.problem(
+                .localToolRejected,
+                category: .generation,
+                metadata: LocalInferenceMetadata()
+                    .setting(.selectedTool, call.name)
+                    .setting(.validationResult, failure.symbol)
+                    .setting(.errorReason, failure.description)
+            )
+        }
+        // Any surviving calls still go through, but a turn whose only proposal
+        // was rejected is a failed action attempt — worth one repair, because
+        // the repair instruction is precisely about not inventing identifiers.
+        guard !split.allowed.isEmpty else {
+            return .malformedToolAttempt(
+                reason: split.rejected.map(\.1.symbol).joined(separator: ",")
+            )
+        }
+        return .toolCalls(calls: split.allowed, message: message)
+    }
+
+    // MARK: Repair
+
+    /// One more generation, told plainly what was wrong.
+    ///
+    /// Sections 23 and 24. The instruction is internal and never shown. It says
+    /// three things, all of which are failures actually observed: return a call
+    /// rather than a description of one, do not explain the schema, and do not
+    /// invent identifiers for things that already exist.
+    private func repair(
+        previous: LocalAssistantOutcome,
+        request: AIRequest,
+        tools: [AIToolSchema],
+        descriptor: LocalModelDescriptor?,
+        loaded: LoadedModelInfo,
+        configuration: LocalInferenceConfiguration,
+        provenance: LocalResourceProvenance,
+        runtime: any LocalModelRuntime
+    ) async -> LocalAssistantOutcome {
+        var repairRequest = request
+        repairRequest.messages.append(
+            AIMessage(role: .user, content: Self.repairInstruction(provenance: provenance))
+        )
+
+        let prompt = makePrompt(
+            for: repairRequest, tools: tools, descriptor: descriptor, loaded: loaded
+        )
+        var options = makeOptions(for: repairRequest, tools: tools, descriptor: descriptor)
+        let fitted = LocalPromptBudget.fit(prompt, configuration: configuration)
+        // Section 36: bounded, and short. A repair is one JSON object; giving it
+        // room for paragraphs invites the paragraphs this pass is removing.
+        options.maximumOutputTokens = min(
+            Self.repairOutputTokenLimit, configuration.maximumGenerationTokens
+        )
+
+        let repaired: LocalGenerationOutput
+        do {
+            repaired = try await runtime.generate(fitted.prompt, options: options)
+        } catch {
+            diagnostics.problem(
+                .localToolRepair,
+                category: .generation,
+                metadata: LocalInferenceMetadata()
+                    .setting(.repairAttempt, 1)
+                    .setting(.repairResult, "generationFailed")
+                    .setting(.parserResult, previous.diagnosticSymbol)
+            )
+            return .failure(reason: "the repair generation failed")
+        }
+
+        var outcome = parser.classify(
+            repaired.text,
+            offeredTools: tools,
+            expectsAction: true,
+            maximumCalls: request.options.maximumToolCalls
+        )
+        outcome = applyProvenance(to: outcome, provenance: provenance)
+
+        // Section 26: whatever this produced, there is no second attempt. A
+        // repair that is still an attempt at an action becomes a plain failure
+        // here, which is what makes the limit structural rather than a counter
+        // somebody has to remember to increment.
+        if outcome.isRepairable {
+            outcome = .failure(reason: "the repair was still not a valid action")
+        }
+        // A repair that answers with ordinary prose has not performed the
+        // action either. Silently showing that text would be section 31's fake
+        // confirmation with extra steps.
+        if case .text = outcome {
+            outcome = .failure(reason: "the repair produced prose instead of an action")
+        }
+
+        diagnostics.info(
+            .localToolRepair,
+            category: .generation,
+            metadata: LocalInferenceMetadata()
+                .setting(.repairAttempt, 1)
+                .setting(.repairResult, outcome.diagnosticSymbol)
+                .setting(.parserResult, previous.diagnosticSymbol)
+                .merging(Self.selectedToolMetadata(outcome))
+        )
+        return outcome
+    }
+
+    /// Section 36. Enough for one envelope with a couple of arguments.
+    static let repairOutputTokenLimit = 256
+
+    /// Section 23, kept internal.
+    static func repairInstruction(provenance: LocalResourceProvenance) -> String {
+        var lines = [
+            "Your previous response was not a valid action.",
+            "Reply with one JSON object using only the actions listed above, and nothing else.",
+            "Do not explain the schema. Do not describe parameters.",
+        ]
+        // Section 24. Said differently depending on what is actually available,
+        // because "use only supplied identifiers" is confusing advice when none
+        // have been supplied.
+        if provenance.trusted.isEmpty {
+            lines.append(
+                "No identifiers for existing items are available, so any action that "
+                    + "needs one cannot be used. Do not invent identifiers."
+            )
+        } else {
+            lines.append(
+                "Use identifiers for existing items only if an earlier action result "
+                    + "supplied them. Do not invent identifiers."
+            )
+        }
+        return lines.joined(separator: " ")
+    }
+
+    static func selectedToolMetadata(_ outcome: LocalAssistantOutcome) -> LocalInferenceMetadata {
+        guard case .toolCalls(let calls, _) = outcome, let first = calls.first else {
+            return .empty
+        }
+        return LocalInferenceMetadata()
+            .setting(.selectedTool, first.name)
+            .setting(.toolCallCount, calls.count)
     }
 
     /// Stops the generation in flight.

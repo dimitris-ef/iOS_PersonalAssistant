@@ -122,6 +122,30 @@ public enum LocalModelToolSupport: String, Hashable, Codable, Sendable, CaseIter
         case .unsupported: return "Chat only — assistant actions unavailable"
         }
     }
+
+    /// The short form, for a list row and the model picker (section 7).
+    ///
+    /// A badge rather than a sentence because it sits next to the model name in
+    /// two places where there is one line to spend — and because the thing a
+    /// person needs to know before choosing is binary: will "remind me in ten
+    /// minutes" work, or not. Section 7 is explicit that the app must not stay
+    /// quiet about this and let them find out by being told an action failed.
+    public var badge: String {
+        switch self {
+        case .supported: return "Supports actions"
+        case .experimental: return "Experimental actions"
+        case .unsupported: return "Chat only"
+        }
+    }
+
+    /// SF Symbol for the badge.
+    public var symbolName: String {
+        switch self {
+        case .supported: return "bolt.badge.checkmark"
+        case .experimental: return "bolt.badge.clock"
+        case .unsupported: return "bubble.left.and.bubble.right"
+        }
+    }
 }
 
 /// What a model is allowed to be used for, in the words of whoever made it.
