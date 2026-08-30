@@ -175,8 +175,18 @@ public enum LocalDecodeBatchValidationFailure: Hashable, Sendable, CustomStringC
 /// reading.
 public enum LocalDecodeBatchValidator {
 
+    /// `expectsLogits` is false for an intermediate prefill chunk.
+    ///
+    /// Sections 15 and 19. A batch that asks for no distribution at all is
+    /// normally a bug — it decodes cleanly and then has nothing to sample, which
+    /// surfaces much later as an empty reply. But nine of the ten chunks in a
+    /// long prompt are *supposed* to ask for nothing: they are being read into
+    /// the KV cache, and only the prompt's very last token is generated from.
+    /// So the caller says which of the two it is rather than the validator
+    /// guessing, and every other check still runs on every chunk.
     public static func validate(
-        _ batch: LocalDecodeBatchDescriptor
+        _ batch: LocalDecodeBatchDescriptor,
+        expectsLogits: Bool = true
     ) -> LocalDecodeBatchValidationFailure? {
         guard batch.nTokens > 0 else {
             return .invalidTokenCount(nTokens: batch.nTokens)
@@ -233,9 +243,13 @@ public enum LocalDecodeBatchValidator {
             guard logits == batch.nTokens else {
                 return .logitsCountMismatch(logits: logits, nTokens: batch.nTokens)
             }
-            // A prefill that flags nothing decodes fine and then has no logits
-            // to sample from, which surfaces much later as a nonsense reply.
-            guard (batch.logitsTrueCount ?? 0) > 0 else { return .noLogitsRequested }
+            // A batch that was meant to end a prompt and flags nothing decodes
+            // fine and then has no logits to sample from, which surfaces much
+            // later as a nonsense reply. An intermediate chunk flagging nothing
+            // is correct, and says so.
+            if expectsLogits {
+                guard (batch.logitsTrueCount ?? 0) > 0 else { return .noLogitsRequested }
+            }
         }
         return nil
     }

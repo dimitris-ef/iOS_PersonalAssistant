@@ -175,6 +175,12 @@ public enum LocalInferenceEventName: String, Hashable, Sendable, CaseIterable, C
     case nativeLog = "NATIVE_LOG"
     /// The minimal single-decode diagnostic test.
     case minimalDecodeTest = "MINIMAL_DECODE_TEST"
+    /// How the prompt was split before any of it was decoded (section 73).
+    /// Written once, before the first chunk, so a log that stops half-way still
+    /// says how many chunks were expected.
+    case promptPrefillPlan = "PROMPT_PREFILL_PLAN"
+    /// One chunk's preflight: range, positions, flags (section 30).
+    case promptChunk = "PROMPT_CHUNK"
     case contextBudgetExceeded = "CONTEXT_BUDGET_EXCEEDED"
 
     case firstToken = "FIRST_TOKEN"
@@ -207,6 +213,14 @@ public enum LocalInferenceStage: String, Hashable, Sendable, CaseIterable, Codab
     /// The first `llama_decode` of the turn — the one that allocates the
     /// compute buffers, and the current prime suspect.
     case promptDecode = "prompt_decode"
+    /// One `llama_decode` of one slice of the prompt.
+    ///
+    /// Nested inside `prompt_decode`, which now spans the whole prefill rather
+    /// than a single call (section 34). Two levels because they answer
+    /// different questions: the outer one says the process died reading the
+    /// prompt, and the inner one says it died on chunk 5 of 10 at tokens
+    /// 640–767 — and the second is only recoverable if it is written per chunk.
+    case promptDecodeChunk = "prompt_decode_chunk"
     /// The one decode the minimal diagnostic harness performs. Deliberately a
     /// distinct stage from `prompt_decode` so a recovery report can say which
     /// of the two paths the process died in (section 42).
@@ -231,6 +245,7 @@ public enum LocalInferenceStage: String, Hashable, Sendable, CaseIterable, Codab
         case .chatTemplate: return "Applying the chat template"
         case .tokenize: return "Tokenizing the prompt"
         case .promptDecode: return "Reading the prompt into the model"
+        case .promptDecodeChunk: return "Reading one part of the prompt into the model"
         case .minimalPromptDecode: return "The minimal native decode test"
         case .generationDecode: return "Generating the reply"
         case .generation: return "Generation"

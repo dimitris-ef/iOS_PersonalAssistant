@@ -456,11 +456,15 @@ public actor LlamaCppRuntime: LocalModelRuntime {
             throw LocalRuntimeError.generationFailed(reason: "The prompt produced no tokens.")
         }
 
+        // Section 20. The *whole* request is checked before any of it is
+        // decoded. With chunking it would otherwise be possible to get nine
+        // chunks in and only then discover the reply has nowhere to go — having
+        // spent the time and filled the cache to find out something that was
+        // knowable at the start.
+        //
+        // This is the check `n_batch` never was: what a prompt has to fit
+        // inside is `n_ctx`, alongside the reply it is going to produce.
         let room = contextLength - options.maximumOutputTokens - 8
-        // Section 38. Refusing here rather than decoding is the point: a prompt
-        // that cannot fit alongside its own reply is a request the native layer
-        // must never be handed, and "fail with an error" beats "find out inside
-        // ggml".
         guard room > 0 else {
             diagnostics.problem(
                 .contextBudgetExceeded,
@@ -471,16 +475,24 @@ public actor LlamaCppRuntime: LocalModelRuntime {
                     .setting(.contextBudget, contextLength)
                     .setting(.generationReserve, options.maximumOutputTokens)
             )
+            // Section 23, and worded for the person rather than the log: the
+            // model is the thing that is too small, and swapping it is the
+            // action available to them.
             throw LocalRuntimeError.generationFailed(
-                reason: "The reply reserve of \(options.maximumOutputTokens) tokens leaves no "
-                    + "room in a \(contextLength)-token context."
+                reason: "This local model's context is too small for this request. A reply "
+                    + "reserve of \(options.maximumOutputTokens) tokens leaves no room in a "
+                    + "\(contextLength)-token context."
             )
         }
         if tokens.count > room {
-            // Keeping the tail rather than refusing. The context budget is
-            // already respected upstream — `ContextAssembler` trims memory and
-            // history — so arriving here means one unusually long message, and
-            // answering its most recent part beats an error about token counts.
+            // Sections 21 and 22. The conversation-level trimming already
+            // happened upstream, in `LocalPromptBudget`, which keeps the system
+            // turns and the message being answered and drops the oldest history
+            // first. Arriving here means that was not enough — one unusually
+            // long message — so this keeps the *tail*, which is where the
+            // current user message sits: everything the chat template puts
+            // after the history. Cutting the front loses old context; cutting
+            // the back would lose the question.
             diagnostics.record(
                 .contextBudgetExceeded, type: .warning, level: .warning, category: .prompt,
                 stage: .promptDecode,
@@ -496,28 +508,29 @@ public actor LlamaCppRuntime: LocalModelRuntime {
         // time — system prompt, memories, history — so there is no prefix worth
         // reusing, and a stale cache would silently prepend a previous
         // conversation to this one.
+        //
+        // This is also what makes the prompt's base position zero (section 10):
+        // the sequence is empty, so the first prompt token is position 0. It is
+        // cleared here and *only* here — never between the chunks of one prompt
+        // (section 39), which would throw away everything decoded so far and
+        // leave the model reading the tail of a prompt as if it were the whole
+        // of one.
         llama_memory_clear(llama_get_memory(context), true)
 
         let promptTokens = tokens.count
+        let sequenceID: llama_seq_id = 0
 
-        // Section 39, and the most important breadcrumb in the file.
-        //
-        // This is the first `llama_decode` of the turn, and it is where the
-        // compute buffers are allocated — lazily, sized from the micro batch,
-        // *after* the model reported itself loaded and ready. A model that
-        // passed every preflight and answered "Ready" dies here, which is
-        // exactly the shape of the crash being investigated. If the next
-        // recovery report names `prompt_decode`, this line is why it can.
-        let decodeResult = try performPromptDecode(
+        // Sections 27 and 36. The prompt goes in as however many `llama_decode`
+        // calls `n_batch` requires, all into this one context, and generation
+        // does not begin until every one of them has come back.
+        let prefill = try prefillPrompt(
             tokens: tokens,
             context: context,
             contextLength: contextLength,
-            origin: "assistant_chat",
-            stage: .promptDecode
+            basePosition: 0,
+            sequenceID: sequenceID,
+            origin: "assistant_chat"
         )
-        guard decodeResult.isSuccess else {
-            throw LocalRuntimeError.generationFailed(reason: decodeResult.explanation)
-        }
 
         guard let sampler = makeSampler(options: options) else {
             throw LocalRuntimeError.generationFailed(reason: "The sampler could not be created.")
@@ -532,14 +545,30 @@ public actor LlamaCppRuntime: LocalModelRuntime {
         // A pair of `fsync`s per token would be thousands of synchronous writes
         // during a single reply — enough to dominate the runtime and change the
         // timing of the thing being measured.
+        // One token at a time, so capacity one. Allocated before the loop
+        // rather than inside it: this is the hot path, and a batch per token is
+        // an allocator round trip per token.
+        guard let generationBatch = LlamaDecodeBatch(capacity: 1) else {
+            throw LocalRuntimeError.generationFailed(
+                reason: "The inference runtime could not allocate a generation batch."
+            )
+        }
+        defer { generationBatch.free() }
+
         let samplingOperation = diagnostics.criticalEnter(
             .generationDecode,
             metadata: LocalInferenceMetadata()
                 .setting(.promptTokenCount, promptTokens)
                 .setting(.generationReserve, options.maximumOutputTokens)
+                .setting(.nextPosition, Int(prefill.nextPosition))
+                .setting(.plannedChunks, prefill.chunkCount)
         )
         let startedAt = DispatchTime.now()
         var decodeStatus: Int32 = 0
+        // Section 37: the first generated token sits at the position
+        // immediately after the prompt's last, and each one after it advances
+        // by one. Carried forward from the prefill rather than recomputed.
+        var generationPosition = prefill.nextPosition
 
         while generated < options.maximumOutputTokens {
             if cancellationRequested {
@@ -596,10 +625,24 @@ public actor LlamaCppRuntime: LocalModelRuntime {
                 break
             }
 
-            var next = token
-            let status = withUnsafeMutablePointer(to: &next) { pointer -> Int32 in
-                llama_decode(context, llama_batch_get_one(pointer, 1))
+            // Explicit position and sequence, the same way the prompt went in.
+            // `llama_batch_get_one` would work here — it infers both from the
+            // memory state — but the prefill stopped relying on that inference
+            // and there is no reason for generation to keep doing so when the
+            // number is already known.
+            guard
+                generationBatch.fill(
+                    singleToken: token,
+                    position: generationPosition,
+                    sequenceID: sequenceID
+                )
+            else {
+                decodeStatus = -1
+                stop = .maximumTokens
+                break
             }
+            let status = llama_decode(context, generationBatch.batch)
+            generationPosition += 1
             guard status == 0 else {
                 // Non-zero mid-generation is nearly always a full KV cache.
                 // Whatever has been generated is real text and is returned
@@ -671,132 +714,270 @@ public actor LlamaCppRuntime: LocalModelRuntime {
     }
 
     #if canImport(llama)
-    /// The first native decode, fully instrumented.
+    /// Reads a whole prompt into the KV cache, in as many decodes as it takes.
     ///
-    /// ## The order, which is the point
+    /// ## The bug this replaces
+    ///
+    /// The prompt used to go in one batch, and a real device said so:
     ///
     /// ```
-    /// build the batch (llama.cpp owns every buffer)
-    ///   ↓ validate in Swift — refuse rather than call C on a bad batch
-    /// DECODE_PREFLIGHT   ← synchronous write, on disk
-    /// ENTER prompt_decode ← synchronous write, on disk
-    ///   ↓
-    /// llama_decode(...)
-    ///   ↓ only if it returns
+    /// n_tokens is 1241 but n_batch is 128
+    /// ```
+    ///
+    /// The rejection was right and the premise behind it was wrong. `n_batch`
+    /// bounds a single `llama_decode`, not a prompt. A 1241-token prompt is
+    /// ordinary; it arrives as ten calls into the same context, at continuous
+    /// positions, and only then is anything generated. What the prompt has to
+    /// fit inside is `n_ctx`, and that is checked before this runs.
+    ///
+    /// ## The shape
+    ///
+    /// ```
+    /// PROMPT_PREFILL_PLAN            n_ctx, n_batch, n_ubatch, chunks
+    /// ENTER prompt_decode                              ← the whole prefill
+    ///   PROMPT_CHUNK index=0         range, positions, logits
+    ///   ENTER prompt_decode_chunk
+    ///     llama_decode(...)
+    ///   EXIT prompt_decode_chunk
+    ///   … once per chunk, strictly in order …
     /// EXIT prompt_decode
     /// ```
     ///
-    /// Section 55: the EXIT is written *after* control comes back and nowhere
-    /// else, so a process that dies inside `llama_decode` leaves the ENTER
-    /// unmatched — which is the whole recovery mechanism.
-    func performPromptDecode(
+    /// Two nested levels because they answer different questions (section 34).
+    /// The outer pair says the process died reading the prompt; the inner pair
+    /// says it died on chunk 5 of 10, at tokens 640–767. Only the second is
+    /// worth having, and only per-chunk breadcrumbs can produce it.
+    ///
+    /// Section 55 still holds at both levels: an EXIT is written after control
+    /// comes back and nowhere else, so a process that dies inside `llama_decode`
+    /// leaves both ENTERs unmatched.
+    func prefillPrompt(
         tokens: [llama_token],
         context: OpaquePointer,
         contextLength: Int,
-        origin: String,
-        stage: LocalInferenceStage
-    ) throws -> LocalDecodeResult {
+        basePosition: llama_pos,
+        sequenceID: llama_seq_id,
+        origin: String
+    ) throws -> PromptPrefillResult {
+        // Section 64. Never a zero-token batch: the header documents that as
+        // `-1 — invalid input batch`, and refusing here names the real problem
+        // rather than reporting llama.cpp's answer to a question it should
+        // never have been asked.
+        guard !tokens.isEmpty else {
+            throw LocalRuntimeError.generationFailed(reason: "The prompt produced no tokens.")
+        }
+
+        // Section 2: the *effective* values, read off the context that exists,
+        // not the ones that were requested. `LocalModelManager` reduces both to
+        // fit memory, so a request for 512 routinely becomes 128 — and planning
+        // against the request is how a batch comes to be four times too large.
         let batchLimit = Int(llama_n_batch(context))
         let microBatch = Int(llama_n_ubatch(context))
 
-        guard let batch = LlamaDecodeBatch(capacity: max(tokens.count, 1)) else {
+        let plan = PromptDecodeChunkPlanner.plan(
+            tokenCount: tokens.count,
+            basePosition: Int(basePosition),
+            nBatch: batchLimit,
+            nUBatch: microBatch
+        )
+
+        let identity = runtimeIdentityMetadata()
+            .setting(.origin, origin)
+            .setting(.contextGeneration, contextGeneration)
+            .setting(.actualContextSize, contextLength)
+            .setting(.batchSize, batchLimit)
+            .setting(.microBatchSize, microBatch)
+
+        // Section 73. Written before the first decode, so a log that stops
+        // half-way still says how many chunks were expected — and so a device
+        // report proves chunking is active at all.
+        diagnostics.info(
+            .promptPrefillPlan,
+            category: .runtime,
+            stage: .promptDecode,
+            metadata: plan.metadata()
+                .merging(identity)
+                .setting(.remainingContextCapacity, max(0, contextLength - tokens.count))
+                .setting(.processMemoryFootprintBytes, LlamaProcessMemory.footprintBytes() ?? 0)
+        )
+
+        // One batch, refilled per chunk. Allocating and freeing ten of them
+        // would be ten trips through llama.cpp's allocator for buffers of
+        // identical shape; the capacity is the plan's chunk size, so every
+        // chunk including the short last one fits.
+        guard let batch = LlamaDecodeBatch(capacity: plan.chunkSize) else {
             throw LocalRuntimeError.generationFailed(
-                reason: "The inference runtime could not allocate a batch for "
-                    + "\(tokens.count) tokens."
+                reason: "The inference runtime could not allocate a batch of "
+                    + "\(plan.chunkSize) tokens."
             )
         }
         // Freed on every path out, including a throw. Section 65: freeing too
         // early is as much a bug as never freeing, so it happens here — after
-        // the decode has returned — and not in a `defer` that could run while
-        // an asynchronous decode was still reading.
+        // the last decode has returned — and not in a `defer` that could run
+        // while an asynchronous decode was still reading.
         defer { batch.free() }
 
-        guard batch.fill(tokens: tokens) else {
-            throw LocalRuntimeError.generationFailed(
-                reason: "The prompt did not fit the batch that was allocated for it."
-            )
-        }
-
-        let descriptor = batch.descriptor(
-            contextBatchLimit: batchLimit, contextSize: contextLength
+        let operation = diagnostics.criticalEnter(
+            .promptDecode, metadata: plan.metadata().merging(identity)
         )
-        let identifiers = batch.tokenIDSummary()
+        var decoded = 0
 
-        // Section 46: everything true about the runtime and the batch, in one
-        // block, immediately before the call. Written synchronously.
-        let preflight = descriptor.metadata()
-            .merging(runtimeIdentityMetadata())
-            .setting(.origin, origin)
-            .setting(.microBatchSize, microBatch)
-            .setting(.contextGeneration, contextGeneration)
-            .setting(.promptTokenCount, tokens.count)
-            .setting(.remainingContextCapacity, max(0, contextLength - tokens.count))
-            .setting(.batchConstruction, "llama_batch_init_explicit")
-            .setting(.firstTokenIDs, identifiers.first)
-            .setting(.lastTokenIDs, identifiers.last)
-            .setting(.decodeConcurrentOperations, 0)
-            .setting(.processMemoryFootprintBytes, LlamaProcessMemory.footprintBytes() ?? 0)
-            .merging(kvCacheMetadata(context))
-        diagnostics.info(.decodePreflight, category: .runtime, stage: stage, metadata: preflight)
+        for chunk in plan.chunks {
+            // Section 13: nothing to sample from an intermediate chunk. Only
+            // the prompt's very last token produces a distribution, and a chunk
+            // boundary is not the end of anything (section 14).
+            let policy: LlamaBatchLogitsPolicy = chunk.isFinalPromptChunk
+                ? .lastTokenOnly : .none
 
-        // Section 28 and 29: validated in Swift first. A batch that fails here
-        // never reaches C, and the failure is recorded as a *Swift* finding,
-        // which is a different diagnosis from one llama.cpp returned.
-        if let failure = LocalDecodeBatchValidator.validate(descriptor) {
-            diagnostics.problem(
-                .decodeBatchValidation,
-                category: .runtime,
-                stage: stage,
-                metadata: LocalInferenceMetadata()
-                    .setting(.validationResult, failure.symbol)
-                    .setting(.errorReason, failure.description)
+            guard
+                batch.fill(
+                    tokens: tokens[chunk.tokenStart..<chunk.tokenEndExclusive],
+                    startPosition: llama_pos(chunk.positionStart),
+                    sequenceID: sequenceID,
+                    logits: policy
+                )
+            else {
+                diagnostics.criticalFailure(
+                    .promptDecode, operation: operation,
+                    metadata: chunk.metadata().setting(.errorKind, "batchFillFailed")
+                )
+                throw LocalRuntimeError.generationFailed(
+                    reason: "A part of the prompt did not fit the batch allocated for it."
+                )
+            }
+
+            let descriptor = batch.descriptor(
+                contextBatchLimit: batchLimit, contextSize: contextLength
             )
-            throw LocalRuntimeError.generationFailed(
-                reason: "The prompt batch was rejected before it reached the inference "
-                    + "runtime: \(failure.description)"
+            let identifiers = batch.tokenIDSummary()
+            let preflight = chunk.metadata()
+                .merging(descriptor.metadata())
+                .merging(identity)
+                .setting(.promptTokenCount, tokens.count)
+                .setting(.batchConstruction, "llama_batch_init_explicit")
+                .setting(.firstTokenIDs, identifiers.first)
+                .setting(.lastTokenIDs, identifiers.last)
+                .setting(.decodeConcurrentOperations, 0)
+
+            // Section 30: one preflight per chunk, written synchronously,
+            // before the ENTER it precedes.
+            diagnostics.info(
+                .promptChunk, category: .runtime, stage: .promptDecodeChunk,
+                metadata: preflight
             )
-        }
-        diagnostics.info(
-            .decodeBatchValidation,
-            category: .runtime,
-            stage: stage,
-            metadata: LocalInferenceMetadata().setting(.validationResult, "success")
-        )
 
-        let operation = diagnostics.criticalEnter(stage, metadata: preflight)
-        let startedAt = DispatchTime.now()
-        let status = llama_decode(context, batch.batch)
-        let elapsed = Int(LlamaCppRuntime.milliseconds(since: startedAt))
-        let result = LocalDecodeResult(returnCode: Int(status))
+            // Section 19: every chunk, not just the first. "The earlier ones
+            // were fine" is exactly the reasoning that lets a malformed final
+            // chunk through — and the final chunk is the one with a different
+            // length and a different logits policy from all the others.
+            if let failure = LocalDecodeBatchValidator.validate(
+                descriptor, expectsLogits: chunk.isFinalPromptChunk
+            ) {
+                diagnostics.problem(
+                    .decodeBatchValidation,
+                    category: .runtime,
+                    stage: .promptDecodeChunk,
+                    metadata: chunk.metadata()
+                        .setting(.validationResult, failure.symbol)
+                        .setting(.errorReason, failure.description)
+                )
+                diagnostics.criticalFailure(
+                    .promptDecode, operation: operation,
+                    metadata: chunk.metadata().setting(.errorKind, failure.symbol)
+                )
+                throw LocalRuntimeError.generationFailed(
+                    reason: "A part of the prompt was rejected before it reached the "
+                        + "inference runtime: \(failure.description)"
+                )
+            }
 
-        let outcome = LocalInferenceMetadata()
-            .setting(.decodeReturnCode, Int(status))
-            .setting(.validationResult, result.symbol)
-            .setting(.decodeElapsedMs, elapsed)
-            .setting(.promptTokenCount, tokens.count)
-            .merging(kvCacheMetadata(context))
+            let chunkOperation = diagnostics.criticalEnter(
+                .promptDecodeChunk, metadata: preflight
+            )
+            let startedAt = DispatchTime.now()
+            let status = llama_decode(context, batch.batch)
+            let elapsed = Int(LlamaCppRuntime.milliseconds(since: startedAt))
+            let result = LocalDecodeResult(returnCode: Int(status))
 
-        // Section 55: EXIT either way, because control *did* come back — a
-        // non-zero return is a reported failure, not a termination, and
-        // reporting it as the crash site would send the next reader to the
-        // wrong place. The level distinguishes them.
-        if result.isSuccess {
-            diagnostics.criticalExit(stage, operation: operation, metadata: outcome)
-        } else {
-            diagnostics.criticalFailure(
-                stage,
-                operation: operation,
-                metadata: outcome
+            var outcome = chunk.metadata()
+                .setting(.decodeReturnCode, Int(status))
+                .setting(.validationResult, result.symbol)
+                .setting(.decodeElapsedMs, elapsed)
+            // Section 68: how full the cache is getting, chunk by chunk. Two C
+            // calls, but verbose-only because the answer only changes by the
+            // chunk size and the outer EXIT records it either way.
+            if diagnostics.isVerbose {
+                outcome = outcome.merging(kvCacheMetadata(context))
+            }
+
+            guard result.isSuccess else {
+                // Section 28: stop here. Chunk 5 going in after chunk 4 failed
+                // would put tokens at positions whose predecessors are not in
+                // the cache, and the model would answer a prompt with a hole
+                // in it rather than report a problem.
+                let failure = PromptPrefillFailure(
+                    chunkIndex: chunk.index,
+                    chunkCount: chunk.chunkCount,
+                    tokenStart: chunk.tokenStart,
+                    tokenEndInclusive: chunk.tokenEndExclusive - 1,
+                    result: result
+                )
+                let detail = outcome
                     .setting(.errorKind, result.symbol)
                     .setting(.nativeSymbol, "llama_decode")
                     .setting(.nativeCode, Int(status))
-                    .setting(.errorReason, result.explanation)
+                    .setting(.errorReason, failure.diagnosticDescription)
+                diagnostics.criticalFailure(
+                    .promptDecodeChunk, operation: chunkOperation, metadata: detail
+                )
+                diagnostics.info(
+                    .decodeResult, category: .runtime, stage: .promptDecodeChunk,
+                    metadata: detail
+                )
+                diagnostics.criticalFailure(
+                    .promptDecode, operation: operation, metadata: detail
+                )
+                throw LocalRuntimeError.generationFailed(reason: failure.userDescription)
+            }
+
+            diagnostics.criticalExit(
+                .promptDecodeChunk, operation: chunkOperation, metadata: outcome
             )
+            decoded += chunk.tokenCount
         }
-        diagnostics.info(
-            .decodeResult, category: .runtime, stage: stage, metadata: outcome
+
+        let completion = plan.metadata()
+            .merging(identity)
+            .setting(.tokensDecoded, decoded)
+            .setting(.nextPosition, plan.nextPosition)
+            .setting(.processMemoryFootprintBytes, LlamaProcessMemory.footprintBytes() ?? 0)
+            .merging(kvCacheMetadata(context))
+        diagnostics.criticalExit(
+            .promptDecode, operation: operation, metadata: completion
         )
-        return result
+        diagnostics.info(
+            .decodeResult, category: .runtime, stage: .promptDecode, metadata: completion
+        )
+
+        return PromptPrefillResult(
+            tokensDecoded: decoded,
+            nextPosition: llama_pos(plan.nextPosition),
+            lastPromptTokenIndex: tokens.count - 1,
+            chunkCount: plan.chunks.count
+        )
+    }
+
+    /// What the prefill left behind, for generation to continue from.
+    ///
+    /// Section 61. `nextPosition` is returned rather than recomputed by the
+    /// caller, because two places deriving the same position independently is
+    /// how they come to disagree — and a generation that starts one position
+    /// early overwrites the last prompt token in the cache.
+    struct PromptPrefillResult {
+        var tokensDecoded: Int
+        var nextPosition: llama_pos
+        var lastPromptTokenIndex: Int
+        var chunkCount: Int
     }
 
     /// What the *linked* runtime says about itself.

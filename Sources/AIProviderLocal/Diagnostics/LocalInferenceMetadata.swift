@@ -172,6 +172,31 @@ public enum LocalInferenceMetadataKey: String, Hashable, Sendable, CaseIterable,
     case decodeConcurrentOperations
     case minimalTestResult
 
+    // MARK: Chunked prefill
+
+    /// Zero-based, in decode order.
+    case chunkIndex
+    case chunkCount
+    case chunkTokenCount
+    /// Index into the prompt's token array, not a position. The two differ
+    /// whenever `basePosition` is non-zero, and conflating them is how a second
+    /// run of tokens ends up written over positions that already hold
+    /// something.
+    case tokenStart
+    case tokenEndInclusive
+    case isFinalPromptChunk
+    /// How many chunks the whole prompt was split into. Recorded at the plan
+    /// as well as on every chunk, so a truncated log still says how many were
+    /// expected (section 73).
+    case plannedChunks
+    /// The per-decode token limit the plan was cut to — `n_batch`, in practice.
+    case chunkSize
+    /// Where this prompt starts in the sequence.
+    case basePosition
+    /// Where generation will start. Section 61.
+    case nextPosition
+    case tokensDecoded
+
     // MARK: Session
 
     case clean

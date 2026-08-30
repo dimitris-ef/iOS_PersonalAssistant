@@ -509,7 +509,13 @@ struct LocalInferenceDiagnosticsView: View {
     /// `llama_decode` the current session has no preflight at all, and the one
     /// worth reading belongs to the process that died.
     private var latestDecodePreflight: LocalInferenceMetadata {
-        selectedSession.events.last { $0.name == .decodePreflight }?.metadata
+        // `PROMPT_CHUNK` as well as `DECODE_PREFLIGHT`: a chunked prefill
+        // writes one per chunk, and after a termination the last one written is
+        // the chunk the process was on — which is the whole point of recording
+        // them per chunk.
+        selectedSession.events.last {
+            $0.name == .decodePreflight || $0.name == .promptChunk
+        }?.metadata
             ?? centre.recovery?.decodePreflight
             ?? .empty
     }

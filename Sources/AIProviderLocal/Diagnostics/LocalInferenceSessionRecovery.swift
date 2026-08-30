@@ -97,7 +97,15 @@ public enum LocalInferenceSessionRecovery {
             // during a chat turn are different findings, and a report that
             // cannot tell them apart invites the wrong conclusion.
             origin: lastValue(in: events, key: .origin),
-            decodePreflight: events.last { $0.name == .decodePreflight }?.metadata
+            // Section 35. `PROMPT_CHUNK` counts as a preflight, and is usually
+            // the one that matters: a prefill that dies part-way leaves the
+            // preflight for the chunk it was on, which is what turns
+            // "terminated during prompt_decode_chunk" into "chunk 5 of 10,
+            // tokens 640 to 767". `DECODE_PREFLIGHT` still covers the minimal
+            // harness, which decodes once and has no chunks.
+            decodePreflight: events.last {
+                $0.name == .decodePreflight || $0.name == .promptChunk
+            }?.metadata
         )
     }
 

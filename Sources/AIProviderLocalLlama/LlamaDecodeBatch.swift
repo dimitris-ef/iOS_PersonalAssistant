@@ -11,6 +11,36 @@ import llama
 /// section 11 — identifiers are numbers, nothing detokenizes them, and
 /// "thousands of IDs" is explicitly not wanted — and it is testable in CI only
 /// if it exists in CI.
+/// Which tokens in a batch should produce an output distribution.
+///
+/// Sections 13 to 16. Prefill is the case that matters: the model has to be
+/// *told* the prompt, and only the very last token of the whole prompt is
+/// sampled from. A ten-chunk prefill therefore asks for logits once, on the
+/// final token of the final chunk — not once per chunk. A chunk boundary is an
+/// artefact of `n_batch`; it is not a place the model is being asked anything.
+///
+/// Outside the `canImport` guard so the policy is nameable — and testable — in
+/// CI, where there is no llama.cpp.
+public enum LlamaBatchLogitsPolicy: Hashable, Sendable {
+    /// An intermediate prefill chunk. Nothing to sample here.
+    case none
+    /// The end of a prompt: one distribution, for the token generation
+    /// continues from.
+    case lastTokenOnly
+    /// Every position. Not used by prefill or generation; present because the
+    /// batch type is general and a scoring path would need it.
+    case everyToken
+
+    /// What the validator should expect to find set.
+    public func expectedLogitsTrueCount(tokenCount: Int) -> Int {
+        switch self {
+        case .none: return 0
+        case .lastTokenOnly: return tokenCount > 0 ? 1 : 0
+        case .everyToken: return tokenCount
+        }
+    }
+}
+
 public enum LlamaDecodeBatchLimits {
     /// Identifiers logged from each end of the batch. Enough to spot a missing
     /// BOS or a run of zeros, which is what a malformed tokenization looks like.
@@ -86,17 +116,21 @@ final class LlamaDecodeBatch {
         llama_batch_free(batch)
     }
 
-    /// Fills the batch with one contiguous run of prompt tokens.
+    /// Fills the batch with one contiguous run of tokens.
     ///
-    /// Positions are explicit and start at `startPosition`, sequence 0, and
-    /// only the final token requests logits — which is the canonical prefill
-    /// shape: the model needs to be *told* the prompt, and only the last
-    /// position's distribution is sampled from (section 62).
+    /// Positions are explicit and start at `startPosition` — which for a
+    /// chunked prefill is the absolute position of the chunk's first token, not
+    /// zero (section 9). The sequence is the same for every chunk, so the
+    /// tokens all land in one KV sequence and the model sees one prompt rather
+    /// than several short ones (section 11).
+    /// Takes a slice so a chunked prefill does not copy each chunk out of the
+    /// prompt array first (section 69). `enumerated()` gives zero-based offsets
+    /// whatever the slice's own indices are, which is what the C buffers want.
     func fill(
-        tokens: [llama_token],
+        tokens: ArraySlice<llama_token>,
         startPosition: llama_pos = 0,
         sequenceID: llama_seq_id = 0,
-        logitsForLastTokenOnly: Bool = true
+        logits policy: LlamaBatchLogitsPolicy = .lastTokenOnly
     ) -> Bool {
         guard tokens.count <= capacity else { return false }
         guard
@@ -107,28 +141,74 @@ final class LlamaDecodeBatch {
             let logitsBuffer = batch.logits
         else { return false }
 
-        for index in 0..<tokens.count {
-            tokenBuffer[index] = tokens[index]
-            // `llama_pos` is int32_t, and so is the index arithmetic. Section
+        // The whole capacity, not just the part in use. One batch object is
+        // reused across every chunk of a prefill, so a flag left set by a
+        // longer earlier chunk would otherwise still be sitting past the end of
+        // a shorter later one — harmless today, because llama.cpp reads only
+        // `n_tokens` entries, and precisely the kind of thing that stops being
+        // harmless when somebody changes how the buffer is read.
+        for index in 0..<capacity { logitsBuffer[index] = 0 }
+
+        for (offset, token) in tokens.enumerated() {
+            tokenBuffer[offset] = token
+            // `llama_pos` is int32_t, and so is the offset arithmetic. Section
             // 63: the conversion is written out rather than left to inference,
             // because a silent truncation here would produce positions that
             // look plausible and are wrong.
-            positionBuffer[index] = startPosition + llama_pos(index)
-            sequenceCountBuffer[index] = 1
+            positionBuffer[offset] = startPosition + llama_pos(offset)
+            sequenceCountBuffer[offset] = 1
             // The inner array llama.cpp allocated for this token. Writing
             // through it rather than replacing the pointer is what keeps the
             // storage llama.cpp's.
-            sequenceBuffer[index]?[0] = sequenceID
-            logitsBuffer[index] = 0
+            sequenceBuffer[offset]?[0] = sequenceID
         }
-        if logitsForLastTokenOnly, !tokens.isEmpty {
-            logitsBuffer[tokens.count - 1] = 1
-        } else if !logitsForLastTokenOnly {
+        switch policy {
+        case .none:
+            break
+        case .lastTokenOnly:
+            if !tokens.isEmpty { logitsBuffer[tokens.count - 1] = 1 }
+        case .everyToken:
             for index in 0..<tokens.count { logitsBuffer[index] = 1 }
         }
 
         batch.n_tokens = Int32(tokens.count)
         tokenCount = tokens.count
+        return true
+    }
+
+    /// One token at one position — the shape every generation step needs.
+    ///
+    /// Section 37: the first generated token goes at the position immediately
+    /// after the prompt's last, and each one after that advances by one. Stated
+    /// rather than inferred, for the same reason the prompt's positions are.
+    /// Written directly rather than by wrapping the token in a one-element
+    /// array: this runs once per generated token, and an allocation per token
+    /// is the one place in the loop where it would actually be noticed.
+    func fill(
+        singleToken token: llama_token,
+        position: llama_pos,
+        sequenceID: llama_seq_id = 0
+    ) -> Bool {
+        guard capacity >= 1 else { return false }
+        guard
+            let tokenBuffer = batch.token,
+            let positionBuffer = batch.pos,
+            let sequenceCountBuffer = batch.n_seq_id,
+            let sequenceBuffer = batch.seq_id,
+            let logitsBuffer = batch.logits
+        else { return false }
+
+        for index in 0..<capacity { logitsBuffer[index] = 0 }
+        tokenBuffer[0] = token
+        positionBuffer[0] = position
+        sequenceCountBuffer[0] = 1
+        sequenceBuffer[0]?[0] = sequenceID
+        // Generation samples from every token it decodes, so unlike a prefill
+        // chunk this one always wants its distribution back.
+        logitsBuffer[0] = 1
+
+        batch.n_tokens = 1
+        tokenCount = 1
         return true
     }
 
