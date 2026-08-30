@@ -30,12 +30,13 @@ public enum ToolCatalog {
         case .createCalendarEvent:
             return ToolSpecification(
                 kind: kind,
-                // Section 32 and 33. "Add a NEW event" rather than "add an
-                // event": a small model choosing between create and update is
-                // choosing between two summaries, and the word that separates
-                // them has to be in both.
-                summary: "Create a NEW event in the user's calendar. "
-                    + "No existing event identifier is needed.",
+                // Section 32 and 33. "NEW" rather than "an event": a small
+                // model choosing between create and update is choosing between
+                // two summaries, and the word that separates them has to be in
+                // both. Kept to one line — these go into every local prompt,
+                // and a paragraph here is a paragraph not spent on the user's
+                // own memories.
+                summary: "Create a NEW calendar event.",
                 parameters: .object(
                     properties: [
                         "title": .string(description: "Short name of the event."),
@@ -62,9 +63,8 @@ public enum ToolCatalog {
                 // the one that went wrong: a request to be reminded of
                 // something became an attempt to update an event that did not
                 // exist, with an invented identifier.
-                summary: "Modify an EXISTING calendar event. Requires the event's "
-                    + "identifier from an earlier action result. Never use this to "
-                    + "create anything, and never invent an identifier.",
+                summary: "Modify an EXISTING calendar event. Needs an eventID from an "
+                    + "earlier result; never invent one.",
                 parameters: .object(
                     properties: [
                         // Section 15, audited: `CalendarItem.ID` is
@@ -80,8 +80,8 @@ public enum ToolCatalog {
                         // to obtain one will produce a well-formed invention.
                         // Hence the sentence rather than a looser type.
                         "eventID": .string(
-                            description: "Identifier of an existing event, exactly as "
-                                + "returned by an earlier action result.",
+                            description: "An existing event's id, exactly as an earlier "
+                                + "result returned it.",
                             format: .uuid
                         ),
                         "title": .string(),
@@ -110,8 +110,7 @@ public enum ToolCatalog {
                 // Section 12: the tool "remind me …" is meant to reach. Named in
                 // the summary in the user's own words, because that phrasing is
                 // what the model is matching against.
-                summary: "Create a NEW reminder. Use this for \"remind me…\" requests. "
-                    + "Set dueDate for a time or a delay.",
+                summary: "Create a NEW reminder. Use for \"remind me…\" requests.",
                 parameters: .object(
                     properties: [
                         "title": .string(),

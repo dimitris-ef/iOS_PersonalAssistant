@@ -110,11 +110,17 @@ public struct LocalToolCallParser: Sendable {
             }
             // No calls. Either an ordinary reply, or — for an action request —
             // possibly the model describing the tools instead of calling them.
-            if expectsAction, let leak = Self.schemaLeakReason(in: parsed.text, tools: offeredTools) {
-                return .schemaLeak(reason: leak)
-            }
+            //
+            // Order matters. An envelope the model started and did not finish
+            // contains `tool_calls` and a real tool name, which is also what a
+            // recital of the protocol looks like; the difference is the unclosed
+            // brace, so that is tested first. Calling a truncated call a "schema
+            // leak" would be an accurate-sounding wrong diagnosis in the log.
             if expectsAction, Self.looksLikeAbandonedJSON(cleaned) {
                 return .malformedToolAttempt(reason: "an unfinished JSON object")
+            }
+            if expectsAction, let leak = Self.schemaLeakReason(in: parsed.text, tools: offeredTools) {
+                return .schemaLeak(reason: leak)
             }
             return .text(parsed.text)
         } catch let error as LocalToolParseError {

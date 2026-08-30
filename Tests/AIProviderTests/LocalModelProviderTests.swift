@@ -218,39 +218,49 @@ final class LocalModelProviderTests: XCTestCase {
         XCTAssertTrue(response.toolCalls.isEmpty)
     }
 
-    /// Section 102 and 39 of the acceptance list. Malformed structured output
-    /// is a provider error — never a partial execution, never prose passed off
-    /// as an answer.
-    func testMalformedStructuredOutputIsAProviderError() async throws {
+    /// Malformed structured output is contained — never a partial execution,
+    /// never prose passed off as an answer.
+    ///
+    /// This used to assert a thrown `invalidResponse`, and the local tool-calling
+    /// pass replaced that deliberately. Throwing surfaced the parser's own
+    /// wording ("the structured output had the wrong shape") to somebody who had
+    /// asked to be reminded of something, which is a worse outcome than the same
+    /// refusal in plain words. The invariant the test was protecting — no calls
+    /// escape, nothing raw is shown — is unchanged and asserted below.
+    func testMalformedStructuredOutputIsContainedRatherThanShown() async throws {
         let runtime = MockLocalModelRuntime()
         await runtime.alwaysRespond(.raw("{\"tool_calls\":[{\"name\":}],\"message\":\"x\"}"))
         let (provider, _, _) = try await makeProvider(descriptor: descriptor(), runtime: runtime)
 
-        do {
-            _ = try await provider.respond(to: request(tools: tools))
-            XCTFail("expected an invalid-response error")
-        } catch let error as AIProviderError {
-            guard case .invalidResponse = error else {
-                return XCTFail("expected invalidResponse, got \(error)")
-            }
-        }
+        let response = try await provider.respond(
+            to: request(
+                messages: [AIMessage(role: .user, content: "Remind me in 10 minutes.")],
+                tools: tools
+            )
+        )
+
+        XCTAssertTrue(response.toolCalls.isEmpty)
+        XCTAssertEqual(response.text, LocalModelProvider.actionFailureMessage)
+        XCTAssertFalse(response.text.contains("tool_calls"))
     }
 
-    func testAnUnknownToolNameIsAProviderError() async throws {
+    func testAnUnknownToolNameNeverBecomesACall() async throws {
         let runtime = MockLocalModelRuntime()
         await runtime.alwaysRespond(
             .raw("{\"tool_calls\":[{\"name\":\"formatDisk\",\"arguments\":{}}],\"message\":\"\"}")
         )
         let (provider, _, _) = try await makeProvider(descriptor: descriptor(), runtime: runtime)
 
-        do {
-            _ = try await provider.respond(to: request(tools: tools))
-            XCTFail("expected an invalid-response error")
-        } catch let error as AIProviderError {
-            guard case .invalidResponse = error else {
-                return XCTFail("expected invalidResponse, got \(error)")
-            }
-        }
+        let response = try await provider.respond(
+            to: request(
+                messages: [AIMessage(role: .user, content: "Remind me in 10 minutes.")],
+                tools: tools
+            )
+        )
+
+        XCTAssertTrue(response.toolCalls.isEmpty)
+        XCTAssertEqual(response.text, LocalModelProvider.actionFailureMessage)
+        XCTAssertFalse(response.text.contains("formatDisk"))
     }
 
     // MARK: Continuation
