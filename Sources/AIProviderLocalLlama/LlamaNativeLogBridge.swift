@@ -173,10 +173,40 @@ public enum LlamaNativeLogSanitizer {
     ]
 
     /// Words that disqualify a line however structural it looks.
+    ///
+    /// Matched at a word boundary rather than anywhere in the line — see
+    /// ``containsForbidden(_:)``.
     static let forbiddenTopics = [
         "prompt:", "prompt =", "text:", "token = '", "piece", "detokeniz",
         "chat template output", "formatted:", "user:", "assistant:",
     ]
+
+    /// Whether a line names one of the forbidden topics *as a word*.
+    ///
+    /// ## Why a plain `contains` was wrong
+    ///
+    /// `"text:"` is a substring of `"context:"`, so a plain containment check
+    /// discarded every `llama_context:` line — which is a large share of the
+    /// structural output this whole bridge exists to keep, and it discarded them
+    /// silently. The failure mode was the worst available: a log that looks
+    /// complete and is missing exactly the lines about the thing being
+    /// investigated.
+    ///
+    /// Only letters and digits count as word characters, so `_` is a boundary.
+    /// That is deliberate rather than incidental: llama.cpp names things
+    /// `n_token`, `n_ctx`, `n_batch`, and `"n_token = '"` must still be caught.
+    static func containsForbidden(_ lowered: String) -> Bool {
+        for topic in forbiddenTopics {
+            var searchStart = lowered.startIndex
+            while let found = lowered.range(of: topic, range: searchStart..<lowered.endIndex) {
+                if found.lowerBound == lowered.startIndex { return true }
+                let preceding = lowered[lowered.index(before: found.lowerBound)]
+                if !preceding.isLetter && !preceding.isNumber { return true }
+                searchStart = lowered.index(after: found.lowerBound)
+            }
+        }
+        return false
+    }
 
     /// A native line is at most this long in the log. llama.cpp prints long
     /// tables at load time and one of them would dominate a session file.
@@ -188,7 +218,12 @@ public enum LlamaNativeLogSanitizer {
         guard !trimmed.isEmpty else { return nil }
         let lowered = trimmed.lowercased()
 
-        for forbidden in forbiddenTopics where lowered.contains(forbidden) { return nil }
+        if containsForbidden(lowered) { return nil }
+        // The allowlist stays a plain containment check. It is the permissive
+        // half, so a false positive here keeps a harmless line rather than
+        // losing a needed one — and llama.cpp writes its topics as fragments
+        // (`llama_kv_cache_init`, `ggml_metal_init`) that a boundary rule would
+        // refuse.
         guard allowedTopics.contains(where: { lowered.contains($0) }) else { return nil }
 
         // Through the same redactor as every other free-text value, so the

@@ -318,9 +318,37 @@ final class LocalDecodeBoundaryTests: XCTestCase {
         LlamaNativeLogBridge.deliver(levelValue: 2, text: "load_tensors: buffer size = 1 MiB")
 
         let recorded = sink.snapshot()
-        XCTAssertEqual(recorded.count, 2)
+        // Counted before indexing: a short array here used to take the whole
+        // test process down with an out-of-range trap, which hides every test
+        // that would have run after it.
+        guard recorded.count == 2 else {
+            return XCTFail("expected two recorded lines, got \(recorded.count)")
+        }
         XCTAssertEqual(recorded[0].level, .warning)
         XCTAssertEqual(recorded[1].level, .debug)
+    }
+
+    /// The regression that made this filter worth testing.
+    ///
+    /// `"text:"` is a substring of `"context:"`, so a plain containment check
+    /// dropped every `llama_context:` line — a large share of exactly the output
+    /// a decode investigation needs, discarded silently.
+    func testContextLinesAreNotMistakenForPromptText() throws {
+        let lines = [
+            "llama_context: n_batch is too large for this model",
+            "llama_context: KV self size = 96.00 MiB",
+            "llama_new_context_with_model: compute buffer size = 164.00 MiB",
+        ]
+        for line in lines {
+            XCTAssertNotNil(LlamaNativeLogSanitizer.sanitize(line), line)
+        }
+    }
+
+    /// The other half of the same boundary rule: an underscore is a boundary,
+    /// because llama.cpp names things `n_token` and that line must still go.
+    func testAnUnderscorePrefixedForbiddenTopicIsStillCaught() {
+        XCTAssertNil(LlamaNativeLogSanitizer.sanitize("batch: n_token = 'medication'"))
+        XCTAssertNil(LlamaNativeLogSanitizer.sanitize("context: prompt: call the clinic"))
     }
 
     /// The sanitizer runs before the sink, not after — so a dropped line never
