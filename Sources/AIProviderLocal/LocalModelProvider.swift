@@ -280,13 +280,16 @@ public struct LocalModelProvider: AIProvider {
         // the screen. The regression this replaces: schema prose had no
         // envelope, so the old parser called it an ordinary reply and showed it.
         let provenance = LocalResourceProvenance.harvested(from: request.messages)
+        let actionCategory = LocalActionIntent.category(in: request.messages)
         var outcome = parser.classify(
             output.text,
             offeredTools: tools,
             expectsAction: expectsAction,
             maximumCalls: request.options.maximumToolCalls
         )
-        outcome = applyProvenance(to: outcome, provenance: provenance)
+        outcome = applyProvenance(
+            to: outcome, provenance: provenance, category: actionCategory
+        )
         diagnostics.info(
             .localToolParse,
             category: .generation,
@@ -295,6 +298,7 @@ public struct LocalModelProvider: AIProvider {
                 .setting(.actionIntentLikely, expectsAction)
                 .setting(.toolCapability, toolSupport.rawValue)
                 .setting(.repairAttempt, 0)
+                .setting(.actionCategory, actionCategory.rawValue)
                 .merging(Self.selectedToolMetadata(outcome))
         )
 
@@ -311,6 +315,7 @@ public struct LocalModelProvider: AIProvider {
                 loaded: loaded,
                 configuration: configuration,
                 provenance: provenance,
+                category: actionCategory,
                 runtime: runtime
             )
         }
@@ -389,9 +394,27 @@ public struct LocalModelProvider: AIProvider {
     /// it came from.
     private func applyProvenance(
         to outcome: LocalAssistantOutcome,
-        provenance: LocalResourceProvenance
+        provenance: LocalResourceProvenance,
+        category: LocalActionCategory
     ) -> LocalAssistantOutcome {
         guard case .toolCalls(let calls, let message) = outcome else { return outcome }
+
+        // The wrong kind of action entirely. A reminder request answered only
+        // with `storeMemory` passes every other check — valid envelope, real
+        // tool, sound arguments, no invented identifier — and still leaves the
+        // user believing something will happen at a time when nothing will.
+        if let reason = LocalToolIntentGuard.mismatch(category: category, calls: calls) {
+            diagnostics.problem(
+                .localToolRejected,
+                category: .generation,
+                metadata: LocalInferenceMetadata()
+                    .setting(.selectedTool, calls.first?.name ?? "")
+                    .setting(.validationResult, reason)
+                    .setting(.actionCategory, category.rawValue)
+            )
+            return .malformedToolAttempt(reason: reason)
+        }
+
         let split = provenance.partition(calls)
         guard !split.rejected.isEmpty else { return outcome }
 
@@ -432,6 +455,7 @@ public struct LocalModelProvider: AIProvider {
         loaded: LoadedModelInfo,
         configuration: LocalInferenceConfiguration,
         provenance: LocalResourceProvenance,
+        category: LocalActionCategory,
         runtime: any LocalModelRuntime
     ) async -> LocalAssistantOutcome {
         var repairRequest = request
@@ -471,7 +495,9 @@ public struct LocalModelProvider: AIProvider {
             expectsAction: true,
             maximumCalls: request.options.maximumToolCalls
         )
-        outcome = applyProvenance(to: outcome, provenance: provenance)
+        outcome = applyProvenance(
+            to: outcome, provenance: provenance, category: category
+        )
 
         // Section 26: whatever this produced, there is no second attempt. A
         // repair that is still an attempt at an action becomes a plain failure

@@ -200,7 +200,14 @@ public enum ToolCatalog {
         case .storeMemory:
             return ToolSpecification(
                 kind: kind,
-                summary: "Remember something about the user long-term.",
+                // "Remember" and "remind" are near-synonyms to a small model,
+                // and this tool used to read "Remember something about the user
+                // long-term" — which is a fair description of what a reminder
+                // does too. A device duly answered "Remind me in 10 minutes to
+                // change bottles" with `storeMemory`. The negative clause is
+                // what separates them.
+                summary: "Store a lasting fact about the user. NOT for \"remind me…\" — "
+                    + "this never happens at a time.",
                 parameters: .object(
                     properties: [
                         "content": .string(description: "The fact, written in the third person."),

@@ -214,6 +214,10 @@ public enum LocalInferenceMetadataKey: String, Hashable, Sendable, CaseIterable,
     /// anything the model invented, because an unknown name never gets this far.
     case selectedTool
     case toolCallCount
+    /// What kind of thing the request asked for — reminder, memory, or other.
+    /// Recorded so a wrong-tool refusal can be read back later without the
+    /// message that caused it.
+    case actionCategory
 
     // MARK: Session
 

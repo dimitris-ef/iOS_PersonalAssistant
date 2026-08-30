@@ -107,6 +107,13 @@ final class LocalToolCallingTests: XCTestCase {
                 )
             ),
             AIToolSchema(
+                name: "storeMemory",
+                description: "Store a lasting fact about the user.",
+                parameters: .object(
+                    properties: ["content": .string()], required: ["content"]
+                )
+            ),
+            AIToolSchema(
                 name: "createCalendarEvent",
                 description: "Create a NEW event in the user's calendar.",
                 parameters: .object(
@@ -221,6 +228,108 @@ final class LocalToolCallingTests: XCTestCase {
         )
 
         XCTAssertEqual(response.text, explanation)
+    }
+
+    // MARK: The wrong kind of action
+
+    /// The device regression this continuation exists for.
+    ///
+    /// `storeMemory` for "remind me in 10 minutes" passes every other check —
+    /// valid envelope, real tool, sound arguments, no invented identifier — and
+    /// is still wrong in the way that matters most: the user is told something
+    /// was noted, believes a reminder exists, and nothing will happen at 10
+    /// minutes. Recording that something matters is not the same as making it
+    /// happen, which is the distinction the whole app is built on.
+    func testAReminderRequestAnsweredWithStoreMemoryIsRefused() async throws {
+        let runtime = MockLocalModelRuntime()
+        await runtime.alwaysRespond(
+            .toolCalls(
+                names: ["storeMemory"],
+                arguments: [["content": .string("Change bottles in 10 minutes")]],
+                message: "I'll remember that."
+            )
+        )
+        let provider = try await makeProvider(descriptor: descriptor(), runtime: runtime)
+
+        let response = try await provider.respond(
+            to: request("Remind me in 10 minutes to change bottles")
+        )
+
+        XCTAssertTrue(
+            response.toolCalls.isEmpty,
+            "a reminder request must never execute storeMemory"
+        )
+        XCTAssertEqual(response.text, LocalModelProvider.actionFailureMessage)
+    }
+
+    /// The same request, answered correctly, still works. The guard refuses one
+    /// specific wrong answer — it does not make reminders harder to set.
+    func testTheChangeBottlesReminderReachesTheReminderTool() async throws {
+        let runtime = MockLocalModelRuntime()
+        await runtime.alwaysRespond(
+            .toolCalls(
+                names: ["createReminder"],
+                arguments: [[
+                    "title": .string("Change bottles"),
+                    "dueDate": .string("2026-08-30T14:10:00Z"),
+                ]],
+                message: "I'll remind you."
+            )
+        )
+        let provider = try await makeProvider(descriptor: descriptor(), runtime: runtime)
+
+        let response = try await provider.respond(
+            to: request("Remind me in 10 minutes to change bottles")
+        )
+
+        XCTAssertEqual(response.toolCalls.count, 1)
+        XCTAssertEqual(response.toolCalls.first?.name, "createReminder")
+    }
+
+    /// The converse must keep working: a request to remember a fact is exactly
+    /// what `storeMemory` is for, and the guard must not touch it.
+    func testRememberingAFactStillReachesStoreMemory() async throws {
+        let runtime = MockLocalModelRuntime()
+        await runtime.alwaysRespond(
+            .toolCalls(
+                names: ["storeMemory"],
+                arguments: [["content": .string("John's birthday is May 3")]],
+                message: "Noted."
+            )
+        )
+        let provider = try await makeProvider(descriptor: descriptor(), runtime: runtime)
+
+        let response = try await provider.respond(
+            to: request("Remember that John's birthday is May 3")
+        )
+
+        XCTAssertEqual(response.toolCalls.count, 1)
+        XCTAssertEqual(response.toolCalls.first?.name, "storeMemory")
+    }
+
+    /// A reminder that also stores a note has done the thing that was asked.
+    /// Refusing the pair would throw away a correct action to punish a harmless
+    /// extra one.
+    func testAReminderAlongsideAStoredNoteIsAllowed() async throws {
+        let runtime = MockLocalModelRuntime()
+        await runtime.alwaysRespond(
+            .toolCalls(
+                names: ["createReminder", "storeMemory"],
+                arguments: [
+                    ["title": .string("Change bottles")],
+                    ["content": .string("Bottles need changing every 10 minutes")],
+                ],
+                message: "Done."
+            )
+        )
+        let provider = try await makeProvider(descriptor: descriptor(), runtime: runtime)
+
+        let response = try await provider.respond(
+            to: request("Remind me in 10 minutes to change bottles")
+        )
+
+        XCTAssertEqual(response.toolCalls.count, 2)
+        XCTAssertTrue(response.toolCalls.contains { $0.name == "createReminder" })
     }
 
     // MARK: Create versus update
@@ -516,6 +625,86 @@ final class LocalToolClassificationTests: XCTestCase {
             "What is the capital of France?",
         ] {
             XCTAssertFalse(LocalActionIntent.isLikely(in: phrase), phrase)
+        }
+    }
+
+    // MARK: Category
+
+    func testReminderPhrasingIsCategorisedAsAReminder() {
+        for phrase in [
+            "Remind me in 10 minutes to change bottles",
+            "remind me to call the dentist",
+            "Set an alarm for 7.",
+            "Wake me at six.",
+            "Nudge me about the laundry.",
+        ] {
+            XCTAssertEqual(LocalActionIntent.category(in: phrase), .reminder, phrase)
+        }
+    }
+
+    func testMemoryPhrasingIsCategorisedAsMemory() {
+        for phrase in [
+            "Remember that John's birthday is May 3",
+            "Note that I prefer aisle seats.",
+            "Remember my sister's name is Ana.",
+        ] {
+            XCTAssertEqual(LocalActionIntent.category(in: phrase), .memory, phrase)
+        }
+    }
+
+    /// The ambiguous sentence, resolved the way that fails safe: what is being
+    /// asked for is the reminding.
+    func testRemindMeToRememberIsAReminder() {
+        XCTAssertEqual(
+            LocalActionIntent.category(in: "Remind me to remember the passports"),
+            .reminder
+        )
+    }
+
+    func testAnOrdinaryQuestionHasNoActionCategory() {
+        XCTAssertEqual(LocalActionIntent.category(in: "What is the capital of France?"), .other)
+        XCTAssertEqual(LocalActionIntent.category(in: "How do you create a reminder?"), .other)
+    }
+
+    private func toolCall(_ name: String) -> AIToolCall {
+        AIToolCall(name: name, arguments: .object([:]))
+    }
+
+    func testTheGuardRefusesOnlyAReminderAnsweredEntirelyWithMemoryTools() {
+        XCTAssertNotNil(
+            LocalToolIntentGuard.mismatch(category: .reminder, calls: [toolCall("storeMemory")])
+        )
+        XCTAssertNotNil(
+            LocalToolIntentGuard.mismatch(
+                category: .reminder,
+                calls: [toolCall("storeMemory"), toolCall("updateMemory")]
+            )
+        )
+        // A real action is present.
+        XCTAssertNil(
+            LocalToolIntentGuard.mismatch(
+                category: .reminder,
+                calls: [toolCall("createReminder"), toolCall("storeMemory")]
+            )
+        )
+        // Not a reminder request at all.
+        XCTAssertNil(
+            LocalToolIntentGuard.mismatch(category: .memory, calls: [toolCall("storeMemory")])
+        )
+        XCTAssertNil(
+            LocalToolIntentGuard.mismatch(category: .other, calls: [toolCall("storeMemory")])
+        )
+        // Nothing proposed is not a mismatch; it is handled elsewhere.
+        XCTAssertNil(LocalToolIntentGuard.mismatch(category: .reminder, calls: []))
+    }
+
+    /// The names the guard refuses on must be real tools, so a rename in the
+    /// domain cannot quietly empty the set and turn the guard into a no-op that
+    /// still looks like it is working.
+    func testTheGuardsToolNamesAreRealTools() {
+        XCTAssertFalse(LocalToolIntentGuard.memoryOnlyTools.isEmpty)
+        for name in LocalToolIntentGuard.memoryOnlyTools {
+            XCTAssertNotNil(ToolKind(rawValue: name), "\(name) is not a ToolKind")
         }
     }
 

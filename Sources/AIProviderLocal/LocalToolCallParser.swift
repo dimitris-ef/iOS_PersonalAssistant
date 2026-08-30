@@ -205,6 +205,28 @@ public struct LocalToolCallParser: Sendable {
     }
 }
 
+/// The kind of thing a request is asking for.
+///
+/// ## Why this is needed at all
+///
+/// A device produced `storeMemory` for "Remind me in 10 minutes to change
+/// bottles". Nothing caught it: the envelope was valid, the tool existed, the
+/// arguments were fine, and no identifier was invented. It was simply the wrong
+/// action, and the user got a confirmation for a note they never asked for
+/// while the reminder they did ask for never existed.
+///
+/// That failure is the app's founding distinction in miniature — recording that
+/// something matters is not the same as making it happen — so it is worth a
+/// check even though the model, not this code, chooses the tool.
+public enum LocalActionCategory: String, Hashable, Sendable {
+    /// "Remind me…", "set an alarm…" — do something for me, at a time.
+    case reminder
+    /// "Remember that…" — hold on to this fact about me.
+    case memory
+    /// Something else, or nothing recognisable. Never constrains anything.
+    case other
+}
+
 /// Whether the person asked for something to be *done*.
 ///
 /// ## Why this is a heuristic and why that is acceptable here
@@ -252,5 +274,80 @@ public enum LocalActionIntent {
         // question: "how do you create a reminder?" contains "create ".
         if inquiryPhrases.contains(where: { lowered.contains($0) }) { return false }
         return actionPhrases.contains(where: { lowered.contains($0) })
+    }
+
+    /// Phrases that ask for something to happen at a time.
+    static let reminderPhrases = [
+        "remind me", "remind us", "set a reminder", "reminder for", "reminder in",
+        "reminder to", "wake me", "set an alarm", "alarm for", "alarm in",
+        "nudge me", "ping me", "tell me when", "let me know when",
+    ]
+
+    /// Phrases that ask for a fact to be kept.
+    static let memoryPhrases = [
+        "remember that", "remember my", "remember i", "note that",
+        "keep in mind that", "make a note", "don't forget that", "dont forget that",
+    ]
+
+    public static func category(in messages: [AIMessage]) -> LocalActionCategory {
+        guard let latest = messages.last(where: { $0.role == .user }) else { return .other }
+        return category(in: latest.content)
+    }
+
+    /// Reminder wins a tie.
+    ///
+    /// "Remind me to remember the passports" contains both, and the thing being
+    /// asked for is the reminding — the remembering is what the reminder is
+    /// about. Getting this backwards would produce a stored note and no alarm,
+    /// which is the exact failure this classification exists to stop.
+    public static func category(in text: String) -> LocalActionCategory {
+        let lowered = text.lowercased()
+        guard !lowered.isEmpty else { return .other }
+        if inquiryPhrases.contains(where: { lowered.contains($0) }) { return .other }
+        if reminderPhrases.contains(where: { lowered.contains($0) }) { return .reminder }
+        if memoryPhrases.contains(where: { lowered.contains($0) }) { return .memory }
+        return .other
+    }
+}
+
+/// Refuses a proposed action that is the wrong *kind* of thing entirely.
+///
+/// ## Scope, deliberately narrow
+///
+/// Section 34 says not to build a second business-logic router inside the
+/// provider, and this is not one: it never chooses a tool and never rewrites
+/// one. It answers a single question — did the model respond to "remind me at
+/// a time" with nothing but "write this down"? — and when the answer is yes it
+/// hands the turn to the repair that already exists.
+///
+/// One direction only. A memory request answered with a reminder is not
+/// enforced here, because "Remember that John's birthday is May 3" answered by
+/// putting it in the calendar is a defensible reading of what somebody wanted,
+/// whereas a reminder silently downgraded to a note is not: the user is left
+/// believing something will happen at a time, and nothing will.
+public enum LocalToolIntentGuard {
+
+    /// Tools that only record a fact and cause nothing to happen later.
+    ///
+    /// The rule is stated as a denial rather than a requirement — "not entirely
+    /// memory" rather than "must include a reminder" — on purpose. A positive
+    /// list would have to enumerate every acceptable answer, and the first turn
+    /// of an agent loop is often a read (`getUpcomingSchedule`) before the
+    /// action; refusing that would break the find-then-act flow to catch a
+    /// mistake it was never making.
+    public static let memoryOnlyTools: Set<String> = ["storeMemory", "updateMemory"]
+
+    /// Nil when the calls are an acceptable answer to this kind of request.
+    public static func mismatch(
+        category: LocalActionCategory,
+        calls: [AIToolCall]
+    ) -> String? {
+        guard category == .reminder, !calls.isEmpty else { return nil }
+        // Only when *every* proposed call is memory-only. A model that stores a
+        // note alongside setting the reminder has done nothing wrong, and
+        // refusing that would throw away a correct action.
+        let names = Set(calls.map(\.name))
+        guard names.allSatisfy({ memoryOnlyTools.contains($0) }) else { return nil }
+        return "reminderAnsweredWithMemoryOnly"
     }
 }
