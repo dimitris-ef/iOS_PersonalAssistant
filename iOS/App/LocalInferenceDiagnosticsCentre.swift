@@ -209,9 +209,23 @@ final class LocalInferenceDiagnosticsCentre {
     }
 
     func report(for id: LocalInferenceSessionID) -> String {
-        LocalInferenceDiagnosticReport.text(
+        // Section 44. The previous session is read back off disk in full rather
+        // than summarized: the summary says "terminated after ENTER
+        // prompt_decode", and the forty lines before it are what say which
+        // model, which batch numbers and what the native layer was complaining
+        // about on the way down.
+        //
+        // Only when the report is *about* the current session — exporting the
+        // previous one while also printing it above itself would duplicate every
+        // line for no gain.
+        var previous: LocalInferenceDecodedSession?
+        if let recoveredID = recovery?.sessionID, recoveredID != id {
+            previous = store.read(session: recoveredID)
+        }
+        return LocalInferenceDiagnosticReport.text(
             header: header(),
             recovery: recovery,
+            previousSession: previous,
             session: read(id),
             sessionID: id,
             writerFailure: logger.writerFailureDescription

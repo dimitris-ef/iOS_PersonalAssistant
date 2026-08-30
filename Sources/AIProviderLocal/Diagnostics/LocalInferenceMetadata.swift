@@ -131,6 +131,47 @@ public enum LocalInferenceMetadataKey: String, Hashable, Sendable, CaseIterable,
     case nativeCode
     case nativeSymbol
 
+    // MARK: The decode boundary — sections 9 to 21 and 54 to 64
+
+    /// `assistant_chat` or `minimal_native_decode` (section 43).
+    case origin
+    case llamaCppBuildNumber
+    case llamaCppBuildTarget
+    case llamaCppSystemInfo
+    /// Bumped every time a context is created, so a report can say which
+    /// context a decode belonged to without printing a pointer (section 22).
+    case contextGeneration
+    case batchTokenCount
+    case batchNTokens
+    case batchAllocatedCapacity
+    case batchUsesTokens
+    case batchUsesEmbeddings
+    case batchConstruction
+    case positionsMode
+    case positionCount
+    case firstPosition
+    case lastPosition
+    case sequenceMode
+    case sequenceCount
+    case logitsPointerPresent
+    case logitsFlagCount
+    case logitsTrueCount
+    case validationResult
+    case decodeReturnCode
+    case decodeElapsedMs
+    case firstTokenIDs
+    case lastTokenIDs
+    case remainingContextCapacity
+    case kvUsedCells
+    case kvTokenCount
+    case kvSequenceCount
+    /// Section 47: the real footprint, from `task_info`, distinct from every
+    /// estimate in this file.
+    case processMemoryFootprintBytes
+    case nativeLogLevel
+    case decodeConcurrentOperations
+    case minimalTestResult
+
     // MARK: Session
 
     case clean

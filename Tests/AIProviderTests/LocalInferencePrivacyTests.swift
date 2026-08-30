@@ -210,6 +210,7 @@ final class LocalInferencePrivacyTests: XCTestCase {
                 generatedAt: Date()
             ),
             recovery: nil,
+            previousSession: nil,
             session: decoded,
             sessionID: logger.appSessionID,
             writerFailure: nil

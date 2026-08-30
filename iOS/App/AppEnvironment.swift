@@ -363,6 +363,13 @@ final class AppEnvironment: Sendable {
             store: diagnosticStore,
             verbose: UserDefaults.standard.bool(forKey: "metisai.diagnostics.local.verbose")
         )
+        // Section 34. Before anything can load a model, llama.cpp's own log
+        // output is pointed at that same file. If the native layer asserts
+        // inside `llama_decode` it prints one line and calls `abort()`; Swift
+        // never gets control back, so that line is the only account of why, and
+        // on a device there is no console for it to land in.
+        LlamaNativeLogBridge.install(localDiagnostics)
+
         let localRuntime = LocalRuntimeResolver.best(diagnostics: localDiagnostics)
         let localModels = LocalModelManager(
             catalog: LocalModelCatalog.bundled(),

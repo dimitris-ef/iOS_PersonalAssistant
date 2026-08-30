@@ -443,6 +443,35 @@ final class AppModel {
         await LocalRuntimeResolver.diagnostic()
     }
 
+    /// Runs one native decode with as little of this app around it as possible.
+    ///
+    /// Sections 35 to 43. The chosen model is named explicitly by the caller
+    /// (section 71) rather than inferred from what happens to be selected, and
+    /// the resident model is unloaded first (section 70): the harness opens its
+    /// own `llama_context`, and two live contexts on one device is the very
+    /// concurrency variable this pass is trying to remove.
+    ///
+    /// Refuses outright while a turn is in flight, for the same reason.
+    func runMinimalNativeDecodeTest(
+        on modelID: AIModelIdentifier
+    ) async -> MinimalDecodeOutcome {
+        guard !isAssistantResponding else {
+            return .failed(
+                stage: .minimalPromptDecode,
+                reason: "The assistant is answering. Wait for it to finish and try again."
+            )
+        }
+        guard let fileURL = await localModels.installedFileURL(for: modelID) else {
+            return .failed(
+                stage: .modelLoad,
+                reason: "That model is not installed on this iPhone."
+            )
+        }
+        await localModels.unload()
+        let harness = CanonicalMinimalDecodeHarness(diagnostics: environment.localDiagnostics)
+        return await harness.run(modelURL: fileURL, modelID: modelID)
+    }
+
     /// A status coordinator for the Apple On-Device screen.
     ///
     /// Built per screen rather than held here, because its automatic refresh is

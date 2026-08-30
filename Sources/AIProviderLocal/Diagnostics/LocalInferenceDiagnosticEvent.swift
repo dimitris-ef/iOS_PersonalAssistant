@@ -162,6 +162,19 @@ public enum LocalInferenceEventName: String, Hashable, Sendable, CaseIterable, C
     case stage = "STAGE"
 
     case promptMetadata = "PROMPT_METADATA"
+    /// The complete immutable snapshot taken immediately before the first
+    /// native decode (sections 4 and 46).
+    case decodePreflight = "DECODE_PREFLIGHT"
+    /// The result of validating the batch in Swift before handing it to C.
+    case decodeBatchValidation = "DECODE_BATCH_VALIDATION"
+    /// What `llama_decode` returned, when it returned.
+    case decodeResult = "DECODE_RESULT"
+    /// KV cache summary, before and after.
+    case kvCacheState = "KV_CACHE_STATE"
+    /// A line llama.cpp itself emitted, through its log callback.
+    case nativeLog = "NATIVE_LOG"
+    /// The minimal single-decode diagnostic test.
+    case minimalDecodeTest = "MINIMAL_DECODE_TEST"
     case contextBudgetExceeded = "CONTEXT_BUDGET_EXCEEDED"
 
     case firstToken = "FIRST_TOKEN"
@@ -194,6 +207,10 @@ public enum LocalInferenceStage: String, Hashable, Sendable, CaseIterable, Codab
     /// The first `llama_decode` of the turn — the one that allocates the
     /// compute buffers, and the current prime suspect.
     case promptDecode = "prompt_decode"
+    /// The one decode the minimal diagnostic harness performs. Deliberately a
+    /// distinct stage from `prompt_decode` so a recovery report can say which
+    /// of the two paths the process died in (section 42).
+    case minimalPromptDecode = "minimal_prompt_decode"
     /// The sampling loop as a whole. Deliberately not per token: a breadcrumb
     /// per token would be thousands of `fsync` calls and would change the
     /// timing of the thing being measured (section 40).
@@ -214,6 +231,7 @@ public enum LocalInferenceStage: String, Hashable, Sendable, CaseIterable, Codab
         case .chatTemplate: return "Applying the chat template"
         case .tokenize: return "Tokenizing the prompt"
         case .promptDecode: return "Reading the prompt into the model"
+        case .minimalPromptDecode: return "The minimal native decode test"
         case .generationDecode: return "Generating the reply"
         case .generation: return "Generation"
         case .inference: return "The whole request"

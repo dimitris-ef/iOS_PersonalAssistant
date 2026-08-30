@@ -1,5 +1,6 @@
 import AIProviderLocal
 import AIProviderLocalLlama
+import AssistantDomain
 import SwiftUI
 import UIKit
 
@@ -27,6 +28,15 @@ struct LocalInferenceDiagnosticsView: View {
     @State private var shareURL: URL?
     @State private var runtime: LocalRuntimeDiagnostic?
 
+    /// Section 71: which model the minimal test opens, chosen explicitly.
+    @State private var installedModels: [LocalModelStatus] = []
+    @State private var minimalTestModel: AIModelIdentifier?
+    @State private var isConfirmingMinimalTest = false
+    @State private var isRunningMinimalTest = false
+    /// Section 42. Kept on the screen after the run, because the point of the
+    /// test is comparing its answer against what the real path did.
+    @State private var minimalOutcome: MinimalDecodeOutcome?
+
     private var centre: LocalInferenceDiagnosticsCentre { model.localDiagnostics }
 
     enum SessionChoice: Hashable {
@@ -39,13 +49,42 @@ struct LocalInferenceDiagnosticsView: View {
             previousSessionSection
             summarySection
             configurationSection
+            decodeSnapshotSection
+            nativeLogSection
+            minimalTestSection
             advancedSection
             logSection
             actionSection
         }
         .navigationTitle("Local AI Diagnostics")
         .navigationBarTitleDisplayMode(.inline)
-        .task { runtime = await model.localRuntimeDiagnostic() }
+        .task {
+            runtime = await model.localRuntimeDiagnostic()
+            installedModels = await model.localModels.statuses()
+                .filter { $0.lifecycle.isInstalled }
+            if minimalTestModel == nil {
+                minimalTestModel = installedModels.first { $0.isSelected }?.id
+                    ?? installedModels.first?.id
+            }
+        }
+        .confirmationDialog(
+            "Run a minimal native decode test?",
+            isPresented: $isConfirmingMinimalTest,
+            titleVisibility: .visible
+        ) {
+            Button("Run Test") { runMinimalTest() }
+            Button("Cancel", role: .cancel) { isConfirmingMinimalTest = false }
+        } message: {
+            // Section 69. It unloads the resident model and opens its own, and
+            // it can take the app down with it — that is what it is testing.
+            Text(
+                "This unloads any model currently in memory, opens the chosen model "
+                    + "on its own and performs a single decode of a fixed test word. "
+                    + "If the on-device runtime is crashing, this may end the app. "
+                    + "The breadcrumb is written before the call, so the log survives "
+                    + "either way."
+            )
+        }
         .confirmationDialog(
             "Clear diagnostic logs?",
             isPresented: $isConfirmingClear,
@@ -193,6 +232,150 @@ struct LocalInferenceDiagnosticsView: View {
         }
     }
 
+    // MARK: The decode boundary
+
+    /// Section 67. Everything that was true immediately before the last
+    /// `llama_decode`, in one place.
+    ///
+    /// Collapsed by default and deliberately: it is twenty-odd numbers, and the
+    /// person who needs them knows they need them. The one line outside the
+    /// disclosure is whether that decode came back, which is the only part
+    /// worth reading at a glance.
+    @ViewBuilder
+    private var decodeSnapshotSection: some View {
+        let preflight = latestDecodePreflight
+        Section {
+            if preflight.isEmpty {
+                Text("No prompt decode has been attempted in this session.")
+                    .foregroundStyle(.secondary)
+            } else {
+                LabeledContent("Outcome") {
+                    Text(decodeOutcomeLabel)
+                        .font(.footnote.monospaced())
+                        .foregroundStyle(decodeOutcomeColour)
+                }
+                DisclosureGroup("Preflight Snapshot") {
+                    ForEach(LocalInferenceDiagnosticReport.metadataLines(preflight), id: \.self) {
+                        Text($0)
+                            .font(.system(size: 11, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+        } header: {
+            Text("Last Prompt Decode Snapshot")
+        } footer: {
+            // Sections 50, 51 and 89 again, at the one place on this screen
+            // where a reader is most tempted to conclude something.
+            Text(
+                "These are the values the batch and context actually held when the "
+                    + "call was made. A snapshot with no outcome means the process did "
+                    + "not come back from that call — which says where it stopped, not why."
+            )
+        }
+    }
+
+    /// Section 68. What llama.cpp itself said.
+    @ViewBuilder
+    private var nativeLogSection: some View {
+        let lines = selectedSession.events.filter { $0.name == .nativeLog }
+        Section {
+            if lines.isEmpty {
+                Text("The inference runtime has not reported anything in this session.")
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(lines.suffix(Self.nativeLogLimit), id: \.sequence) { event in
+                    Text(
+                        LocalInferenceDiagnosticReport.describe(
+                            event.metadata[.errorReason] ?? .text("")
+                        )
+                    )
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(colour(for: event))
+                }
+            }
+        } header: {
+            Text("llama.cpp Native Log")
+        } footer: {
+            Text(
+                "Lines the inference engine printed itself, filtered to structural "
+                    + "messages. Nothing derived from your messages is kept."
+            )
+        }
+    }
+
+    /// The last few, newest at the bottom. llama.cpp is talkative at load time
+    /// and the whole run belongs in the export rather than on the screen.
+    private static let nativeLogLimit = 25
+
+    /// Sections 41, 42, 69, 70 and 71.
+    @ViewBuilder
+    private var minimalTestSection: some View {
+        Section {
+            if installedModels.isEmpty {
+                Text("No local model is installed, so there is nothing to test.")
+                    .foregroundStyle(.secondary)
+            } else {
+                // Section 71: named, not inferred. "Whichever model was
+                // selected" is exactly the ambiguity that makes a test result
+                // unusable a week later.
+                Picker("Model", selection: $minimalTestModel) {
+                    ForEach(installedModels) { status in
+                        Text(status.descriptor.displayName)
+                            .tag(Optional(status.id))
+                    }
+                }
+
+                Button("Run Minimal Native Decode Test") { isConfirmingMinimalTest = true }
+                    // Section 70: never alongside a live turn, and never twice
+                    // at once.
+                    .disabled(
+                        isRunningMinimalTest
+                            || model.isAssistantResponding
+                            || minimalTestModel == nil
+                    )
+
+                if isRunningMinimalTest {
+                    HStack(spacing: 8) {
+                        ProgressView()
+                        Text("Running…").foregroundStyle(.secondary)
+                    }
+                }
+                if let minimalOutcome {
+                    Label(
+                        minimalOutcome.summary,
+                        systemImage: minimalOutcome.didSucceed
+                            ? "checkmark.circle" : "exclamationmark.triangle"
+                    )
+                    .font(.footnote)
+                    .foregroundStyle(minimalOutcome.didSucceed ? Color.green : Color.orange)
+                }
+            }
+        } header: {
+            Text("Minimal Native Decode Test")
+        } footer: {
+            // Section 43: what each outcome does and does not license.
+            Text(
+                "Opens the chosen model on its own, with GPU offload off and a small "
+                    + "context, and decodes one fixed word. If this succeeds while a real "
+                    + "conversation does not, the difference is in what the full path does "
+                    + "around the call. If it also fails, the problem is below this app. "
+                    + "Neither outcome identifies a cause on its own."
+            )
+        }
+    }
+
+    private func runMinimalTest() {
+        guard let modelID = minimalTestModel else { return }
+        isRunningMinimalTest = true
+        minimalOutcome = nil
+        Task {
+            let outcome = await model.runMinimalNativeDecodeTest(on: modelID)
+            minimalOutcome = outcome
+            isRunningMinimalTest = false
+        }
+    }
+
     // MARK: Advanced
 
     /// Section 69. Explicitly diagnostic, explicitly not a performance panel.
@@ -317,6 +500,35 @@ struct LocalInferenceDiagnosticsView: View {
 
     private var selectedSession: LocalInferenceDecodedSession {
         centre.read(selectedSessionID)
+    }
+
+    /// The most recent decode preflight in whichever session is shown, falling
+    /// back to the one the previous session left behind.
+    ///
+    /// The fallback is the interesting case: after a termination inside
+    /// `llama_decode` the current session has no preflight at all, and the one
+    /// worth reading belongs to the process that died.
+    private var latestDecodePreflight: LocalInferenceMetadata {
+        selectedSession.events.last { $0.name == .decodePreflight }?.metadata
+            ?? centre.recovery?.decodePreflight
+            ?? .empty
+    }
+
+    /// Whether the last decode came back, and with what.
+    private var decodeOutcomeLabel: String {
+        guard let event = selectedSession.events.last(where: { $0.name == .decodeResult }) else {
+            return "No result recorded"
+        }
+        guard let result = event.metadata[.validationResult] else { return "recorded" }
+        return LocalInferenceDiagnosticReport.describe(result)
+    }
+
+    private var decodeOutcomeColour: Color {
+        guard let event = selectedSession.events.last(where: { $0.name == .decodeResult }) else {
+            return .orange
+        }
+        if case .text("success")? = event.metadata[.validationResult] { return .secondary }
+        return .orange
     }
 
     /// The most recent runtime configuration line in whichever session is shown.

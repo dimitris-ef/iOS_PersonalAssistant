@@ -72,6 +72,35 @@ public struct LocalInferenceDiagnosticOverrides: Hashable, Sendable, Codable {
         LocalInferenceConfiguration.conservative.contextLength
     }
 
+    // MARK: Decoding
+
+    /// Decodes field by field, defaulting anything absent.
+    ///
+    /// ## The bug this fixes
+    ///
+    /// Section 10: choosing Low Threads appeared to reset itself to Automatic.
+    /// The synthesized `Decodable` conformance requires **every** key to be
+    /// present, so a blob written by a build with a different field set fails
+    /// to decode *as a whole* — and the `try?` at the call site turns that into
+    /// `.none`. Every override silently reverts, and the one the user was
+    /// staring at reverts visibly.
+    ///
+    /// That is a schema-evolution hazard, not a one-off: the same thing would
+    /// happen again the next time a field is added. Decoding each key
+    /// independently means a missing field costs its own default and nothing
+    /// else.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        forceCPUOnly = (try? container.decode(Bool.self, forKey: .forceCPUOnly)) ?? false
+        gpuOffloadEnabled = (try? container.decode(Bool.self, forKey: .gpuOffloadEnabled)) ?? true
+        conservativeContext =
+            (try? container.decode(Bool.self, forKey: .conservativeContext)) ?? false
+        conservativeBatch = (try? container.decode(Bool.self, forKey: .conservativeBatch)) ?? false
+        threadMode =
+            (try? container.decode(LocalInferenceThreadMode.self, forKey: .threadMode))
+            ?? .automatic
+    }
+
     public func metadata() -> LocalInferenceMetadata {
         LocalInferenceMetadata()
             .setting(.cpuOnly, forceCPUOnly)
@@ -121,15 +150,32 @@ public enum LocalInferenceThreadMode: String, Hashable, Sendable, Codable, CaseI
     public var displayName: String {
         switch self {
         case .automatic: return "Automatic"
-        case .low: return "Low (2 threads)"
-        case .single: return "Single thread"
+        case .low: return "Low Threads"
+        case .single: return "Single Thread"
         }
     }
 
+    /// Tolerant of an unrecognised stored value.
+    ///
+    /// Same reasoning as the overrides decoder above: an enum case this build
+    /// does not know must cost its own default, not the whole settings blob.
+    public init(from decoder: any Decoder) throws {
+        let raw = try decoder.singleValueContainer().decode(String.self)
+        self = LocalInferenceThreadMode(rawValue: raw) ?? .automatic
+    }
+
+    /// How many threads this mode asks for.
+    ///
+    /// `low` is a **fixed** 2, not `min(2, automatic)`. The earlier version
+    /// clamped against the automatic count, so on a device whose policy already
+    /// chose 2 the low mode was indistinguishable from automatic — which is
+    /// exactly the confusion section 10 describes, and it made the setting look
+    /// like it had not taken effect. The point of a diagnostic mode is to be a
+    /// different number, deliberately.
     public func threadCount(automatic value: Int) -> Int {
         switch self {
-        case .automatic: return value
-        case .low: return min(2, value)
+        case .automatic: return max(1, value)
+        case .low: return 2
         case .single: return 1
         }
     }

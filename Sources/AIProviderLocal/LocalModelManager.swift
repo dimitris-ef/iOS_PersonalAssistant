@@ -468,6 +468,22 @@ public actor LocalModelManager {
         loadedConfiguration
     }
 
+    /// Where an installed model's file actually is, or nil if it is not there.
+    ///
+    /// Exists for the minimal native decode test (section 41), which opens the
+    /// weights itself rather than through this manager — the point of that test
+    /// is to have as little of this app as possible between the file and
+    /// `llama_decode`, and going through `load` would put all of it back.
+    ///
+    /// Returns nil rather than a URL for a missing file, so the caller cannot
+    /// hand a path that does not exist to the runtime and read the resulting
+    /// failure as a decode problem.
+    public func installedFileURL(for id: AIModelIdentifier) async -> URL? {
+        guard let record = try? await repository.model(id: id) else { return nil }
+        guard store.fileExists(record) else { return nil }
+        return store.url(for: record)
+    }
+
     /// Loads the selected model if it is not already in memory.
     public func ensureSelectedModelLoaded() async throws -> LoadedModelInfo {
         guard let id = await selectedModelID() else {

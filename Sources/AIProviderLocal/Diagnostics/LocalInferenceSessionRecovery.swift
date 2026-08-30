@@ -92,7 +92,12 @@ public enum LocalInferenceSessionRecovery {
             eventCount: events.count,
             unreadableLineCount: session.unreadableLineCount,
             modelID: lastValue(in: events, key: .modelID),
-            configuration: configurationSnapshot(in: events)
+            configuration: configurationSnapshot(in: events),
+            // Section 43: a crash during the minimal decode test and a crash
+            // during a chat turn are different findings, and a report that
+            // cannot tell them apart invites the wrong conclusion.
+            origin: lastValue(in: events, key: .origin),
+            decodePreflight: events.last { $0.name == .decodePreflight }?.metadata
         )
     }
 
@@ -252,6 +257,11 @@ public struct LocalInferenceRecoverySummary: Sendable {
     public let unreadableLineCount: Int
     public let modelID: String?
     public let configuration: LocalInferenceMetadata?
+    /// `assistant_chat` or `minimal_native_decode` (section 43).
+    public let origin: String?
+    /// The last `DECODE_PREFLIGHT` block — everything that was true about the
+    /// batch and the runtime immediately before the native call.
+    public let decodePreflight: LocalInferenceMetadata?
 
     public init(
         sessionID: LocalInferenceSessionID,
@@ -265,7 +275,9 @@ public struct LocalInferenceRecoverySummary: Sendable {
         eventCount: Int,
         unreadableLineCount: Int,
         modelID: String?,
-        configuration: LocalInferenceMetadata?
+        configuration: LocalInferenceMetadata?,
+        origin: String? = nil,
+        decodePreflight: LocalInferenceMetadata? = nil
     ) {
         self.sessionID = sessionID
         self.endedAt = endedAt
@@ -279,6 +291,8 @@ public struct LocalInferenceRecoverySummary: Sendable {
         self.unreadableLineCount = unreadableLineCount
         self.modelID = modelID
         self.configuration = configuration
+        self.origin = origin
+        self.decodePreflight = decodePreflight
     }
 
     /// True when this is worth putting in front of somebody.

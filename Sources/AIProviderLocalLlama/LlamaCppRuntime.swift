@@ -52,6 +52,28 @@ public actor LlamaCppRuntime: LocalModelRuntime {
     /// and this file names functions a different build may have renamed.
     public static let pinnedVersion = "b10506"
 
+    /// What the linked binary reports, as opposed to what the manifest pinned.
+    ///
+    /// Section 7: these are two different facts and only one of them is
+    /// evidence. If a build ever links a framework other than the pinned one,
+    /// this is where it becomes visible instead of being assumed away.
+    public static var linkedVersion: String {
+        #if canImport(llama)
+        return String(cString: llama_version())
+        #else
+        return "unknown"
+        #endif
+    }
+
+    /// A one-line description of the backends the linked build actually has.
+    public static var systemInfo: String {
+        #if canImport(llama)
+        return String(cString: llama_print_system_info())
+        #else
+        return "unknown"
+        #endif
+    }
+
     public nonisolated let runtimeCapabilities = LocalRuntimeCapabilities(
         supportedFormats: [.gguf],
         usesHardwareAcceleration: LlamaCppRuntime.hasMetal,
@@ -75,6 +97,13 @@ public actor LlamaCppRuntime: LocalModelRuntime {
     /// contract — an ENTER that suspended before reaching the disk would be an
     /// ENTER that does not survive the call it precedes.
     private let diagnostics: any LocalInferenceDiagnosticSink
+    /// Bumped on every successful context creation.
+    ///
+    /// Section 22 asks for a safe opaque context identity so a report can say
+    /// which context a decode belonged to. A counter rather than a pointer
+    /// address: the address answers the same question and is a disclosure in a
+    /// log somebody shares.
+    private var contextGeneration = 0
 
     #if canImport(llama)
     private var model: OpaquePointer?
@@ -240,6 +269,7 @@ public actor LlamaCppRuntime: LocalModelRuntime {
             )
         }
         context = newContext
+        contextGeneration += 1
         diagnostics.criticalExit(
             .contextCreate,
             operation: contextOperation,
@@ -478,39 +508,16 @@ public actor LlamaCppRuntime: LocalModelRuntime {
         // passed every preflight and answered "Ready" dies here, which is
         // exactly the shape of the crash being investigated. If the next
         // recovery report names `prompt_decode`, this line is why it can.
-        let decodeOperation = diagnostics.criticalEnter(
-            .promptDecode,
-            metadata: LocalInferenceMetadata()
-                .setting(.promptTokenCount, promptTokens)
-                .setting(.actualContextSize, contextLength)
-                .setting(.batchSize, Int(llama_n_batch(context)))
-                .setting(.microBatchSize, Int(llama_n_ubatch(context)))
+        let decodeResult = try performPromptDecode(
+            tokens: tokens,
+            context: context,
+            contextLength: contextLength,
+            origin: "assistant_chat",
+            stage: .promptDecode
         )
-        // The batch borrows the token buffer and `llama_decode` reads it, so
-        // the pointer has to stay valid across both calls. `&tokens` would
-        // produce one that is valid only for the duration of `batch_get_one`.
-        let promptStatus = tokens.withUnsafeMutableBufferPointer { buffer -> Int32 in
-            let batch = llama_batch_get_one(buffer.baseAddress, Int32(buffer.count))
-            return llama_decode(context, batch)
+        guard decodeResult.isSuccess else {
+            throw LocalRuntimeError.generationFailed(reason: decodeResult.explanation)
         }
-        guard promptStatus == 0 else {
-            diagnostics.criticalFailure(
-                .promptDecode,
-                operation: decodeOperation,
-                metadata: LocalInferenceMetadata()
-                    .setting(.errorKind, "decodeFailed")
-                    .setting(.nativeSymbol, "llama_decode")
-                    .setting(.nativeCode, Int(promptStatus))
-            )
-            throw LocalRuntimeError.generationFailed(
-                reason: "The model could not read the prompt."
-            )
-        }
-        diagnostics.criticalExit(
-            .promptDecode,
-            operation: decodeOperation,
-            metadata: LocalInferenceMetadata().setting(.promptTokenCount, promptTokens)
-        )
 
         guard let sampler = makeSampler(options: options) else {
             throw LocalRuntimeError.generationFailed(reason: "The sampler could not be created.")
@@ -663,6 +670,169 @@ public actor LlamaCppRuntime: LocalModelRuntime {
         #endif
     }
 
+    #if canImport(llama)
+    /// The first native decode, fully instrumented.
+    ///
+    /// ## The order, which is the point
+    ///
+    /// ```
+    /// build the batch (llama.cpp owns every buffer)
+    ///   ↓ validate in Swift — refuse rather than call C on a bad batch
+    /// DECODE_PREFLIGHT   ← synchronous write, on disk
+    /// ENTER prompt_decode ← synchronous write, on disk
+    ///   ↓
+    /// llama_decode(...)
+    ///   ↓ only if it returns
+    /// EXIT prompt_decode
+    /// ```
+    ///
+    /// Section 55: the EXIT is written *after* control comes back and nowhere
+    /// else, so a process that dies inside `llama_decode` leaves the ENTER
+    /// unmatched — which is the whole recovery mechanism.
+    func performPromptDecode(
+        tokens: [llama_token],
+        context: OpaquePointer,
+        contextLength: Int,
+        origin: String,
+        stage: LocalInferenceStage
+    ) throws -> LocalDecodeResult {
+        let batchLimit = Int(llama_n_batch(context))
+        let microBatch = Int(llama_n_ubatch(context))
+
+        guard let batch = LlamaDecodeBatch(capacity: max(tokens.count, 1)) else {
+            throw LocalRuntimeError.generationFailed(
+                reason: "The inference runtime could not allocate a batch for "
+                    + "\(tokens.count) tokens."
+            )
+        }
+        // Freed on every path out, including a throw. Section 65: freeing too
+        // early is as much a bug as never freeing, so it happens here — after
+        // the decode has returned — and not in a `defer` that could run while
+        // an asynchronous decode was still reading.
+        defer { batch.free() }
+
+        guard batch.fill(tokens: tokens) else {
+            throw LocalRuntimeError.generationFailed(
+                reason: "The prompt did not fit the batch that was allocated for it."
+            )
+        }
+
+        let descriptor = batch.descriptor(
+            contextBatchLimit: batchLimit, contextSize: contextLength
+        )
+        let identifiers = batch.tokenIDSummary()
+
+        // Section 46: everything true about the runtime and the batch, in one
+        // block, immediately before the call. Written synchronously.
+        let preflight = descriptor.metadata()
+            .merging(runtimeIdentityMetadata())
+            .setting(.origin, origin)
+            .setting(.microBatchSize, microBatch)
+            .setting(.contextGeneration, contextGeneration)
+            .setting(.promptTokenCount, tokens.count)
+            .setting(.remainingContextCapacity, max(0, contextLength - tokens.count))
+            .setting(.batchConstruction, "llama_batch_init_explicit")
+            .setting(.firstTokenIDs, identifiers.first)
+            .setting(.lastTokenIDs, identifiers.last)
+            .setting(.decodeConcurrentOperations, 0)
+            .setting(.processMemoryFootprintBytes, LlamaProcessMemory.footprintBytes() ?? 0)
+            .merging(kvCacheMetadata(context))
+        diagnostics.info(.decodePreflight, category: .runtime, stage: stage, metadata: preflight)
+
+        // Section 28 and 29: validated in Swift first. A batch that fails here
+        // never reaches C, and the failure is recorded as a *Swift* finding,
+        // which is a different diagnosis from one llama.cpp returned.
+        if let failure = LocalDecodeBatchValidator.validate(descriptor) {
+            diagnostics.problem(
+                .decodeBatchValidation,
+                category: .runtime,
+                stage: stage,
+                metadata: LocalInferenceMetadata()
+                    .setting(.validationResult, failure.symbol)
+                    .setting(.errorReason, failure.description)
+            )
+            throw LocalRuntimeError.generationFailed(
+                reason: "The prompt batch was rejected before it reached the inference "
+                    + "runtime: \(failure.description)"
+            )
+        }
+        diagnostics.info(
+            .decodeBatchValidation,
+            category: .runtime,
+            stage: stage,
+            metadata: LocalInferenceMetadata().setting(.validationResult, "success")
+        )
+
+        let operation = diagnostics.criticalEnter(stage, metadata: preflight)
+        let startedAt = DispatchTime.now()
+        let status = llama_decode(context, batch.batch)
+        let elapsed = Int(LlamaCppRuntime.milliseconds(since: startedAt))
+        let result = LocalDecodeResult(returnCode: Int(status))
+
+        let outcome = LocalInferenceMetadata()
+            .setting(.decodeReturnCode, Int(status))
+            .setting(.validationResult, result.symbol)
+            .setting(.decodeElapsedMs, elapsed)
+            .setting(.promptTokenCount, tokens.count)
+            .merging(kvCacheMetadata(context))
+
+        // Section 55: EXIT either way, because control *did* come back — a
+        // non-zero return is a reported failure, not a termination, and
+        // reporting it as the crash site would send the next reader to the
+        // wrong place. The level distinguishes them.
+        if result.isSuccess {
+            diagnostics.criticalExit(stage, operation: operation, metadata: outcome)
+        } else {
+            diagnostics.criticalFailure(
+                stage,
+                operation: operation,
+                metadata: outcome
+                    .setting(.errorKind, result.symbol)
+                    .setting(.nativeSymbol, "llama_decode")
+                    .setting(.nativeCode, Int(status))
+                    .setting(.errorReason, result.explanation)
+            )
+        }
+        diagnostics.info(
+            .decodeResult, category: .runtime, stage: stage, metadata: outcome
+        )
+        return result
+    }
+
+    /// What the *linked* runtime says about itself.
+    ///
+    /// Section 7 is explicit that the Package.swift string could differ from the
+    /// binary actually loaded, so `llama_version()` is read from the framework
+    /// and reported alongside the pin rather than instead of it — a mismatch
+    /// between the two is exactly the ABI evidence section 8 asks for.
+    func runtimeIdentityMetadata() -> LocalInferenceMetadata {
+        LocalInferenceMetadata()
+            .setting(.llamaCppVersion, LlamaCppRuntime.linkedVersion)
+            .setting(.llamaCppBuildNumber, LlamaCppRuntime.pinnedVersion)
+            .setting(.runtimeImplementation, "LlamaCppRuntime")
+            .setting(.compiledWithMetal, LlamaCppRuntime.hasMetal)
+    }
+
+    /// KV cache state, via the non-deprecated memory API.
+    ///
+    /// Sections 56 and 57. `llama_memory_seq_pos_min`/`max` are what the pinned
+    /// header points at; the older `llama_kv_self_*` calls are deprecated there
+    /// and are deliberately not used. Never allowed to block a decode — a
+    /// missing diagnostic is not a reason to refuse to answer.
+    func kvCacheMetadata(_ context: OpaquePointer) -> LocalInferenceMetadata {
+        guard let memory = llama_get_memory(context) else { return .empty }
+        let minimum = llama_memory_seq_pos_min(memory, 0)
+        let maximum = llama_memory_seq_pos_max(memory, 0)
+        // A cleared cache reports min > max, which is the documented "empty"
+        // signal rather than an error.
+        let used = maximum >= minimum ? Int(maximum - minimum) + 1 : 0
+        return LocalInferenceMetadata()
+            .setting(.kvTokenCount, used)
+            .setting(.kvUsedCells, used)
+            .setting(.kvSequenceCount, 1)
+    }
+    #endif
+
     /// How often a verbose progress line is written during generation.
     ///
     /// Section 42. Sixteen tokens is roughly a second or two on a phone — often
@@ -717,12 +887,20 @@ public actor LlamaCppRuntime: LocalModelRuntime {
 /// reclaim that process exit does not reclaim anyway.
 enum LlamaBackend {
     private static let once: Void = {
-        // Silences llama.cpp's own logging, and not for tidiness: at its
+        // Takes llama.cpp's logging off stderr, and not for tidiness: at its
         // default level it prints every tensor it loads and, during
         // generation, text derived from the prompt — which is the user's
         // memories and messages going to the system log. This app does not do
         // that (sections 80 and, from Part 9, 109).
-        llama_log_set({ _, _, _ in }, nil)
+        //
+        // It used to be silenced with an empty callback here. Section 34 wants
+        // those lines *kept* instead — an assertion inside `llama_decode`
+        // prints one line and then aborts, and that line is the only account of
+        // why — so the callback now belongs to `LlamaNativeLogBridge`, which
+        // sanitizes what it keeps and drops everything when nothing is
+        // listening. Activating it here rather than only from the composition
+        // root means no ordering between the two can leave stderr live.
+        LlamaNativeLogBridge.activate()
         llama_backend_init()
     }()
 

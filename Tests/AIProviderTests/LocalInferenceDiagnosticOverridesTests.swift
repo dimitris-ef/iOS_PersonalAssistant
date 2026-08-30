@@ -187,6 +187,7 @@ final class LocalInferenceDiagnosticReportTests: XCTestCase {
         let report = LocalInferenceDiagnosticReport.text(
             header: header,
             recovery: nil,
+            previousSession: nil,
             session: LocalInferenceDecodedSession(events: events, unreadableLineCount: 0),
             sessionID: session,
             writerFailure: nil
@@ -229,6 +230,7 @@ final class LocalInferenceDiagnosticReportTests: XCTestCase {
         let report = LocalInferenceDiagnosticReport.text(
             header: header,
             recovery: recovery,
+            previousSession: nil,
             session: LocalInferenceDecodedSession(events: [], unreadableLineCount: 0),
             sessionID: session,
             writerFailure: nil
