@@ -115,6 +115,56 @@ jobs:
           echo "Slices:"
           ls -1 "$WHISPER"
 
+      - name: Audit the pinned llama.cpp API surface
+        # The ABI audit, as evidence rather than recollection.
+        #
+        # Everything the Swift bridge does across the C boundary depends on the
+        # exact shape of `llama_batch` and on which batch/decode/log functions
+        # the *linked* framework declares. Both are knowable — the headers ship
+        # inside the XCFramework — and neither should ever be asserted from
+        # memory of a different revision. This prints the ground truth into the
+        # build log so a bridge audit can cite it.
+        run: |
+          set -uo pipefail
+          FRAMEWORK=$(find .build -name "llama.xcframework" -maxdepth 6 | head -n 1)
+          HEADER=$(find "$FRAMEWORK" -name "llama.h" | head -n 1)
+          echo "Header: $HEADER"
+          {
+            echo "===== llama_batch struct ====="
+            awk '/typedef struct llama_batch/,/} llama_batch;/' "$HEADER"
+
+            echo "===== batch, decode and encode entry points ====="
+            grep -n -A 8 "llama_batch_get_one\|llama_batch_init\|llama_batch_free" "$HEADER" \
+              | grep -v "^--$"
+            grep -n -B 4 -A 4 "LLAMA_API int32_t llama_decode\|LLAMA_API int32_t llama_encode" "$HEADER"
+
+            echo "===== logging ====="
+            grep -n -B 3 -A 3 "llama_log_set\|ggml_log_callback\|ggml_log_level" "$HEADER"
+
+            echo "===== build info and version ====="
+            grep -n "llama_print_system_info\|LLAMA_API const char \* llama_\|build_number\|LLAMA_BUILD" "$HEADER" \
+              | head -n 40
+
+            echo "===== memory / KV cache surface ====="
+            grep -n "llama_memory\|llama_kv_self\|llama_kv_cache" "$HEADER" | head -n 40
+
+            echo "===== typedefs ====="
+            grep -n "typedef int32_t llama_pos\|typedef int32_t llama_token\|typedef int32_t llama_seq_id" "$HEADER"
+
+            echo "===== anything deprecated ====="
+            grep -n "DEPRECATED" "$HEADER" | head -n 40
+
+            echo "===== every symbol the bridge calls ====="
+            for symbol in llama_backend_init llama_backend_free llama_model_load_from_file \
+              llama_model_free llama_init_from_model llama_free llama_model_get_vocab \
+              llama_n_ctx llama_n_batch llama_n_ubatch llama_model_n_params \
+              llama_model_n_ctx_train llama_model_chat_template llama_model_meta_val_str \
+              llama_tokenize llama_token_to_piece llama_vocab_is_eog \
+              llama_sampler_sample llama_sampler_accept llama_get_memory; do
+              printf '%-34s %s\n' "$symbol" "$(grep -c "\b$symbol\b" "$HEADER")"
+            done
+          } 2>&1 | tee -a "$BUILD_LOG"
+
       - name: Build the adapter against it
         run: |
           set -euo pipefail
