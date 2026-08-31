@@ -109,7 +109,7 @@ public enum LocalModelCapabilityResolver {
     public static let toolCapableFamilies: Set<String> = ["qwen2", "qwen3", "llama"]
 
     /// Chat templates whose tool-call format this app recognises.
-    public static let toolCapableTemplates: Set<LocalChatTemplateKind> = [.chatML]
+    public static let toolCapableTemplates: Set<LocalChatTemplate> = [.chatML]
 
     /// The capability for a model that is installed on this device.
     ///
@@ -164,7 +164,7 @@ extension LocalModelRecord {
     /// header actually declared; the template is derived from the architecture
     /// when the header did not name one, which is why this is computed rather
     /// than stored.
-    var chatTemplateKind: LocalChatTemplateKind? {
+    var chatTemplateKind: LocalChatTemplate? {
         guard let architecture = architecture?.lowercased() else { return nil }
         if architecture.hasPrefix("qwen") { return .chatML }
         if architecture.hasPrefix("smollm") { return .chatML }
