@@ -222,6 +222,44 @@ public enum LocalInferenceMetadataKey: String, Hashable, Sendable, CaseIterable,
     /// reason is unarguable; with a reason it is checkable.
     case capabilitySource
 
+    // MARK: The universal semantic action protocol
+    //
+    // Section 64 and 65 govern every key here: symbols and counts only. A
+    // reader can tell that a reminder was asked for, that the model named a
+    // field it may not use, and which field name it was — and cannot recover
+    // the reminder's title, the user's sentence, or a fabricated identifier's
+    // value.
+
+    /// The semantic intent the model produced — `reminder.create` and friends.
+    case semanticIntent
+    /// What the generation was classified as under the semantic protocol.
+    case semanticOutcome
+    /// Which contract rule refused it, as a symbol.
+    case semanticValidation
+    /// How many fields the action carried. A count, never the values.
+    case semanticFieldCount
+    /// The offending key when a model reached for an implementation detail.
+    /// The *name*, which is protocol vocabulary, never the value it carried.
+    case semanticRejectedField
+    /// Which category of implementation detail that key was.
+    case semanticRejectedFieldCategory
+    /// What resolution produced: a call, a question, or a failure.
+    case semanticResolution
+    /// Why the app had to ask the user before acting.
+    case clarificationReason
+    /// How a time expression was read — relative offset, day and time, and so
+    /// on. Not the expression, and not the resulting instant.
+    case timeExpressionReading
+    /// Whether a time expression resolved at all.
+    case timeExpressionResolved
+    /// What kind of thing was looked up.
+    case resourceKind
+    /// How many things matched a description: 0, 1, or more.
+    case resourceMatchCount
+    /// Whether the semantic protocol was the one in force this turn, as opposed
+    /// to the older direct tool-schema prompt.
+    case semanticProtocolActive
+
     // MARK: Acceleration and throughput
 
     /// True when this load ran the product's own configuration rather than a

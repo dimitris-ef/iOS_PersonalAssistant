@@ -47,18 +47,37 @@ public struct LocalModelProvider: AIProvider {
     /// Decides what the model's raw output was before any of it is shown.
     private let parser: LocalToolCallParser
     private let diagnostics: any LocalInferenceDiagnosticSink
+    /// Reads a generation as a semantic action rather than a tool envelope.
+    private let semanticParser: LocalSemanticActionParser
+    /// Turns a semantic action into a real call, deterministically.
+    private let semanticResolver: LocalSemanticActionResolver
+    /// Whether this provider asks for semantic actions or raw tool envelopes.
+    ///
+    /// A switch rather than a hard-coded truth so the older path stays
+    /// exercised by its own tests: the tool envelope is still what a *remote*
+    /// model produces, and the parser, provenance check and repair around it
+    /// are unchanged and still live.
+    private let semanticProtocolEnabled: Bool
 
     public init(
         manager: LocalModelManager,
         runtime: (any LocalModelRuntime)? = nil,
         adapter: LocalToolPromptAdapter = LocalToolPromptAdapter(),
-        diagnostics: any LocalInferenceDiagnosticSink = NullLocalInferenceDiagnosticSink()
+        diagnostics: any LocalInferenceDiagnosticSink = NullLocalInferenceDiagnosticSink(),
+        dateProvider: any DateProvider = SystemDateProvider(),
+        resources: (any LocalSemanticResourceResolving)? = nil,
+        semanticProtocolEnabled: Bool = true
     ) {
         self.manager = manager
         self.runtime = runtime
         self.adapter = adapter
         self.parser = LocalToolCallParser(adapter: adapter)
         self.diagnostics = diagnostics
+        self.semanticParser = LocalSemanticActionParser()
+        self.semanticResolver = LocalSemanticActionResolver(
+            dateProvider: dateProvider, resources: resources
+        )
+        self.semanticProtocolEnabled = semanticProtocolEnabled
         self.metadata = AIProviderMetadata(
             id: Self.providerID,
             displayName: "Local AI",
@@ -182,7 +201,15 @@ public struct LocalModelProvider: AIProvider {
         )
         let toolSupport = capability.capability
         let tools = toolSupport.offersTools ? request.tools : []
-        let expectsAction = !tools.isEmpty && LocalActionIntent.isLikely(in: request.messages)
+        // A round that begins with a tool result is the engine asking the model
+        // to *describe* what already happened, not to propose anything. Under
+        // the semantic protocol that distinction has teeth: prose in answer to
+        // "remind me…" is a failure, and the same prose in answer to "the
+        // reminder was created" is the whole point.
+        let isContinuation = request.messages.last?.role == .tool
+        let expectsAction = !tools.isEmpty
+            && !isContinuation
+            && LocalActionIntent.isLikely(in: request.messages)
 
         // Section 8. A chat-only model asked to do something is told so, rather
         // than being allowed to answer as if it had done it. This is checked
@@ -288,6 +315,27 @@ public struct LocalModelProvider: AIProvider {
         // envelope, so the old parser called it an ordinary reply and showed it.
         let provenance = LocalResourceProvenance.harvested(from: request.messages)
         let actionCategory = LocalActionIntent.category(in: request.messages)
+        var recovery = LocalActionRecoveryPolicy()
+
+        if semanticProtocolEnabled, !tools.isEmpty {
+            return await semanticResponse(
+                raw: output.text,
+                request: request,
+                tools: tools,
+                descriptor: descriptor,
+                loaded: loaded,
+                configuration: configuration,
+                output: output,
+                modelID: modelID,
+                expectsAction: expectsAction,
+                category: actionCategory,
+                capability: capability,
+                provenance: provenance,
+                recovery: &recovery,
+                runtime: runtime
+            )
+        }
+
         var outcome = parser.classify(
             output.text,
             offeredTools: tools,
@@ -312,7 +360,7 @@ public struct LocalModelProvider: AIProvider {
         // Section 22: exactly one repair, and only for output that was an
         // attempt at an action. An ordinary reply is never regenerated.
         var repairAttempts = 0
-        if outcome.isRepairable, !tools.isEmpty {
+        if outcome.isRepairable, !tools.isEmpty, recovery.consume() {
             repairAttempts = 1
             outcome = await repair(
                 previous: outcome,
@@ -333,6 +381,322 @@ public struct LocalModelProvider: AIProvider {
             modelID: modelID,
             repairAttempts: repairAttempts
         )
+    }
+
+    // MARK: The universal semantic action protocol
+
+    /// The whole local action path, from raw generation to a safe answer.
+    ///
+    /// ```
+    /// raw text
+    ///   ↓ classify            LocalSemanticActionParser
+    ///   ↓ validate            LocalSemanticValidator
+    ///   ↓ (at most one repair) LocalActionRecoveryPolicy
+    ///   ↓ resolve             LocalSemanticActionResolver  ← the app decides
+    ///   ↓ AIToolCall                                          every detail here
+    ///   ↓ provenance          LocalResourceProvenance
+    ///   → AIResponse
+    /// ```
+    ///
+    /// Everything after the `AIToolCall` is unchanged: `ToolRequestDecoder`
+    /// still decodes it, the schema still validates it, `ToolAuthorizer` still
+    /// authorizes it, confirmation still gates it, and `PlatformServices` still
+    /// performs it. This method makes fewer things askable; it makes nothing
+    /// easier to do.
+    private func semanticResponse(
+        raw: String,
+        request: AIRequest,
+        tools: [AIToolSchema],
+        descriptor: LocalModelDescriptor?,
+        loaded: LoadedModelInfo,
+        configuration: LocalInferenceConfiguration,
+        output: LocalGenerationOutput,
+        modelID: AIModelIdentifier,
+        expectsAction: Bool,
+        category: LocalActionCategory,
+        capability: LocalModelCapabilityResolution,
+        provenance: LocalResourceProvenance,
+        recovery: inout LocalActionRecoveryPolicy,
+        runtime: any LocalModelRuntime
+    ) async -> AIResponse {
+        let usage = AIUsage(
+            inputTokens: output.promptTokens, outputTokens: output.generatedTokens
+        )
+
+        diagnostics.info(
+            .semanticActionDetected,
+            category: .generation,
+            metadata: LocalInferenceMetadata()
+                .setting(.actionIntentLikely, expectsAction)
+                .setting(.actionCategory, category.rawValue)
+                .setting(.semanticProtocolActive, true)
+                .merging(capability.metadata())
+        )
+
+        var outcome = semanticParser.classify(
+            raw, expectsAction: expectsAction, detectedCategory: category
+        )
+        diagnostics.info(
+            .semanticActionParsed,
+            category: .generation,
+            metadata: Self.outcomeMetadata(outcome).setting(.repairAttempt, 0)
+        )
+
+        // Sections 33 and 34, and section 39's constraint that the two repair
+        // paths must not stack: the budget is the turn's, and spending it here
+        // is why the tool path below cannot spend it again.
+        if outcome.isRepairable, recovery.consume() {
+            outcome = await semanticRepair(
+                previous: outcome,
+                request: request,
+                tools: tools,
+                descriptor: descriptor,
+                loaded: loaded,
+                configuration: configuration,
+                category: category,
+                runtime: runtime
+            )
+        }
+
+        switch outcome {
+        case .normalChat(let text):
+            return AIResponse(
+                text: text,
+                toolCalls: [],
+                stopReason: stopReason(for: output, hasToolCalls: false),
+                usage: usage,
+                providerID: metadata.id,
+                modelID: modelID
+            )
+
+        case .validSemanticAction(let action):
+            diagnostics.info(
+                .semanticActionValidated,
+                category: .generation,
+                metadata: LocalInferenceMetadata()
+                    .setting(.semanticIntent, action.intent.rawValue)
+                    .setting(.semanticFieldCount, action.arguments.count)
+                    .setting(.semanticValidation, "passed")
+            )
+            return await resolved(
+                action: action, usage: usage, modelID: modelID, provenance: provenance
+            )
+
+        case .malformedSemanticAction, .protocolLeak, .internalToolProtocolLeak,
+             .unsupportedSemanticIntent, .forbiddenImplementationDetails,
+             .failedActionAttempt:
+            // Section 21 and 49. One sentence. The reason went to the log at
+            // the moment it was classified; the screen gets nothing that could
+            // be mistaken for the action having happened.
+            return AIResponse(
+                text: Self.actionFailureMessage,
+                toolCalls: [],
+                stopReason: .other,
+                usage: usage,
+                providerID: metadata.id,
+                modelID: modelID
+            )
+        }
+    }
+
+    /// Deterministic resolution, and the answer it produces.
+    private func resolved(
+        action: LocalSemanticAction,
+        usage: AIUsage,
+        modelID: AIModelIdentifier,
+        provenance: LocalResourceProvenance
+    ) async -> AIResponse {
+        let resolution = await semanticResolver.resolve(action)
+        diagnostics.info(
+            .semanticActionResolved,
+            category: .generation,
+            metadata: LocalInferenceMetadata()
+                .setting(.semanticIntent, action.intent.rawValue)
+                .setting(.semanticResolution, resolution.symbol)
+        )
+
+        switch resolution {
+        case .resolved(let call):
+            // The identifiers in this call came from the app's own lookup, so
+            // they are recorded as application-produced before the provenance
+            // check runs. The check itself is not skipped: it is the thing that
+            // proves a resolved call carries no identifier the app did not
+            // produce, and it fails closed if resolution ever changes.
+            var turnProvenance = provenance
+            for value in Self.identifierArguments(of: call) {
+                turnProvenance.trust(value)
+            }
+            if let failure = turnProvenance.check(call) {
+                diagnostics.problem(
+                    .localToolRejected,
+                    category: .generation,
+                    metadata: LocalInferenceMetadata()
+                        .setting(.selectedTool, call.name)
+                        .setting(.validationResult, failure.symbol)
+                )
+                return AIResponse(
+                    text: Self.actionFailureMessage,
+                    toolCalls: [],
+                    stopReason: .other,
+                    usage: usage,
+                    providerID: metadata.id,
+                    modelID: modelID
+                )
+            }
+
+            diagnostics.info(
+                .toolCallCreated,
+                category: .generation,
+                metadata: LocalInferenceMetadata()
+                    .setting(.selectedTool, call.name)
+                    .setting(.toolCallCount, 1)
+                    .setting(.semanticIntent, action.intent.rawValue)
+            )
+            // Section 47 and 49: no assistant text at all alongside a proposed
+            // action. Whatever the model would have said here is a claim about
+            // something that has not happened yet; the user's confirmation of
+            // what *did* happen comes from the tool result.
+            return AIResponse(
+                text: "",
+                toolCalls: [call],
+                stopReason: .toolCalls,
+                usage: usage,
+                providerID: metadata.id,
+                modelID: modelID
+            )
+
+        case .needsClarification(let question, let reason):
+            diagnostics.info(
+                .resourceResolution,
+                category: .generation,
+                metadata: LocalInferenceMetadata()
+                    .setting(.clarificationReason, reason.rawValue)
+                    .setting(.semanticIntent, action.intent.rawValue)
+            )
+            // A question is a real answer, and the honest one. It is also the
+            // opposite of the device failure: nothing was invented to fill the
+            // gap the question is about.
+            return AIResponse(
+                text: question,
+                toolCalls: [],
+                stopReason: .endTurn,
+                usage: usage,
+                providerID: metadata.id,
+                modelID: modelID
+            )
+
+        case .failed:
+            return AIResponse(
+                text: Self.actionFailureMessage,
+                toolCalls: [],
+                stopReason: .other,
+                usage: usage,
+                providerID: metadata.id,
+                modelID: modelID
+            )
+        }
+    }
+
+    /// The one constrained semantic retry.
+    private func semanticRepair(
+        previous: LocalSemanticOutcome,
+        request: AIRequest,
+        tools: [AIToolSchema],
+        descriptor: LocalModelDescriptor?,
+        loaded: LoadedModelInfo,
+        configuration: LocalInferenceConfiguration,
+        category: LocalActionCategory,
+        runtime: any LocalModelRuntime
+    ) async -> LocalSemanticOutcome {
+        var repairRequest = request
+        repairRequest.messages.append(
+            AIMessage(role: .user, content: LocalSemanticPrompt.repairInstruction(for: previous))
+        )
+
+        let prompt = makePrompt(
+            for: repairRequest, tools: tools, descriptor: descriptor, loaded: loaded
+        )
+        var options = makeOptions(for: repairRequest, tools: tools, descriptor: descriptor)
+        let fitted = LocalPromptBudget.fit(prompt, configuration: configuration)
+        options.maximumOutputTokens = min(
+            Self.repairOutputTokenLimit, configuration.maximumGenerationTokens
+        )
+
+        let repaired: LocalGenerationOutput
+        do {
+            repaired = try await runtime.generate(fitted.prompt, options: options)
+        } catch {
+            diagnostics.problem(
+                .semanticActionRepaired,
+                category: .generation,
+                metadata: LocalInferenceMetadata()
+                    .setting(.repairAttempt, 1)
+                    .setting(.repairResult, "generationFailed")
+                    .setting(.semanticOutcome, previous.symbol)
+            )
+            return .failedActionAttempt(reason: "the repair generation failed")
+        }
+
+        var outcome = semanticParser.classify(
+            repaired.text, expectsAction: true, detectedCategory: category
+        )
+        // Section 34. There is no second repair, and that is structural rather
+        // than a counter: anything still repairable becomes a plain failure
+        // right here.
+        if outcome.isRepairable {
+            outcome = .failedActionAttempt(reason: "the repair was still not a valid action")
+        }
+        if case .normalChat = outcome {
+            // Prose after a repair is not the action either, and showing it
+            // would be a fake confirmation with an extra step.
+            outcome = .failedActionAttempt(reason: "the repair produced prose")
+        }
+
+        diagnostics.info(
+            .semanticActionRepaired,
+            category: .generation,
+            metadata: Self.outcomeMetadata(outcome)
+                .setting(.repairAttempt, 1)
+                .setting(.repairResult, outcome.symbol)
+        )
+        return outcome
+    }
+
+    /// Everything about a classified outcome that is safe to write down.
+    ///
+    /// Sections 64 and 65: symbols, a field *name* where one was refused, and
+    /// counts. Never a value — not the title, not the expression, and above all
+    /// not a fabricated identifier, which has no business being persisted.
+    static func outcomeMetadata(_ outcome: LocalSemanticOutcome) -> LocalInferenceMetadata {
+        var metadata = LocalInferenceMetadata().setting(.semanticOutcome, outcome.symbol)
+        switch outcome {
+        case .validSemanticAction(let action):
+            metadata = metadata
+                .setting(.semanticIntent, action.intent.rawValue)
+                .setting(.semanticFieldCount, action.arguments.count)
+        case .unsupportedSemanticIntent:
+            metadata = metadata.setting(.semanticValidation, "unsupportedIntent")
+        case .forbiddenImplementationDetails(let failure):
+            metadata = metadata.setting(.semanticValidation, failure.symbol)
+            if case .forbiddenImplementationDetail(let field, let kind) = failure {
+                metadata = metadata
+                    .setting(.semanticRejectedField, field)
+                    .setting(.semanticRejectedFieldCategory, kind)
+            }
+            if case .unknownArgument(let field) = failure {
+                metadata = metadata.setting(.semanticRejectedField, field)
+            }
+        default:
+            break
+        }
+        return metadata
+    }
+
+    /// The identifier-shaped arguments of a resolved call.
+    static func identifierArguments(of call: AIToolCall) -> [String] {
+        guard let arguments = call.arguments.objectValue else { return [] }
+        return LocalResourceReference.requiredExistingIdentifiers(for: call.name)
+            .compactMap { arguments[$0]?.stringValue }
     }
 
     /// Turns a classified outcome into the provider's answer.
@@ -592,7 +956,14 @@ public struct LocalModelProvider: AIProvider {
         var turns: [LocalChatTurn] = []
 
         var system = request.systemPrompt
-        let instructions = adapter.instructions(for: tools)
+        // Sections 57 and 58. Under the semantic protocol the model is shown
+        // the six intents rather than nineteen JSON Schemas — which is both the
+        // safety property (it cannot fill in a field it was never shown) and,
+        // incidentally, several hundred tokens given back to the user's own
+        // memories on a 1024-token context.
+        let instructions = semanticProtocolEnabled && !tools.isEmpty
+            ? LocalSemanticPrompt.instructions()
+            : adapter.instructions(for: tools)
         if !instructions.isEmpty {
             system += "\n\n" + instructions
         }

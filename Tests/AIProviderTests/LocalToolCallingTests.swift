@@ -92,7 +92,14 @@ final class LocalToolCallingTests: XCTestCase {
             device: FixedDeviceResources.largePhone,
             dateProvider: FixedDateProvider(now: now)
         )
-        return LocalModelProvider(manager: manager, runtime: runtime)
+        // These are the tool-envelope path's own regression tests, so they
+        // ask for that path explicitly. The semantic protocol is the local
+        // default and has its own suite; this one keeps the older parser,
+        // provenance check and repair honest, because they are still what a
+        // provider configured without the semantic protocol relies on.
+        return LocalModelProvider(
+            manager: manager, runtime: runtime, semanticProtocolEnabled: false
+        )
     }
 
     /// The real tool names, from the app's own catalogue.

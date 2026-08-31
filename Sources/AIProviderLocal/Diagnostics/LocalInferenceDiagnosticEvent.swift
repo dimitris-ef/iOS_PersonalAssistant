@@ -191,6 +191,31 @@ public enum LocalInferenceEventName: String, Hashable, Sendable, CaseIterable, C
     case localToolRejected = "LOCAL_TOOL_REJECTED"
     case contextBudgetExceeded = "CONTEXT_BUDGET_EXCEEDED"
 
+    // MARK: The universal semantic action protocol
+    //
+    // One line per stage, so a device report says exactly how far a request got
+    // and where it stopped. Section 61: what the model produced, whether it
+    // survived validation, what the app resolved it to, and what execution did
+    // are four different facts, and a single "it failed" collapses them.
+
+    /// The app decided this turn was a request to act.
+    case semanticActionDetected = "SEMANTIC_ACTION_DETECTED"
+    /// What the raw generation turned out to be under the semantic protocol.
+    case semanticActionParsed = "SEMANTIC_ACTION_PARSED"
+    /// The contract check: allowed fields, required fields, no implementation
+    /// details.
+    case semanticActionValidated = "SEMANTIC_ACTION_VALIDATED"
+    /// The single constrained retry, and what it produced.
+    case semanticActionRepaired = "SEMANTIC_ACTION_REPAIRED"
+    /// A described thing was looked up in the app's own store.
+    case resourceResolution = "RESOURCE_RESOLUTION"
+    /// Deterministic resolution finished: a call, a question, or nothing.
+    case semanticActionResolved = "SEMANTIC_ACTION_RESOLVED"
+    /// The resolver produced an `AIToolCall` for the existing pipeline.
+    case toolCallCreated = "AITOOLCALL_CREATED"
+    /// That call passed the existing schema and argument validation.
+    case toolCallValidated = "AITOOLCALL_VALIDATED"
+
     /// Measured prompt-prefill throughput (section 39). Separate from
     /// generation because the two run differently and one figure describes
     /// neither.

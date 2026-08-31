@@ -90,7 +90,13 @@ final class LocalProviderIntegrationTests: XCTestCase {
             device: FixedDeviceResources.largePhone,
             dateProvider: FixedDateProvider(now: now)
         )
-        return LocalModelProvider(manager: manager, runtime: runtime)
+        // The tool-envelope path: these assert that a locally produced call
+        // goes through the same engine, validation and execution as any
+        // other provider's. The semantic protocol's own end-to-end coverage
+        // lives beside it in `LocalSemanticActionTests`.
+        return LocalModelProvider(
+            manager: manager, runtime: runtime, semanticProtocolEnabled: false
+        )
     }
 
     private func makeEngine(

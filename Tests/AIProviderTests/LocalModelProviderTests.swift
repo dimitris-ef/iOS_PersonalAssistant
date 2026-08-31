@@ -77,7 +77,15 @@ final class LocalModelProviderTests: XCTestCase {
             device: FixedDeviceResources.largePhone,
             dateProvider: FixedDateProvider(now: now)
         )
-        return (LocalModelProvider(manager: manager, runtime: runtime), manager, repositories)
+        // The tool-envelope path, explicitly: these predate the semantic
+        // protocol and assert what that path does with raw envelopes.
+        return (
+            LocalModelProvider(
+                manager: manager, runtime: runtime, semanticProtocolEnabled: false
+            ),
+            manager,
+            repositories
+        )
     }
 
     private var tools: [AIToolSchema] {

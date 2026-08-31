@@ -391,7 +391,21 @@ final class AppEnvironment: Sendable {
         let providers = AIProviderRegistry(providers: [
             appleProvider,
             LocalModelProvider(
-                manager: localModels, runtime: localRuntime, diagnostics: localDiagnostics
+                manager: localModels,
+                runtime: localRuntime,
+                diagnostics: localDiagnostics,
+                // The app's clock, so "in 10 minutes" is resolved against the
+                // real device time in the real time zone — the model is never
+                // asked for a date, which is how it produced one from 2023.
+                dateProvider: dateProvider,
+                // And the app's own store, so an identifier for something that
+                // already exists comes from a lookup rather than from the
+                // model. Calendar lookup is not wired yet: `PlatformServices`
+                // is above this layer, and until it is passed down a request to
+                // change an existing event asks which one rather than guessing.
+                resources: LocalSemanticResources(
+                    tasks: LocalSemanticResources.tasks(from: repositories.tasks)
+                )
             ),
             remoteProvider,
             ScriptedDevProvider(dateProvider: dateProvider),

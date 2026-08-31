@@ -71,6 +71,24 @@ public struct LocalResourceProvenance: Hashable, Sendable {
         return LocalResourceProvenance(trusted: trusted)
     }
 
+    /// Records an identifier the application produced itself.
+    ///
+    /// The semantic protocol resolves "my dentist appointment" against the app's
+    /// own store, so the identifier it comes back with is application-produced —
+    /// the same standing as one echoed from a tool result, and by the same
+    /// rule, since the rule was never "a tool result said it" but "the model did
+    /// not invent it". Without this the provenance check would reject the one
+    /// source of identifiers that is guaranteed to be real.
+    ///
+    /// It stays additive and per-turn: nothing here loosens the check for a
+    /// value the model supplied, because the model has no field to supply one
+    /// in.
+    public mutating func trust(_ identifier: String) {
+        let trimmed = identifier.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        trusted.insert(trimmed.lowercased())
+    }
+
     /// Whether a value came from the application.
     public func isTrusted(_ identifier: String) -> Bool {
         trusted.contains(identifier.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())
