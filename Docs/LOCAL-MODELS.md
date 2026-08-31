@@ -477,6 +477,101 @@ on the next load, because Metal and thread counts are fixed when a
 
 ---
 
+## 7c. The universal semantic action protocol
+
+On TestFlight build 14.1 a real phone was asked
+
+> Remind me in 10 minutes to change bottles
+
+and answered with tool-shaped output carrying a fabricated `relatedTaskID`, a
+due date from 2023, an invented title, an invented reminders-list name, invented
+notes, and a made-up explanation that the data was corrupted — most of which
+reached the screen.
+
+Nothing in that list is a prompting failure to be tuned away. It is what
+happens when a 3B model is handed nineteen JSON Schemas and asked to fill in
+fields it has no way to fill and no way to leave blank convincingly. **Every
+fabricated value in that report is a field the model should never have been
+shown.**
+
+### The shape
+
+```
+user request
+  → local model            says an intent and the person's own words
+  → LocalSemanticAction    seven intents, six possible fields
+  → LocalSemanticValidator contract check, per intent
+  → (at most one repair)   LocalActionRecoveryPolicy
+  → LocalSemanticActionResolver
+        the app's clock  → a due date
+        the app's store  → an identifier for an existing thing
+        app policy       → list, memory kind, defaults
+  → AIToolCall
+  → ToolRequestDecoder → schema validation → provenance
+  → ToolAuthorizer → confirmation → PlatformServices
+```
+
+Everything from `AIToolCall` down is unchanged. This narrows what a model can
+*ask for*; it removes none of the checks on what is then done.
+
+### The closed field set is the safety property
+
+`LocalSemanticField` has six cases — `title`, `timeExpression`, `content`,
+`targetDescription`, `durationExpression`, `locationExpression` — and none of
+them is an identifier, a timestamp, a storage location or a note. A fabricated
+`relatedTaskID` is therefore *unrepresentable*, not merely rejected. Rejection
+is a check somebody can forget to run; unrepresentability is not.
+
+The parser still names the forbidden keys explicitly, because "the model tried
+to fill in `dueDate`" and "the model mistyped a field" point at different fixes
+and deserve different lines in the log.
+
+### Time
+
+The model never writes a date. It says `"in 10 minutes"`, and
+`LocalTimeExpressionResolver` resolves that against the injected `DateProvider`
+— the device's real clock, date and time zone. A request at 14:20 Europe/Athens
+is due at 14:30 Europe/Athens, and the same phrase on a phone in Tokyo resolves
+to the same instant while `"tomorrow at 3"` does not.
+
+It has no fallback. An expression it cannot read, and one that resolves into the
+past, both become a question to the user. A wrong time on a reminder is worse
+than a question, because the user finds out about it by missing the thing.
+
+This is not a second scheduling engine (§11). `ReminderScheduleResolver` decides
+*when the app should intervene* about a task; this decides *which instant a
+phrase names*, which has to happen before any of that can run.
+
+### Existing things
+
+`task.complete` and `calendar.update` take a `targetDescription` — "my dentist
+appointment" — and the app looks it up. Zero matches and more than one match are
+both questions; exactly one match yields the real identifier from the app's own
+store.
+
+`LocalResourceProvenance` gained `trust(_:)` so a resolver-produced identifier
+counts as application-produced. That is not a loosening: the rule was never "a
+tool result said it", it was "the model did not invent it", and a repository
+lookup is the app. The check still runs on every resolved call, and fails closed
+if resolution ever changes.
+
+### One repair budget for the turn
+
+`LocalActionRecoveryPolicy` is owned by the turn and spent once, by whichever
+path spends it (§39). Two separate "exactly one repair" rules — the semantic
+parser's and the older tool parser's — each correct alone, would add up to two
+extra generations, which on a phone is the difference between a reply and a
+reply the user gave up waiting for.
+
+### The older path is still there
+
+`semanticProtocolEnabled` defaults to true for the local provider. The
+tool-envelope path, its parser, its provenance check and its repair are
+unchanged and still have their own regression suite, which asks for that path
+explicitly.
+
+---
+
 ## 8. Testing
 
 `MockLocalModelRuntime` scripts load success, load failure, text, tool calls,
