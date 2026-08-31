@@ -25,6 +25,16 @@ struct LocalModelDetailView: View {
         viewModel.rowState(for: status)
     }
 
+    /// What this model may be asked to do, and on what evidence.
+    ///
+    /// Resolved rather than read straight off the descriptor so the screen
+    /// shows the same answer the provider's capability gate uses — including
+    /// for a model with no curated entry, where the descriptor alone has
+    /// nothing to say.
+    private var capability: LocalModelCapabilityResolution {
+        LocalModelCapabilityResolver.resolve(status: status)
+    }
+
     var body: some View {
         List {
             Section {
@@ -55,6 +65,26 @@ struct LocalModelDetailView: View {
                         : "text.bubble")
                 }
                 .font(.subheadline)
+
+                // Section 5. The identity and the evidence, so a wrong
+                // classification is arguable rather than just wrong — and so a
+                // bug report can name the model without the reader having to
+                // guess which one it was.
+                LabeledContent("Model ID") {
+                    Text(status.descriptor.id.rawValue)
+                        .font(.footnote.monospaced())
+                        .foregroundStyle(.secondary)
+                }
+                LabeledContent("Action capability") {
+                    Text(capability.capability.badge)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+                LabeledContent("Capability source") {
+                    Text(capability.source.label)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
 
                 if status.descriptor.toolSupport == .unsupported {
                     Text(

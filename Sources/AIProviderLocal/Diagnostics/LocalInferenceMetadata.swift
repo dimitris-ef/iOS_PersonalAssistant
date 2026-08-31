@@ -218,6 +218,27 @@ public enum LocalInferenceMetadataKey: String, Hashable, Sendable, CaseIterable,
     /// Recorded so a wrong-tool refusal can be read back later without the
     /// message that caused it.
     case actionCategory
+    /// Why the model has the capability it has (section 4). "Chat only" with no
+    /// reason is unarguable; with a reason it is checkable.
+    case capabilitySource
+
+    // MARK: Acceleration and throughput
+
+    /// True when this load ran the product's own configuration rather than a
+    /// diagnostic handicap (section 45).
+    case productionProfile
+    /// Layers actually offloaded, where the runtime will say. Absent rather
+    /// than zero when it will not (section 44) — "Unknown" and "none" are
+    /// different answers and only one of them is a problem.
+    case actualGPULayers
+    case requestedGPULayers
+    /// Prompt prefill throughput, measured (section 39).
+    case promptEvaluationTokens
+    case promptEvaluationDurationMs
+    case promptEvaluationTokensPerSecond
+    /// Generation throughput, measured, excluding the prompt (section 40).
+    case generationDurationMs
+    case generationTokensPerSecond
 
     // MARK: Session
 

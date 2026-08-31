@@ -48,6 +48,7 @@ struct LocalInferenceDiagnosticsView: View {
         List {
             previousSessionSection
             summarySection
+            accelerationSection
             configurationSection
             decodeSnapshotSection
             nativeLogSection
@@ -232,6 +233,61 @@ struct LocalInferenceDiagnosticsView: View {
         }
     }
 
+    // MARK: Acceleration
+
+    /// Sections 44 and 45. The screen somebody opens when they wonder why it
+    /// is slow.
+    ///
+    /// The profile row is the whole point: a phone left in CPU-only mode after
+    /// a crash investigation looks exactly like a phone that is simply slow,
+    /// and there was previously nowhere that said which one this was.
+    @ViewBuilder
+    private var accelerationSection: some View {
+        let configuration = latestConfiguration
+        Section {
+            LabeledContent("Inference profile") {
+                Text(centre.isProductionProfile ? "Production" : "Diagnostic override")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(centre.isProductionProfile ? Color.secondary : Color.orange)
+            }
+            LabeledContent("CPU-only override") {
+                Text(centre.overrides.forceCPUOnly ? "On" : "Off")
+                    .font(.footnote.monospaced())
+                    .foregroundStyle(centre.overrides.forceCPUOnly ? Color.orange : Color.secondary)
+            }
+            row(configuration, .compiledWithMetal, "Metal compiled")
+            row(configuration, .requestedGPUOffload, "GPU offload requested")
+            LabeledContent("GPU layers") {
+                // Section 44 and 70: requested is knowable, actual is not —
+                // the pinned llama.cpp exposes no way to ask which backend a
+                // tensor landed on. "Unknown" rather than a number nothing
+                // measured.
+                Text(gpuLayerLabel(configuration))
+                    .font(.footnote.monospaced())
+                    .foregroundStyle(.secondary)
+            }
+        } header: {
+            Text("Inference Acceleration")
+        } footer: {
+            Text(
+                "GPU layers shows what was requested. This build cannot ask the inference "
+                    + "engine which layers actually ran on the GPU, so the actual figure is "
+                    + "reported as unknown rather than assumed."
+            )
+        }
+    }
+
+    private func gpuLayerLabel(_ metadata: LocalInferenceMetadata) -> String {
+        guard let requested = metadata[.requestedGPULayers] else { return "Unknown" }
+        let text = LocalInferenceDiagnosticReport.describe(requested)
+        // llama.cpp's own convention: negative means every layer.
+        let requestedLabel = text == "-1" ? "all (requested)" : "\(text) (requested)"
+        guard let actual = metadata[.actualGPULayers] else {
+            return requestedLabel + " · actual unknown"
+        }
+        return requestedLabel + " · \(LocalInferenceDiagnosticReport.describe(actual)) actual"
+    }
+
     // MARK: The decode boundary
 
     /// Section 67. Everything that was true immediately before the last
@@ -404,6 +460,15 @@ struct LocalInferenceDiagnosticsView: View {
                     Text(mode.displayName).tag(mode)
                 }
             }
+
+            // Section 28. "Whatever I did, undo it" — which is the state
+            // somebody is in when they notice the app is slow and do not
+            // remember an investigation from three builds ago.
+            Button("Reset to Production Defaults") {
+                centre.resetToProductionDefaults()
+                apply(centre.overrides)
+            }
+            .disabled(!centre.overrides.isActive)
         } header: {
             Text("Advanced Diagnostics")
         } footer: {

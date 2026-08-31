@@ -39,6 +39,12 @@ public actor LocalModelManager {
     private let diagnostics: any LocalInferenceDiagnosticSink
     /// Diagnostic handicaps, applied at load time and never stored (section 76).
     private var overrides: LocalInferenceDiagnosticOverrides
+    /// What normal inference asks for, before any override is applied.
+    ///
+    /// A constant today, and a property rather than a literal so the
+    /// composition is visible at the call site: production states an intent,
+    /// diagnostics may withdraw it, and nothing else can turn the GPU on.
+    private let productionPolicy = LocalInferenceProductionPolicy.production
 
     private var catalog: LocalModelCatalog
     /// Live download state, per model. Not persisted: a download does not
@@ -407,7 +413,11 @@ public actor LocalModelManager {
                 threadCount: configuration.threadCount,
                 batchSize: configuration.batchSize,
                 microBatchSize: configuration.microBatchSize,
-                gpuOffloadRequested: overrides.wantsGPUOffload
+                // Section 29: production asks, diagnostics may take away. The
+                // policy is consulted rather than the overrides alone so that
+                // "nobody has expressed an opinion" resolves to GPU on, not to
+                // whatever the override struct happens to default to.
+                gpuOffloadRequested: productionPolicy.wantsGPUOffload(with: overrides)
             )
         )
         loadedConfiguration = configuration
@@ -466,6 +476,23 @@ public actor LocalModelManager {
     /// two frequently disagree and only one of them is real.
     public func activeConfiguration() -> LocalInferenceConfiguration? {
         loadedConfiguration
+    }
+
+    /// The persisted install metadata for a model, if it is installed.
+    ///
+    /// Exposed so capability can be resolved from what the file's own GGUF
+    /// header said — the architecture, recorded at install — rather than only
+    /// from a catalogue join that a model with no curated entry cannot satisfy.
+    public func installedRecord(for id: AIModelIdentifier) async -> LocalModelRecord? {
+        try? await repository.model(id: id)
+    }
+
+    /// The capability of a model, and the evidence behind it.
+    public func capability(of id: AIModelIdentifier) async -> LocalModelCapabilityResolution {
+        LocalModelCapabilityResolver.resolve(
+            descriptor: catalog.descriptor(for: id),
+            record: await installedRecord(for: id)
+        )
     }
 
     /// Where an installed model's file actually is, or nil if it is not there.

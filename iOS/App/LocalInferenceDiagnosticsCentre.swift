@@ -58,6 +58,17 @@ final class LocalInferenceDiagnosticsCentre {
     ///
     /// The composition root needs them while building `LocalModelManager`,
     /// which happens before any view — and therefore before this object.
+    /// Reads the overrides, migrating investigation residue on the way out.
+    ///
+    /// Sections 25 to 27. Testers were told to turn CPU-only on and the GPU off
+    /// to find a crash in `llama_decode`; those settings are still on their
+    /// phones, and nothing would ever have cleared them. A blob written before
+    /// production defaults were restored is reset once — and the reset is
+    /// *written back*, so this happens exactly once rather than on every read.
+    ///
+    /// The migration runs here rather than at launch because this is the single
+    /// door every reader goes through, including the composition root, which
+    /// runs before any view exists.
     static func storedOverrides(
         defaults: UserDefaults = .standard
     ) -> LocalInferenceDiagnosticOverrides {
@@ -66,8 +77,43 @@ final class LocalInferenceDiagnosticsCentre {
             let decoded = try? JSONDecoder().decode(
                 LocalInferenceDiagnosticOverrides.self, from: data
             )
-        else { return .none }
-        return decoded
+        else {
+            // Nothing stored is not a choice for CPU-only (section 24).
+            defaults.set(LocalInferenceSettingsVersion.current, forKey: Keys.settingsVersion)
+            return .none
+        }
+
+        let storedVersion = defaults.object(forKey: Keys.settingsVersion) as? Int
+            // A blob with no version was written before versioning existed,
+            // which is precisely the investigation-era build.
+            ?? LocalInferenceSettingsVersion.crashInvestigation
+        let outcome = LocalInferenceSettingsMigration.migrate(
+            decoded, storedVersion: storedVersion
+        )
+        if storedVersion < LocalInferenceSettingsVersion.current {
+            defaults.set(LocalInferenceSettingsVersion.current, forKey: Keys.settingsVersion)
+            if outcome.didReset,
+                let encoded = try? JSONEncoder().encode(outcome.overrides) {
+                defaults.set(encoded, forKey: Keys.overrides)
+            }
+        }
+        return outcome.overrides
+    }
+
+    /// Section 28. Puts every performance axis back to automatic.
+    ///
+    /// Separate from toggling each switch off by hand because the point is to
+    /// be able to say "whatever I did, undo it" without knowing what was done —
+    /// which is the state somebody is in when they notice the app is slow and
+    /// do not remember an investigation from three builds ago.
+    func resetToProductionDefaults() {
+        overrides = .none
+        logger.info(
+            .diagnosticOverrides,
+            category: .configuration,
+            metadata: LocalInferenceDiagnosticOverrides.none.metadata()
+                .setting(.reason, "resetToProductionDefaults")
+        )
     }
 
     // MARK: Launch
@@ -185,7 +231,16 @@ final class LocalInferenceDiagnosticsCentre {
         set {
             guard let data = try? JSONEncoder().encode(newValue) else { return }
             defaults.set(data, forKey: Keys.overrides)
+            // Stamped on every write, so a choice made with this build's
+            // behaviour visible is never mistaken for investigation residue
+            // and reset out from under the person who made it (section 59).
+            defaults.set(LocalInferenceSettingsVersion.current, forKey: Keys.settingsVersion)
         }
+    }
+
+    /// True when this session is running the product's own configuration.
+    var isProductionProfile: Bool {
+        LocalInferenceProductionPolicy.production.isProductionProfile(with: overrides)
     }
 
     func acknowledgeRecovery() {
@@ -311,5 +366,6 @@ final class LocalInferenceDiagnosticsCentre {
         static let verbose = "metisai.diagnostics.local.verbose"
         static let overrides = "metisai.diagnostics.local.overrides"
         static let acknowledgedSession = "metisai.diagnostics.local.acknowledgedSession"
+        static let settingsVersion = "metisai.diagnostics.local.settingsVersion"
     }
 }

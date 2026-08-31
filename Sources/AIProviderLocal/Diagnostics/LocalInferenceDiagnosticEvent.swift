@@ -191,6 +191,11 @@ public enum LocalInferenceEventName: String, Hashable, Sendable, CaseIterable, C
     case localToolRejected = "LOCAL_TOOL_REJECTED"
     case contextBudgetExceeded = "CONTEXT_BUDGET_EXCEEDED"
 
+    /// Measured prompt-prefill throughput (section 39). Separate from
+    /// generation because the two run differently and one figure describes
+    /// neither.
+    case promptEvaluation = "PROMPT_EVALUATION"
+
     case firstToken = "FIRST_TOKEN"
     case generationProgress = "GENERATION_PROGRESS"
     case generationFinished = "GENERATION_FINISHED"

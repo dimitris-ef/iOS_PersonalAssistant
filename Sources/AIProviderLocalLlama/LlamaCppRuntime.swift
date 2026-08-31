@@ -318,6 +318,14 @@ public actor LlamaCppRuntime: LocalModelRuntime {
                 // took.
                 .setting(.runtimeGPUOffloadActive, wantsGPU)
                 .setting(.gpuLayers, Int(modelParams.n_gpu_layers))
+                // Section 31 and 70. `-1` means "every layer" — it is what was
+                // *asked for*, and it is deliberately not reported as a layer
+                // count. The pinned llama.cpp exposes no way to ask which
+                // backend a tensor actually landed on, so `actualGPULayers` is
+                // absent rather than guessed, and the diagnostics screen shows
+                // "Unknown" for it. A fabricated number here would be the one
+                // thing that could make a GPU regression invisible.
+                .setting(.requestedGPULayers, Int(modelParams.n_gpu_layers))
                 .setting(.parameterCount, info.parameterCount ?? 0)
                 .setting(.trainedContextLength, ifPresent: info.trainedContextLength)
                 .setting(.hasEmbeddedChatTemplate, info.hasEmbeddedChatTemplate)
@@ -523,6 +531,7 @@ public actor LlamaCppRuntime: LocalModelRuntime {
         // Sections 27 and 36. The prompt goes in as however many `llama_decode`
         // calls `n_batch` requires, all into this one context, and generation
         // does not begin until every one of them has come back.
+        let prefillStartedAt = DispatchTime.now()
         let prefill = try prefillPrompt(
             tokens: tokens,
             context: context,
@@ -530,6 +539,26 @@ public actor LlamaCppRuntime: LocalModelRuntime {
             basePosition: 0,
             sequenceID: sequenceID,
             origin: "assistant_chat"
+        )
+        // Section 39. Measured, not estimated, and kept separate from
+        // generation throughput: prefill runs every token at once and
+        // generation runs them one at a time, so a single combined figure
+        // describes neither. This is also the number that moves when GPU
+        // offload comes back, which is why it is worth having on its own.
+        let prefillMs = LlamaCppRuntime.milliseconds(since: prefillStartedAt)
+        diagnostics.info(
+            .promptEvaluation,
+            category: .generation,
+            stage: .promptDecode,
+            metadata: LocalInferenceMetadata()
+                .setting(.promptEvaluationTokens, prefill.tokensDecoded)
+                .setting(.promptEvaluationDurationMs, Int(prefillMs))
+                .setting(
+                    .promptEvaluationTokensPerSecond,
+                    prefillMs > 0 ? Double(prefill.tokensDecoded) / (prefillMs / 1000) : 0
+                )
+                .setting(.plannedChunks, prefill.chunkCount)
+                .merging(runtimeIdentityMetadata())
         )
 
         guard let sampler = makeSampler(options: options) else {
@@ -674,6 +703,16 @@ public actor LlamaCppRuntime: LocalModelRuntime {
             .setting(.promptTokenCount, promptTokens)
             .setting(.elapsedSeconds, elapsedSeconds)
             .setting(.tokensPerSecond, elapsedSeconds > 0 ? Double(generated) / elapsedSeconds : 0)
+            // Section 40, named unambiguously. `elapsedSeconds` starts after
+            // the prefill returned, so the prompt's tokens are in neither the
+            // numerator nor the denominator — a combined figure would flatter
+            // a slow generation on a long prompt and hide exactly the
+            // regression this instrumentation exists to catch.
+            .setting(.generationDurationMs, Int(elapsedSeconds * 1000))
+            .setting(
+                .generationTokensPerSecond,
+                elapsedSeconds > 0 ? Double(generated) / elapsedSeconds : 0
+            )
             .setting(.stopReason, stop.rawValue)
             .setting(.cancelled, stop == .cancelled)
             // Cancellation and a full KV cache both leave the context usable —

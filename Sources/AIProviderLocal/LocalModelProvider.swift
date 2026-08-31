@@ -173,7 +173,14 @@ public struct LocalModelProvider: AIProvider {
         // cannot form them produces malformed envelopes, which become parse
         // errors, which become a turn that failed for no reason the user can
         // see — where the honest behaviour is a normal conversational reply.
-        let toolSupport = descriptor?.toolSupport ?? .experimental
+        // Section 43. Capability comes from the resolver, which says *why* as
+        // well as what — and reaches models the old catalogue join could not,
+        // because it falls back to the architecture read from the file's own
+        // header rather than giving up when no curated entry matches.
+        let capability = LocalModelCapabilityResolver.resolve(
+            descriptor: descriptor, record: await manager.installedRecord(for: modelID)
+        )
+        let toolSupport = capability.capability
         let tools = toolSupport.offersTools ? request.tools : []
         let expectsAction = !tools.isEmpty && LocalActionIntent.isLikely(in: request.messages)
 
@@ -188,8 +195,8 @@ public struct LocalModelProvider: AIProvider {
             diagnostics.criticalExit(
                 .inference,
                 operation: inferenceOperation,
-                metadata: LocalInferenceMetadata()
-                    .setting(.toolCapability, toolSupport.rawValue)
+                metadata: capability.metadata()
+                    .setting(.modelID, modelID.rawValue)
                     .setting(.actionIntentLikely, true)
                     .setting(.parserResult, "chatOnlyRefusal")
             )
@@ -296,7 +303,7 @@ public struct LocalModelProvider: AIProvider {
             metadata: LocalInferenceMetadata()
                 .setting(.parserResult, outcome.diagnosticSymbol)
                 .setting(.actionIntentLikely, expectsAction)
-                .setting(.toolCapability, toolSupport.rawValue)
+                .merging(capability.metadata())
                 .setting(.repairAttempt, 0)
                 .setting(.actionCategory, actionCategory.rawValue)
                 .merging(Self.selectedToolMetadata(outcome))
