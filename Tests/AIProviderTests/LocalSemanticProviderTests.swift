@@ -443,7 +443,10 @@ final class LocalSemanticProviderTests: XCTestCase {
             to: request("Remind me in 10 minutes to change bottles")
         )
 
-        let prompt = try XCTUnwrap(await runtime.lastPrompt)
+        // Read the actor's property first: `XCTUnwrap` takes an autoclosure,
+        // which cannot carry an `await`.
+        let lastPrompt = await runtime.lastPrompt
+        let prompt = try XCTUnwrap(lastPrompt)
         let text = prompt.turns.map(\.content).joined(separator: "\n").lowercased()
 
         XCTAssertTrue(text.contains("reminder.create"))
