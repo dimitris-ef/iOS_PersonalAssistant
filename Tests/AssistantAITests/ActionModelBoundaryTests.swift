@@ -92,7 +92,8 @@ final class ActionModelBoundaryTests: XCTestCase {
             return XCTFail("expected the second backend")
         }
         XCTAssertEqual(chosen.id, "b")
-        XCTAssertTrue(await registry.availability().isAvailable)
+        let availability = await registry.availability()
+        XCTAssertTrue(availability.isAvailable)
     }
 
     /// Section 15: unavailable carries a reason, because "unavailable" alone is
@@ -109,8 +110,9 @@ final class ActionModelBoundaryTests: XCTestCase {
 
     func testAnEmptyRegistryIsUnavailableRatherThanCrashing() async {
         let registry = ActionModelRegistry()
-        XCTAssertFalse(await registry.availability().isAvailable)
-        XCTAssertNotNil(await registry.availability().reason)
+        let availability = await registry.availability()
+        XCTAssertFalse(availability.isAvailable)
+        XCTAssertNotNil(availability.reason)
     }
 
     /// Section 38: the action backend is not the chat provider registry, and
@@ -128,9 +130,12 @@ final class ActionModelBoundaryTests: XCTestCase {
         await chat.unregister(ActionTurnProvider.providerID)
 
         // The chat registry is now empty; the action registry is untouched.
-        XCTAssertTrue(await chat.allProviders().isEmpty)
-        XCTAssertEqual(await actions.allBackends().count, 1)
-        XCTAssertTrue(await actions.availability().isAvailable)
+        let remainingChatProviders = await chat.allProviders()
+        let remainingBackends = await actions.allBackends()
+        let actionAvailability = await actions.availability()
+        XCTAssertTrue(remainingChatProviders.isEmpty)
+        XCTAssertEqual(remainingBackends.count, 1)
+        XCTAssertTrue(actionAvailability.isAvailable)
     }
 
     // MARK: What the action model is shown — sections 8 and 21
@@ -307,7 +312,8 @@ final class ActionModelBoundaryTests: XCTestCase {
         XCTAssertFalse(provider.metadata.supportsToolResultContinuation)
         XCTAssertFalse(provider.metadata.requiresCredentials)
         XCTAssertFalse(provider.metadata.requiresNetwork)
-        XCTAssertTrue(try await provider.availableModels().isEmpty)
+        let models = try await provider.availableModels()
+        XCTAssertTrue(models.isEmpty)
     }
 
     // MARK: Diagnostics — sections 22 to 25 and 41

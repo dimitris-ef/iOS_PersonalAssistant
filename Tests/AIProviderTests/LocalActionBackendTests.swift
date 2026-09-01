@@ -233,7 +233,8 @@ final class LocalActionBackendTests: XCTestCase {
 
     func testAvailabilityFollowsTheUnderlyingModel() async throws {
         let ready = try await makeBackend(runtime: MockLocalModelRuntime())
-        XCTAssertTrue(await ready.availability().isAvailable)
+        let readyAvailability = await ready.availability()
+        XCTAssertTrue(readyAvailability.isAvailable)
 
         let empty = try await makeBackend(runtime: MockLocalModelRuntime(), installed: false)
         let availability = await empty.availability()
