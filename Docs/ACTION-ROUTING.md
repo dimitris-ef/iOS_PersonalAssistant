@@ -1,6 +1,7 @@
 # The Metis action system
 
 Part 1: separating phone actions from chat.
+Part 2: constraining what the action model may produce.
 
 ---
 
@@ -90,7 +91,8 @@ protocol ActionModelProvider: Sendable {
     var id: String { get }
     func availability() async -> ActionModelAvailability
     func generateSemanticAction(
-        request: ActionModelRequest
+        request: ActionModelRequest,
+        constraints: ActionGenerationConstraints
     ) async throws -> LocalSemanticActionResult
 }
 ```
@@ -126,7 +128,7 @@ the model what day it is would be an invitation with nowhere legitimate to go.
 ## 5. The temporary backend
 
 Part 1 ships no new model. `CurrentLocalSemanticActionBackend` is an adapter
-over `LocalModelProvider.generateSemanticAction(request:)` — the same runtime,
+over `LocalModelProvider.generateSemanticAction(request:constraints:)` — the same runtime,
 the same chunked prefill, the same prompt budget, the same parser, the same
 validator and the same one-repair policy the chat path uses, asked a much
 narrower question.
@@ -206,7 +208,92 @@ historical.
 
 ---
 
-## 10. Not done in Part 1
+## 10. Part 2: constrained generation
+
+Everything above was a check on output that had already been produced. Part 2
+moves the same rules into the sampler.
+
+### The artefact
+
+`LocalSemanticActionSchema` is computed from `LocalSemanticIntent`,
+`LocalSemanticContract` and `LocalSemanticField` — there is no second list of
+intents or fields to drift from the protocol. It renders two ways:
+
+| Rendering | Consumed by |
+| --- | --- |
+| `SemanticActionGrammar.gbnf(for:)` | llama.cpp, via the grammar sampler |
+| `LocalSemanticActionSchema.jsonSchema` | a future backend whose runtime speaks JSON Schema |
+
+Both come from the same value, so neither can permit what the other forbids.
+The JSON Schema is where `additionalProperties: false` is spelled out
+literally; the GBNF expresses the same thing by having no production for
+anything else.
+
+### Why GBNF rather than JSON Schema → grammar
+
+llama.cpp's converter lives in `common`, which the pinned
+`llama-b10506-xcframework.zip` does not export — its public surface is
+`llama.h` and `ggml.h`. Using it would mean vendoring a C++ translation unit
+to avoid forty lines of string building.
+
+### The pinned API
+
+Checked against b10506's own header, not from memory:
+
+```c
+llama_sampler_init_grammar(const llama_vocab *, const char * grammar_str,
+                           const char * grammar_root);   // NULL if it won't parse
+```
+
+It goes **first** in the sampler chain, before anything that reweights or
+truncates: it masks the tokens that cannot continue a valid action, and the
+rest of the chain chooses among what is left.
+
+### Fail closed
+
+A constraint that cannot be built is a *failed action request*, never a licence
+to generate freely. It has its own error case
+(`ActionModelError.constraintInitializationFailed`), the runtime refuses rather
+than falling back, and the diagnostic records `active=false`. There is no code
+path from "no grammar" to "ask the model anyway".
+
+`GBNFGrammar` parses and checks the grammar before a model is even loaded, so
+the failure is a named error on the device rather than a null pointer after all
+the expensive work.
+
+### Structure is not meaning
+
+A grammar accepts `memory.store` for "remind me in ten minutes" quite happily.
+Everything downstream therefore stays: the semantic validator still refuses the
+wrong family, and `LocalActionBackendTests` asserts both halves — the grammar
+matches it, and nothing runs.
+
+The single repair is now constrained *more* tightly than the attempt that
+failed, narrowed to the routed family, so the second try cannot repeat a
+wrong-family answer.
+
+### Chat is untouched
+
+The grammar is attached to the action generation and nothing else. A chat
+turn's `LocalGenerationOptions.grammar` is nil, asserted on the options the
+runtime actually received.
+
+### How the tests can mean anything without llama.cpp
+
+CI has no simulator slice and no model file. `GBNFGrammar` matches against the
+exact bytes the sampler would receive, so "prose cannot escape the grammar" is
+checked against the grammar rather than asserted about a mock — and
+`MockLocalModelRuntime` enforces that same grammar, returning nothing for a
+scripted response outside the language, the way a real constrained sampler
+behaves.
+
+What this still cannot show is that llama.cpp's own parser reads the string
+identically. That is a real-device claim; the grammar is confined to constructs
+its GBNF documents as supported.
+
+---
+
+## 11. Not done in Part 1
 
 Architecture only, by instruction. No tiny Metis Action Model, no training, no
 LoRA, no dataset, no distillation, no Core ML conversion, no constrained
@@ -217,3 +304,7 @@ Also still open from the previous pass: calendar-event lookup is not wired in
 the composition root, because `PlatformServices` sits above `AIProviderLocal`.
 `calendar.update` therefore asks which event was meant rather than resolving
 one.
+
+Part 2 adds no model either: no training, no LoRA, no dataset, no distillation,
+no Core ML conversion, no custom tokenizer and no benchmark suite. It
+constrains the generation the existing backend already does.
