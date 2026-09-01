@@ -51,8 +51,9 @@ public struct CurrentLocalSemanticActionBackend: ActionModelProvider {
     }
 
     public func generateSemanticAction(
-        request: ActionModelRequest
+        request: ActionModelRequest,
+        constraints: ActionGenerationConstraints
     ) async throws -> LocalSemanticActionResult {
-        try await provider.generateSemanticAction(request: request)
+        try await provider.generateSemanticAction(request: request, constraints: constraints)
     }
 }

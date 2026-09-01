@@ -967,11 +967,18 @@ public struct LocalModelProvider: AIProvider {
     /// with nowhere legitimate to go. `ActionModelRequest.now` is still part of
     /// the contract because a different backend may need it; this one does not.
     public func generateSemanticAction(
-        request: ActionModelRequest
+        request: ActionModelRequest,
+        constraints: ActionGenerationConstraints
     ) async throws -> LocalSemanticActionResult {
         guard let runtime else {
             throw ActionModelError.backendUnavailable(LocalModelManager.noRuntimeReason)
         }
+
+        // Section 18: the grammar is built and *checked* before a model is
+        // loaded or a prompt is assembled. `llama_sampler_init_grammar` would
+        // catch a broken grammar too, but only after all of that, and only as a
+        // null pointer with nothing to say about what was wrong.
+        let grammar = try validatedGrammar(for: constraints.semanticSchema)
 
         let modelID: AIModelIdentifier
         let loaded: LoadedModelInfo
@@ -988,6 +995,7 @@ public struct LocalModelProvider: AIProvider {
         var recovery = LocalActionRecoveryPolicy()
         var outcome = try await interpret(
             request: request,
+            grammar: grammar,
             repairInstruction: nil,
             descriptor: descriptor,
             loaded: loaded,
@@ -1000,11 +1008,23 @@ public struct LocalModelProvider: AIProvider {
             metadata: Self.outcomeMetadata(outcome)
                 .setting(.repairAttempt, 0)
                 .setting(.semanticProtocolActive, true)
+                .setting(.constrainedGenerationActive, true)
         )
 
         if outcome.isRepairable, recovery.consume() {
+            // Section 15. The retry is constrained *more* tightly, not less: if
+            // the router was confident about the family, the repair grammar can
+            // only express that family, so "answered a reminder with a memory"
+            // is not a mistake the second attempt is able to repeat.
+            let narrowed = ActionGenerationConstraints.narrowed(to: request.detectedCategory)
+            let repairSchema = narrowed.semanticSchema.intents.isEmpty
+                ? constraints.semanticSchema
+                : narrowed.semanticSchema
+            let repairGrammar = try validatedGrammar(for: repairSchema)
+
             outcome = try await interpret(
                 request: request,
+                grammar: repairGrammar,
                 repairInstruction: LocalSemanticPrompt.repairInstruction(for: outcome),
                 descriptor: descriptor,
                 loaded: loaded,
@@ -1017,6 +1037,8 @@ public struct LocalModelProvider: AIProvider {
                 metadata: Self.outcomeMetadata(outcome)
                     .setting(.repairAttempt, 1)
                     .setting(.repairResult, outcome.symbol)
+                    .setting(.constrainedGenerationActive, true)
+                    .setting(.constraintIntentCount, repairSchema.intents.count)
             )
         }
 
@@ -1035,9 +1057,52 @@ public struct LocalModelProvider: AIProvider {
         }
     }
 
+    /// Builds the grammar for a schema and refuses to proceed without one.
+    ///
+    /// Sections 17, 18 and 26. There is no branch here that returns "no
+    /// grammar, carry on": a constraint that cannot be built is a failed action
+    /// request, full stop. The diagnostic says so in the words section 26 asks
+    /// for, and the caller turns the throw into the same safe sentence any
+    /// other action failure produces.
+    private func validatedGrammar(for schema: LocalSemanticActionSchema) throws -> String {
+        let grammar = SemanticActionGrammar.gbnf(for: schema)
+        do {
+            _ = try GBNFGrammar.validate(grammar, root: SemanticActionGrammar.rootRule)
+        } catch {
+            let symbol = (error as? GBNFGrammar.ValidationFailure)?.symbol ?? "invalidGrammar"
+            diagnostics.problem(
+                .actionConstrainedGeneration,
+                category: .generation,
+                metadata: LocalInferenceMetadata()
+                    .setting(.constrainedGenerationActive, false)
+                    .setting(.constraintType, Self.constraintType)
+                    .setting(
+                        .errorReason, SemanticActionGrammar.initializationFailureReason
+                    )
+                    .setting(.validationResult, symbol)
+            )
+            throw ActionModelError.constraintInitializationFailed(symbol)
+        }
+
+        diagnostics.info(
+            .actionConstrainedGeneration,
+            category: .generation,
+            metadata: LocalInferenceMetadata()
+                .setting(.constrainedGenerationActive, true)
+                .setting(.constraintType, Self.constraintType)
+                .setting(.constraintIntentCount, schema.intents.count)
+        )
+        return grammar
+    }
+
+    /// What this backend constrains with. A symbol for the log, not a claim
+    /// about any other backend.
+    static let constraintType = "gbnf"
+
     /// One generation, classified. Shared by the first attempt and the repair.
     private func interpret(
         request: ActionModelRequest,
+        grammar: String,
         repairInstruction: String?,
         descriptor: LocalModelDescriptor?,
         loaded: LoadedModelInfo,
@@ -1051,13 +1116,22 @@ public struct LocalModelProvider: AIProvider {
             loaded: loaded
         )
         let fitted = LocalPromptBudget.fit(prompt, configuration: configuration)
-        var options = LocalGenerationOptions.structured
+        // Section 22: greedy, extraction-shaped sampling — there is one right
+        // answer to "which intent is this", and sampling among near-ties is how
+        // the same sentence becomes a reminder today and a memory tomorrow.
+        // Chat sampling is untouched; this profile exists only for this path.
+        var options = LocalGenerationOptions.semanticAction
         // One JSON object. Room for paragraphs is room for the prose this whole
         // protocol exists to stop.
         options.maximumOutputTokens = min(
             Self.actionOutputTokenLimit, configuration.maximumGenerationTokens
         )
         options.stopSequences = (descriptor?.chatTemplate ?? .modelDefault).stopSequences
+        // Section 1 and 23. The grammar goes on this generation and only this
+        // generation: nothing that answers a chat message ever carries one, and
+        // once the object is complete the grammar has no production left, so
+        // there is no path to prose after the action.
+        options.grammar = grammar
 
         let output: LocalGenerationOutput
         do {

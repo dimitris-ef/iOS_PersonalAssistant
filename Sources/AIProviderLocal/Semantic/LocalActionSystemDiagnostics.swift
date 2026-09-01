@@ -67,6 +67,27 @@ public struct LocalActionSystemDiagnostics: ActionSystemDiagnosticSink {
                     .setting(.actionCategory, category)
             )
 
+        case .constrainedGeneration(let backendID, let active, let constraintType, let reason):
+            sink.info(
+                .actionConstrainedGeneration,
+                category: .generation,
+                metadata: LocalInferenceMetadata()
+                    .setting(.actionBackendID, backendID)
+                    .setting(.constrainedGenerationActive, active)
+                    .setting(.constraintType, constraintType)
+                    .setting(ifPresent: reason, as: .actionBackendReason)
+            )
+
+        case .semanticParse(let backendID, let success, let generatedIntent):
+            sink.info(
+                .semanticParse,
+                category: .generation,
+                metadata: LocalInferenceMetadata()
+                    .setting(.actionBackendID, backendID)
+                    .setting(.semanticParseSucceeded, success)
+                    .setting(ifPresent: generatedIntent, as: .generatedIntent)
+            )
+
         case .actionBackendFailure(let backendID, let reason):
             sink.problem(
                 .actionBackendFailure,

@@ -60,6 +60,18 @@ public struct LocalGenerationOptions: Hashable, Codable, Sendable {
     public var seed: UInt32?
     /// Strings that end generation early, beyond the model's own end token.
     public var stopSequences: [String]
+    /// A GBNF grammar the sampler must enforce, when the caller requires one.
+    ///
+    /// Nil for ordinary conversation, and that is not an oversight: section 1
+    /// says constrained decoding applies to the action path only. Attaching a
+    /// grammar to a chat turn would make the assistant unable to answer a
+    /// question.
+    ///
+    /// Non-nil is a **requirement**, not a hint. A runtime that cannot enforce
+    /// the grammar must fail the generation rather than run without it
+    /// (section 17), which is why this is part of the options rather than a
+    /// capability the runtime advertises and the caller hopes for.
+    public var grammar: String?
 
     public init(
         maximumOutputTokens: Int = 512,
@@ -67,7 +79,8 @@ public struct LocalGenerationOptions: Hashable, Codable, Sendable {
         topP: Double = 0.9,
         topK: Int = 40,
         seed: UInt32? = nil,
-        stopSequences: [String] = []
+        stopSequences: [String] = [],
+        grammar: String? = nil
     ) {
         self.maximumOutputTokens = maximumOutputTokens
         self.temperature = temperature
@@ -75,6 +88,7 @@ public struct LocalGenerationOptions: Hashable, Codable, Sendable {
         self.topK = topK
         self.seed = seed
         self.stopSequences = stopSequences
+        self.grammar = grammar
     }
 
     /// What the assistant asks for when it wants a structured answer.
@@ -86,6 +100,21 @@ public struct LocalGenerationOptions: Hashable, Codable, Sendable {
         temperature: 0.2,
         topP: 0.9,
         topK: 40
+    )
+
+    /// What the dedicated action model is asked for.
+    ///
+    /// Section 22: extraction and classification, not composition. Greedy —
+    /// temperature zero — because there is exactly one right answer to "which
+    /// intent is this and what did they say", and sampling among near-ties is
+    /// how the same sentence produces a reminder today and a memory tomorrow.
+    /// The grammar is supplied per call; the sampling is fixed here.
+    public static let semanticAction = LocalGenerationOptions(
+        maximumOutputTokens: 192,
+        temperature: 0,
+        topP: 1,
+        topK: 0,
+        seed: 0
     )
 
     public static let conversational = LocalGenerationOptions()

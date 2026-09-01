@@ -260,6 +260,26 @@ public enum LocalInferenceMetadataKey: String, Hashable, Sendable, CaseIterable,
     /// to the older direct tool-schema prompt.
     case semanticProtocolActive
 
+    // MARK: Constrained generation
+    //
+    // Section 25: whether the constraint was in force, what kind it was, and
+    // how wide it was. Never the grammar itself and never the generated JSON —
+    // a grammar is authored text, but it is long, and a log that carries one
+    // per generation is a log nobody reads.
+
+    /// True when a grammar was enforced for this generation. False is the
+    /// fail-closed record, never a note that generation continued freely.
+    case constrainedGenerationActive
+    /// `gbnf` for the llama.cpp backend. A symbol, not a claim about others.
+    case constraintType
+    /// How many intents the constraint permitted — the full protocol, or the
+    /// one family a repair was narrowed to.
+    case constraintIntentCount
+    /// Whether the constrained output parsed into a semantic action.
+    case semanticParseSucceeded
+    /// The intent a generation produced, when it produced one.
+    case generatedIntent
+
     // MARK: The action router and its backend
     //
     // Section 22 and 23 again: symbols only. "reminder" is a family name the

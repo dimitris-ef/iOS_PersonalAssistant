@@ -218,6 +218,14 @@ public enum LocalInferenceEventName: String, Hashable, Sendable, CaseIterable, C
     case actionBackend = "ACTION_BACKEND"
     /// The action backend is about to interpret a request.
     case actionProcessingStarted = "SEMANTIC_ACTION_PROCESSING_STARTED"
+    /// Whether this action generation is constrained, and by what.
+    ///
+    /// Section 26: the line that says `active=false` is the fail-closed record.
+    /// There is no path in which it is followed by an unconstrained action
+    /// generation, which is exactly why it is worth writing down.
+    case actionConstrainedGeneration = "ACTION_CONSTRAINED_GENERATION"
+    /// Whether the constrained output parsed into a semantic action.
+    case semanticParse = "SEMANTIC_PARSE"
     /// It did not produce a usable semantic action.
     case actionBackendFailure = "ACTION_BACKEND_FAILURE"
     /// The resolver produced an `AIToolCall` for the existing pipeline.

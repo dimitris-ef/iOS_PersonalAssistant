@@ -561,8 +561,17 @@ public actor LlamaCppRuntime: LocalModelRuntime {
                 .merging(runtimeIdentityMetadata())
         )
 
-        guard let sampler = makeSampler(options: options) else {
-            throw LocalRuntimeError.generationFailed(reason: "The sampler could not be created.")
+        // Section 17, and the reason this is a `guard` rather than a fallback:
+        // a grammar that was asked for and could not be built means the action
+        // request cannot be answered *safely*, not that it should be answered
+        // freely. `llama_sampler_init_grammar` returns NULL on a grammar it
+        // cannot parse, and that null becomes a failed generation here.
+        guard let sampler = makeSampler(options: options, vocab: vocab) else {
+            throw LocalRuntimeError.generationFailed(
+                reason: options.grammar == nil
+                    ? "The sampler could not be created."
+                    : SemanticActionGrammar.initializationFailureReason
+            )
         }
         defer { llama_sampler_free(sampler) }
 
@@ -1283,10 +1292,35 @@ extension LlamaCppRuntime {
     ///   in `llama.h` and import as opaque; `llama_sampler` is a *complete*
     ///   struct with `iface` and `ctx` fields, so it imports as
     ///   `UnsafeMutablePointer<llama_sampler>`. They are not interchangeable.
-    func makeSampler(options: LocalGenerationOptions) -> UnsafeMutablePointer<llama_sampler>? {
+    ///
+    /// - Parameter vocab: needed only for the grammar sampler, which tokenizes
+    ///   the grammar's terminals against the model that will run it.
+    func makeSampler(
+        options: LocalGenerationOptions, vocab: OpaquePointer?
+    ) -> UnsafeMutablePointer<llama_sampler>? {
         var params = llama_sampler_chain_default_params()
         params.no_perf = true
         guard let chain = llama_sampler_chain_init(params) else { return nil }
+
+        // The grammar goes first, before anything that reweights or truncates.
+        // It masks the tokens that cannot continue a valid action, and the rest
+        // of the chain then chooses among what is left — the other order would
+        // let top-k discard every legal token before the grammar was consulted.
+        //
+        // Pinned API, b10506:
+        //   llama_sampler_init_grammar(const llama_vocab *, const char *, const char *)
+        // returning NULL when the grammar does not parse.
+        if let grammar = options.grammar {
+            guard let vocab,
+                let grammarSampler = llama_sampler_init_grammar(
+                    vocab, grammar, SemanticActionGrammar.rootRule
+                )
+            else {
+                llama_sampler_free(chain)
+                return nil
+            }
+            llama_sampler_chain_add(chain, grammarSampler)
+        }
 
         if options.temperature <= 0 {
             // Temperature zero means "always the most likely token", which is

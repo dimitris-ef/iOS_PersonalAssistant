@@ -93,17 +93,56 @@ public struct ActionTurnProvider: AIProvider {
             detectedCategory: category
         )
 
+        // Section 1 and 2: the constraint travels with the request, and only on
+        // this path. Nothing that answers a chat message is ever given one.
+        //
+        // The full protocol on the first attempt — the router's family is a
+        // hint, not a verdict, and narrowing the *first* try to it would let a
+        // misrouted message produce a confidently wrong action instead of a
+        // rejected one. The backend narrows the single repair (section 15),
+        // where the evidence has had a chance to be wrong once already.
+        let constraints = ActionGenerationConstraints.universal
+        diagnostics.record(
+            .constrainedGeneration(
+                backendID: backend.id,
+                active: true,
+                constraintType: Self.constraintKind,
+                reason: nil
+            )
+        )
+
         let produced: LocalSemanticActionResult
         do {
-            produced = try await backend.generateSemanticAction(request: actionRequest)
+            produced = try await backend.generateSemanticAction(
+                request: actionRequest, constraints: constraints
+            )
         } catch let error as ActionModelError {
+            if case .constraintInitializationFailed = error {
+                // Section 17 and 26. The constraint could not be built, so the
+                // request is refused. There is deliberately no branch here that
+                // retries without it.
+                diagnostics.record(
+                    .constrainedGeneration(
+                        backendID: backend.id,
+                        active: false,
+                        constraintType: Self.constraintKind,
+                        reason: error.symbol
+                    )
+                )
+            }
             diagnostics.record(
                 .actionBackendFailure(backendID: backend.id, reason: error.symbol)
+            )
+            diagnostics.record(
+                .semanticParse(backendID: backend.id, success: false, generatedIntent: nil)
             )
             return failure()
         } catch {
             diagnostics.record(
                 .actionBackendFailure(backendID: backend.id, reason: "generationFailed")
+            )
+            diagnostics.record(
+                .semanticParse(backendID: backend.id, success: false, generatedIntent: nil)
             )
             return failure()
         }
@@ -114,6 +153,9 @@ public struct ActionTurnProvider: AIProvider {
             // is its answer, not a handoff: section 16 forbids passing an
             // ACTION request to the chat model to be answered as if it had
             // acted. A backend with nothing to say gets the concise sentence.
+            diagnostics.record(
+                .semanticParse(backendID: backend.id, success: false, generatedIntent: nil)
+            )
             let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
             return AIResponse(
                 text: trimmed.isEmpty ? Self.noActionMessage : trimmed,
@@ -122,6 +164,13 @@ public struct ActionTurnProvider: AIProvider {
             )
 
         case .action(let action):
+            diagnostics.record(
+                .semanticParse(
+                    backendID: backend.id,
+                    success: true,
+                    generatedIntent: action.intent.rawValue
+                )
+            )
             switch await resolver.resolve(action) {
             case .resolved(let call):
                 return AIResponse(
@@ -148,6 +197,12 @@ public struct ActionTurnProvider: AIProvider {
     private func failure() -> AIResponse {
         AIResponse(text: Self.failureMessage, stopReason: .other, providerID: metadata.id)
     }
+
+    /// What this layer requires of a backend, as a symbol for the log.
+    ///
+    /// Not `gbnf`: that is one backend's mechanism, and this layer does not
+    /// know or care which. The backend logs its own concrete kind.
+    static let constraintKind = "semanticActionSchema"
 
     /// Section 26: no router internals, no protocol JSON, no parser error.
     public static let failureMessage =

@@ -36,6 +36,7 @@ final class ActionRoutingTests: XCTestCase {
         private let result: Result<LocalSemanticActionResult, ActionModelError>
         private(set) var callCount = 0
         private(set) var categories: [LocalActionCategory] = []
+        private(set) var constrained: [ActionGenerationConstraints] = []
 
         init(
             id: String = "test.action-backend",
@@ -57,10 +58,12 @@ final class ActionRoutingTests: XCTestCase {
         func availability() async -> ActionModelAvailability { state }
 
         func generateSemanticAction(
-            request: ActionModelRequest
+            request: ActionModelRequest,
+            constraints: ActionGenerationConstraints
         ) async throws -> LocalSemanticActionResult {
             callCount += 1
             categories.append(request.detectedCategory)
+            constrained.append(constraints)
             return try result.get()
         }
     }

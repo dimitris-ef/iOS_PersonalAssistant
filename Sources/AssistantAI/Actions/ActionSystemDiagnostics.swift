@@ -23,6 +23,16 @@ public enum ActionSystemDiagnosticEvent: Hashable, Sendable {
     case semanticProcessingStarted(backendID: String, category: String)
     /// It did not produce a usable action.
     case actionBackendFailure(backendID: String, reason: String)
+    /// Whether this generation was constrained, and by what.
+    ///
+    /// `active: false` is the fail-closed record (section 26). It is never
+    /// followed by an unconstrained action generation — there is no code path
+    /// that could produce one — which is precisely why it is worth a line.
+    case constrainedGeneration(
+        backendID: String, active: Bool, constraintType: String, reason: String?
+    )
+    /// Whether the constrained output became a semantic action, and which one.
+    case semanticParse(backendID: String, success: Bool, generatedIntent: String?)
 
     /// The event name written to the log.
     public var name: String {
@@ -31,6 +41,8 @@ public enum ActionSystemDiagnosticEvent: Hashable, Sendable {
         case .actionBackend: return "ACTION_BACKEND"
         case .semanticProcessingStarted: return "SEMANTIC_ACTION_PROCESSING_STARTED"
         case .actionBackendFailure: return "ACTION_BACKEND_FAILURE"
+        case .constrainedGeneration: return "ACTION_CONSTRAINED_GENERATION"
+        case .semanticParse: return "SEMANTIC_PARSE"
         }
     }
 }

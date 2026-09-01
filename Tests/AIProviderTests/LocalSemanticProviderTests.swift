@@ -429,6 +429,42 @@ final class LocalSemanticProviderTests: XCTestCase {
         XCTAssertEqual(generations, 2, "the turn must generate once and repair once")
     }
 
+    // MARK: Chat is never constrained — Part 2, sections 1 and 43
+
+    /// The whole point of scoping constrained decoding to the action path: a
+    /// grammar on a conversation would make the assistant unable to answer a
+    /// question. Asserted on the options the runtime actually received.
+    func testChatGenerationCarriesNoGrammar() async throws {
+        let answer = "Reminders arrive as a notification at the time you choose."
+        let runtime = MockLocalModelRuntime()
+        await runtime.alwaysRespond(.raw(answer))
+        let provider = try await makeProvider(runtime: runtime)
+
+        let response = try await provider.respond(to: request("How do reminders work?"))
+
+        XCTAssertEqual(response.text, answer)
+        let options = await runtime.lastOptions
+        XCTAssertNil(options?.grammar, "a chat turn must never be given a grammar")
+        let rejections = await runtime.constrainedRejections
+        XCTAssertEqual(rejections, 0)
+    }
+
+    /// And the same for a chat turn that is *about* an action: the router is
+    /// what decides the path, and this provider entry point is the chat one
+    /// whatever the sentence says.
+    func testEvenAnActionSoundingChatTurnIsUnconstrained() async throws {
+        let runtime = MockLocalModelRuntime()
+        await runtime.alwaysRespond(.raw(Self.reminderEnvelope))
+        let provider = try await makeProvider(runtime: runtime)
+
+        _ = try await provider.respond(
+            to: request("Remind me in 10 minutes to change bottles")
+        )
+
+        let options = await runtime.lastOptions
+        XCTAssertNil(options?.grammar)
+    }
+
     // MARK: What the model is shown
 
     /// Sections 57 and 58. The prompt the runtime actually received carries the

@@ -94,6 +94,12 @@ public enum ActionModelAvailability: Hashable, Sendable {
 /// a log by accident.
 public enum ActionModelError: Error, Hashable, Sendable, CustomStringConvertible {
     case backendUnavailable(String)
+    /// The backend could not build the constraint it was asked to enforce.
+    ///
+    /// Section 17 and 26: this is a *failure*, not a licence to generate
+    /// freely. It exists as its own case so the fail-closed path is a thing the
+    /// type system knows about rather than a comment somebody has to obey.
+    case constraintInitializationFailed(String)
     case generationFailed(String)
     case semanticParsingFailed(String)
     case semanticValidationFailed(String)
@@ -103,6 +109,7 @@ public enum ActionModelError: Error, Hashable, Sendable, CustomStringConvertible
     public var symbol: String {
         switch self {
         case .backendUnavailable: return "backendUnavailable"
+        case .constraintInitializationFailed: return "constraintInitializationFailed"
         case .generationFailed: return "generationFailed"
         case .semanticParsingFailed: return "semanticParsingFailed"
         case .semanticValidationFailed: return "semanticValidationFailed"
@@ -112,6 +119,8 @@ public enum ActionModelError: Error, Hashable, Sendable, CustomStringConvertible
     public var description: String {
         switch self {
         case .backendUnavailable(let detail): return "action backend unavailable: \(detail)"
+        case .constraintInitializationFailed(let detail):
+            return "action constraint could not be built: \(detail)"
         case .generationFailed(let detail): return "action generation failed: \(detail)"
         case .semanticParsingFailed(let detail): return "semantic parsing failed: \(detail)"
         case .semanticValidationFailed(let detail):
@@ -153,7 +162,23 @@ public protocol ActionModelProvider: Sendable {
     /// Cheap enough to call before every routed message.
     func availability() async -> ActionModelAvailability
 
+    /// Produces one semantic action, constrained to what `constraints` permits.
+    ///
+    /// ## Why the constraint is a parameter and not a property
+    ///
+    /// Section 15. The single repair is narrowed to the family the request
+    /// plainly belongs to, so the same backend is asked twice with two
+    /// different constraints in one turn. A backend that stored its constraint
+    /// could not do that.
+    ///
+    /// ## The obligation this places on a backend
+    ///
+    /// Section 17, and it is the important half: a backend that cannot enforce
+    /// the constraint must **throw**, not generate freely. "Constrained or
+    /// nothing" is the contract; there is no third state in which an action
+    /// request is answered by an unconstrained model.
     func generateSemanticAction(
-        request: ActionModelRequest
+        request: ActionModelRequest,
+        constraints: ActionGenerationConstraints
     ) async throws -> LocalSemanticActionResult
 }

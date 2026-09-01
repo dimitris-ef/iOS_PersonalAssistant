@@ -40,10 +40,14 @@ final class ActionModelBoundaryTests: XCTestCase {
 
         func availability() async -> ActionModelAvailability { state }
 
+        private(set) var constraints: [ActionGenerationConstraints] = []
+
         func generateSemanticAction(
-            request: ActionModelRequest
+            request: ActionModelRequest,
+            constraints: ActionGenerationConstraints
         ) async throws -> LocalSemanticActionResult {
             requests.append(request)
+            self.constraints.append(constraints)
             return try result.get()
         }
     }
@@ -314,6 +318,111 @@ final class ActionModelBoundaryTests: XCTestCase {
         XCTAssertFalse(provider.metadata.requiresNetwork)
         let models = try await provider.availableModels()
         XCTAssertTrue(models.isEmpty)
+    }
+
+    // MARK: Constrained generation — Part 2
+
+    /// Section 2 and 5: the constraint reaches the backend, and it is the
+    /// protocol's own intents rather than a separate list.
+    func testTheBackendIsGivenTheProtocolAsAConstraint() async throws {
+        let backend = RecordingBackend(
+            result: .success(
+                .action(
+                    LocalSemanticAction(
+                        intent: .reminderCreate,
+                        arguments: [.title: "x", .timeExpression: "in 10 minutes"]
+                    )
+                )
+            )
+        )
+        let provider = ActionTurnProvider(
+            backend: backend,
+            resolver: LocalSemanticActionResolver(dateProvider: clock),
+            dateProvider: clock,
+            category: .reminder
+        )
+
+        _ = try await provider.respond(to: request("Remind me in 10 minutes."))
+
+        let seen = await backend.constraints
+        XCTAssertEqual(seen.count, 1)
+        let schema = try XCTUnwrap(seen.first?.semanticSchema)
+        XCTAssertEqual(
+            Set(schema.intents), Set(LocalSemanticIntent.allCases.filter(\.isAction))
+        )
+        // Section 24: `chat` is not one of the answers a constrained action
+        // generation may give.
+        XCTAssertFalse(schema.intents.contains(.chat))
+    }
+
+    /// Sections 17, 22 and 23 of Part 2, and the one that matters most: a
+    /// constraint that could not be built means the request is refused. There
+    /// is no branch that runs the model without it.
+    func testAConstraintFailureFailsClosed() async throws {
+        let sink = RecordingSink(box: RecordingSink.Box())
+        let backend = RecordingBackend(
+            result: .failure(.constraintInitializationFailed("grammarInitializationFailed"))
+        )
+        let provider = ActionTurnProvider(
+            backend: backend,
+            resolver: LocalSemanticActionResolver(dateProvider: clock),
+            dateProvider: clock,
+            category: .reminder,
+            diagnostics: sink
+        )
+
+        let response = try await provider.respond(to: request("Remind me in 10 minutes."))
+
+        XCTAssertTrue(response.toolCalls.isEmpty, "an unconstrained action reached execution")
+        XCTAssertEqual(response.text, ActionTurnProvider.failureMessage)
+
+        // Section 26: the fail-closed record exists and says active=false.
+        let closed = sink.box.events.contains {
+            if case .constrainedGeneration(_, let active, _, let reason) = $0 {
+                return active == false && reason == "constraintInitializationFailed"
+            }
+            return false
+        }
+        XCTAssertTrue(closed, "the fail-closed line was not recorded")
+    }
+
+    /// Section 25 and 27: the constraint and the parse outcome are both
+    /// recorded, and the Part 1 lines still are too.
+    func testConstrainedGenerationAndParseAreRecorded() async throws {
+        let sink = RecordingSink(box: RecordingSink.Box())
+        let backend = RecordingBackend(
+            result: .success(
+                .action(
+                    LocalSemanticAction(
+                        intent: .reminderCreate,
+                        arguments: [.title: "x", .timeExpression: "in 10 minutes"]
+                    )
+                )
+            )
+        )
+        let provider = ActionTurnProvider(
+            backend: backend,
+            resolver: LocalSemanticActionResolver(dateProvider: clock),
+            dateProvider: clock,
+            category: .reminder,
+            diagnostics: sink
+        )
+
+        _ = try await provider.respond(to: request("Remind me in 10 minutes."))
+
+        let names = Set(sink.box.events.map(\.name))
+        XCTAssertTrue(names.contains("ACTION_CONSTRAINED_GENERATION"))
+        XCTAssertTrue(names.contains("SEMANTIC_PARSE"))
+        // Part 1's own lines survive (section 27).
+        XCTAssertTrue(names.contains("SEMANTIC_ACTION_PROCESSING_STARTED"))
+
+        let parsed = sink.box.events.contains {
+            if case .semanticParse(_, let success, let intent) = $0 {
+                return success && intent == "reminder.create"
+            }
+            return false
+        }
+        XCTAssertTrue(parsed)
     }
 
     // MARK: Diagnostics — sections 22 to 25 and 41

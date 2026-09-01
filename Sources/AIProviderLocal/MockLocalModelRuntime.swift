@@ -70,6 +70,10 @@ public actor MockLocalModelRuntime: LocalModelRuntime {
     /// prompt and the memory context actually arrived.
     public private(set) var lastPrompt: LocalPrompt?
     public private(set) var lastOptions: LocalGenerationOptions?
+    /// How many scripted responses the grammar refused to let through.
+    ///
+    /// See `generate(_:options:)` for why the mock enforces a grammar at all.
+    public private(set) var constrainedRejections = 0
 
     public init(availability: LocalRuntimeAvailability = .idle) {
         self.availability = availability
@@ -142,6 +146,32 @@ public actor MockLocalModelRuntime: LocalModelRuntime {
         isCancelled = false
 
         let response = responses.isEmpty ? lastResponse : responses.removeFirst()
+
+        // ## Why a mock enforces the grammar
+        //
+        // A scripted runtime that ignored `options.grammar` would let every
+        // constrained-generation test pass by assertion rather than by
+        // construction: "the model returned prose" would prove nothing, because
+        // a real constrained model *cannot* return prose. CI has no llama.cpp —
+        // there is no simulator slice and no model file — so the only way for
+        // these tests to mean anything is for the mock to apply the same
+        // constraint llama.cpp would.
+        //
+        // A response the grammar cannot express comes back as empty output,
+        // which is what a real sampler produces when every continuation it
+        // would have chosen is masked: nothing usable, and the classifier
+        // upstream treats it as a malformed attempt.
+        if let grammar = options.grammar,
+            let compiled = try? GBNFGrammar.validate(
+                grammar, root: SemanticActionGrammar.rootRule
+            ) {
+            let candidate = Self.text(of: response)
+            if let candidate, !compiled.matches(candidate) {
+                constrainedRejections += 1
+                return LocalGenerationOutput(text: "", stop: .maximumTokens)
+            }
+        }
+
         switch response {
         case .text(let text):
             return LocalGenerationOutput(
@@ -178,6 +208,21 @@ public actor MockLocalModelRuntime: LocalModelRuntime {
 
     public func cancelGeneration() async {
         isCancelled = true
+    }
+
+    /// What a scripted response would put on the wire, for the grammar check.
+    ///
+    /// Nil for the cases that produce no text at all — a thrown error and a
+    /// cancellation are not things a grammar has an opinion about.
+    static func text(of response: Response) -> String? {
+        switch response {
+        case .text(let value), .raw(let value):
+            return value
+        case .toolCalls(let names, let arguments, let message):
+            return envelope(names: names, arguments: arguments, message: message)
+        case .failure, .hangUntilCancelled:
+            return nil
+        }
     }
 
     /// Renders the same envelope a real model is asked to produce.
