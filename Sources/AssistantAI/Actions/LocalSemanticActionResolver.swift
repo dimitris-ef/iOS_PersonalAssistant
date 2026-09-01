@@ -1,4 +1,3 @@
-import AssistantAI
 import AssistantDomain
 import Foundation
 
@@ -71,6 +70,16 @@ public enum LocalSemanticResolution: Hashable, Sendable {
     }
 }
 
+/// Turns a semantic action into a tool call the app can validate.
+///
+/// A protocol so the action path can be assembled by the composition root
+/// without `AssistantCore` naming a concrete resolver — and so a test can
+/// substitute one. There is exactly one production implementation
+/// (``LocalSemanticActionResolver``), and it is deterministic.
+public protocol SemanticActionResolving: Sendable {
+    func resolve(_ action: LocalSemanticAction) async -> LocalSemanticResolution
+}
+
 /// Turns a validated semantic action into a real tool call.
 ///
 /// ## Where implementation details come from
@@ -97,7 +106,7 @@ public enum LocalSemanticResolution: Hashable, Sendable {
 /// validation, provenance, authorization, confirmation, `PlatformServices` —
 /// exactly as a call from any other provider would. This type narrows what can
 /// be *asked for*; it removes none of the checks on what is then done.
-public struct LocalSemanticActionResolver: Sendable {
+public struct LocalSemanticActionResolver: SemanticActionResolving, Sendable {
 
     public let dateProvider: any DateProvider
     public let resources: (any LocalSemanticResourceResolving)?

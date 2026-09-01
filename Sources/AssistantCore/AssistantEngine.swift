@@ -61,6 +61,12 @@ public enum AssistantEngineError: Error, Sendable {
 public final class AssistantEngine: Sendable {
     private let providers: AIProviderRegistry
     private let router: ModelRouter
+    /// The dedicated action path, when this build has one.
+    ///
+    /// Optional so a composition without it — the dev harness, most tests —
+    /// behaves exactly as the app did before actions were separated: every
+    /// message goes to the selected chat provider.
+    private let actions: MetisActionSystem?
     private let repositories: AssistantRepositories
     private let services: PlatformServices
     private let planner: any ActionPlanner
@@ -122,6 +128,9 @@ public final class AssistantEngine: Sendable {
         services: PlatformServices,
         dateProvider: any DateProvider = SystemDateProvider(),
         router: ModelRouter = ModelRouter(),
+        /// The dedicated action path. Omit it and every message is chat, which
+        /// is exactly the app's behaviour before actions were separated.
+        actions: MetisActionSystem? = nil,
         planner: (any ActionPlanner)? = nil,
         executor: (any ToolExecutor)? = nil,
         promptBuilder: SystemPromptBuilder = SystemPromptBuilder(),
@@ -147,6 +156,7 @@ public final class AssistantEngine: Sendable {
         self.services = services
         self.dateProvider = dateProvider
         self.router = router
+        self.actions = actions
         self.limits = limits
         self.logger = logger
         self.ledger = ToolExecutionLedger()
@@ -235,10 +245,40 @@ public final class AssistantEngine: Sendable {
             calendarIsReadable: schedule.isReadable
         )
 
-        // 2. Ask whichever provider settings point at, and let the agent loop
-        //    run for as many rounds as the request needs — bounded, and with
-        //    every round's proposals validated and authorized from scratch.
-        let provider = try await router.selectProvider(from: providers, settings: context.settings)
+        // 2. Decide who answers: the model the user chose to talk to, or the
+        //    dedicated action system.
+        //
+        // This is the fork the whole "dedicated action model" work is about.
+        // Until now the selected chat model was also the thing that had to be
+        // able to operate the phone, so choosing a small local model or a
+        // chat-only one quietly decided that reminders did not work. The router
+        // takes that decision away from the model picker: a clear request to do
+        // something goes to the action system whatever the user is chatting to.
+        //
+        // Everything after this line is identical for both paths.
+        let provider: any AIProvider
+        switch await routeDecision(for: text) {
+        case .chat:
+            provider = try await router.selectProvider(
+                from: providers, settings: context.settings
+            )
+        case .action(let metadata):
+            guard let actionProvider = await actionProvider(for: metadata) else {
+                // Section 15 and 16, the hard requirement: the request was
+                // plainly an action and the action system cannot run it, so the
+                // user is told. It is *not* passed to the chat model, which
+                // would answer it in fluent sentences describing a reminder
+                // that does not exist.
+                return try await record(
+                    plainReply: MetisActionSystem.unavailableMessage,
+                    in: &conversation,
+                    providerID: ActionTurnProvider.providerID,
+                    status: .failed
+                )
+            }
+            provider = actionProvider
+        }
+
         let turn = try await agentRunner().run(
             provider: provider,
             context: context,
@@ -278,6 +318,90 @@ public final class AssistantEngine: Sendable {
             status: turn.status,
             clarification: turn.clarification,
             diagnostics: turn.diagnostics
+        )
+    }
+
+    // MARK: Routing
+
+    /// Which path this message takes.
+    ///
+    /// A build with no action system routes everything to chat, which is the
+    /// behaviour that existed before this fork and the reason every existing
+    /// composition keeps working untouched.
+    private func routeDecision(for text: String) async -> ActionRoutingDecision {
+        guard let actions else { return .chat }
+        let decision = await actions.router.route(ActionRoutingInput(text: text))
+        // Section 22: the decision, the family and the evidence. Not the
+        // message — there is no case in the event type that could carry it.
+        actions.diagnostics.record(
+            .routerDecision(
+                decision: decision.symbol,
+                category: decision.metadata?.category.rawValue ?? LocalActionCategory.other.rawValue,
+                evidence: decision.metadata?.evidence.rawValue
+            )
+        )
+        return decision
+    }
+
+    /// The action system, wrapped as the one interface the agent loop takes.
+    ///
+    /// Nil when no backend is ready — which the caller must treat as a safe
+    /// failure rather than as a reason to fall back to the chat model.
+    private func actionProvider(
+        for metadata: ActionRouteMetadata
+    ) async -> (any AIProvider)? {
+        guard let actions else { return nil }
+        switch await actions.registry.selectBackend() {
+        case .selected(let backend):
+            actions.diagnostics.record(
+                .actionBackend(
+                    backendID: backend.id,
+                    availability: ActionModelAvailability.available.symbol,
+                    reason: nil
+                )
+            )
+            return ActionTurnProvider(
+                backend: backend,
+                resolver: actions.resolver,
+                dateProvider: dateProvider,
+                category: metadata.category,
+                diagnostics: actions.diagnostics
+            )
+        case .unavailable(let reason):
+            actions.diagnostics.record(
+                .actionBackend(backendID: "none", availability: "unavailable", reason: reason)
+            )
+            return nil
+        }
+    }
+
+    /// Persists an assistant reply that no model and no tool produced.
+    ///
+    /// Section 20: an action that could not run is still a turn in the
+    /// conversation, recorded through the same conversation store and the same
+    /// message shape as everything else. There is no second transcript.
+    private func record(
+        plainReply text: String,
+        in conversation: inout Conversation,
+        providerID: AIProviderIdentifier,
+        status: AgentTurnStatus
+    ) async throws -> AssistantTurnResult {
+        let plan = AssistantActionPlan(actions: [], createdAt: dateProvider.now)
+        let message = Message(
+            role: .assistant,
+            text: text,
+            createdAt: dateProvider.now,
+            actionPlanID: plan.id
+        )
+        conversation.append(message)
+        try await repositories.conversations.save(conversation)
+        return AssistantTurnResult(
+            conversation: conversation,
+            assistantMessage: message,
+            plan: plan,
+            results: [],
+            providerID: providerID,
+            status: status
         )
     }
 

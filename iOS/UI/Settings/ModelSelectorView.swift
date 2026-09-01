@@ -68,7 +68,9 @@ struct ModelSelectorView: View {
         // the system can explain, so the link goes to the diagnostics rather
         // than to a setup screen with nothing on it.
         case .appleFoundationModels: return .appleDiagnostics
-        case .development: return nil
+        // Never reached: the action model is not registered in the assistant's
+        // provider registry and so is never an option here (section 14).
+        case .development, .actionModel: return nil
         }
     }
 }
@@ -155,6 +157,7 @@ private struct ModelOptionRow: View {
         case .downloadedLocalModel: return "iphone"
         case .remoteAPI: return "cloud"
         case .development: return "hammer"
+        case .actionModel: return "wand.and.rays"
         }
     }
 
@@ -176,6 +179,10 @@ private struct ModelOptionRow: View {
             return "Most capable · Needs internet · Your messages go to the service"
         case .development:
             return "Development stand-in"
+        case .actionModel:
+            // Never rendered — the action model is not a chat provider and is
+            // not registered here. Present so the switch stays exhaustive.
+            return "Interprets phone actions"
         }
     }
 }

@@ -388,25 +388,32 @@ final class AppEnvironment: Sendable {
         // and "the same object" is the only way to keep that true.
         let appleProvider = AppleFoundationModelsProvider()
 
+        // The app's own store, so an identifier for something that already
+        // exists comes from a lookup rather than from the model. Calendar
+        // lookup is not wired yet: `PlatformServices` is above this layer, and
+        // until it is passed down, a request to change an existing event asks
+        // which one rather than guessing.
+        let actionResources = LocalSemanticResources(
+            tasks: LocalSemanticResources.tasks(from: repositories.tasks)
+        )
+
+        // One instance, referenced twice — once as a chat provider the user may
+        // select, once as the temporary action backend. Two would be two loaded
+        // models on a phone that can barely hold one.
+        let localProvider = LocalModelProvider(
+            manager: localModels,
+            runtime: localRuntime,
+            diagnostics: localDiagnostics,
+            // The app's clock, so "in 10 minutes" is resolved against the real
+            // device time in the real time zone — the model is never asked for
+            // a date, which is how it produced one from 2023.
+            dateProvider: dateProvider,
+            resources: actionResources
+        )
+
         let providers = AIProviderRegistry(providers: [
             appleProvider,
-            LocalModelProvider(
-                manager: localModels,
-                runtime: localRuntime,
-                diagnostics: localDiagnostics,
-                // The app's clock, so "in 10 minutes" is resolved against the
-                // real device time in the real time zone — the model is never
-                // asked for a date, which is how it produced one from 2023.
-                dateProvider: dateProvider,
-                // And the app's own store, so an identifier for something that
-                // already exists comes from a lookup rather than from the
-                // model. Calendar lookup is not wired yet: `PlatformServices`
-                // is above this layer, and until it is passed down a request to
-                // change an existing event asks which one rather than guessing.
-                resources: LocalSemanticResources(
-                    tasks: LocalSemanticResources.tasks(from: repositories.tasks)
-                )
-            ),
+            localProvider,
             remoteProvider,
             ScriptedDevProvider(dateProvider: dateProvider),
         ])
@@ -426,11 +433,34 @@ final class AppEnvironment: Sendable {
             dateProvider: dateProvider
         )
 
+        // The dedicated action path.
+        //
+        // Assembled here and not inside the engine, because this is the one
+        // place that knows both which local model is installed *and* which
+        // repositories exist — and because swapping the temporary backend for
+        // the real Metis Action Model later should be a change to these lines
+        // and nowhere else.
+        //
+        // Note which provider it is given: the same `LocalModelProvider`
+        // instance the registry holds, used through a different, much narrower
+        // interface. It is not the *selected* provider, and nothing here reads
+        // the user's model preference — that is the whole point.
+        let actions = MetisActionSystem(
+            registry: ActionModelRegistry(backends: [
+                CurrentLocalSemanticActionBackend(provider: localProvider),
+            ]),
+            resolver: LocalSemanticActionResolver(
+                dateProvider: dateProvider, resources: actionResources
+            ),
+            diagnostics: LocalActionSystemDiagnostics(sink: localDiagnostics)
+        )
+
         let engine = AssistantEngine(
             providers: providers,
             repositories: repositories,
             services: services,
             dateProvider: dateProvider,
+            actions: actions,
             semanticEncoder: semanticEncoder
         )
 

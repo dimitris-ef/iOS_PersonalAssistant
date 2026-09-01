@@ -940,6 +940,165 @@ public struct LocalModelProvider: AIProvider {
         await runtime?.cancelGeneration()
     }
 
+    // MARK: The dedicated action path
+
+    /// Interprets one request as a semantic action, and nothing else.
+    ///
+    /// ## Why this exists beside `respond(to:)`
+    ///
+    /// `respond(to:)` is a conversation: the app's system prompt, the retrieved
+    /// memories, the history, the tool protocol, free text back. This is the
+    /// narrow job the dedicated action system needs — a sentence in, a
+    /// `LocalSemanticAction` out — and giving it its own entry point is what
+    /// lets the same downloaded model serve as the temporary action backend
+    /// without the action path inheriting a chat turn's context.
+    ///
+    /// It is a different *prompt*, not a different pipeline. The runtime, the
+    /// chunked prefill, the prompt budget, the semantic parser, the validator
+    /// and the one-repair policy are the same objects `respond(to:)` uses.
+    /// Nothing about inference is duplicated here.
+    ///
+    /// ## What the model is shown
+    ///
+    /// The six intents and the person's sentence. Not the conversation, not the
+    /// memories, not a tool schema, and — deliberately — not the date. The
+    /// protocol has no field for a timestamp and the resolver owns the
+    /// arithmetic, so telling the model what day it is would be an invitation
+    /// with nowhere legitimate to go. `ActionModelRequest.now` is still part of
+    /// the contract because a different backend may need it; this one does not.
+    public func generateSemanticAction(
+        request: ActionModelRequest
+    ) async throws -> LocalSemanticActionResult {
+        guard let runtime else {
+            throw ActionModelError.backendUnavailable(LocalModelManager.noRuntimeReason)
+        }
+
+        let modelID: AIModelIdentifier
+        let loaded: LoadedModelInfo
+        do {
+            modelID = try await resolveModel(nil)
+            loaded = try await manager.load(modelID)
+        } catch {
+            throw ActionModelError.backendUnavailable(String(describing: error))
+        }
+        let descriptor = await manager.catalogModels().first { $0.id == modelID }
+        let configuration = await manager.activeConfiguration()
+            ?? LocalInferenceConfiguration.conservative.withContextLength(loaded.contextLength)
+
+        var recovery = LocalActionRecoveryPolicy()
+        var outcome = try await interpret(
+            request: request,
+            repairInstruction: nil,
+            descriptor: descriptor,
+            loaded: loaded,
+            configuration: configuration,
+            runtime: runtime
+        )
+        diagnostics.info(
+            .semanticActionParsed,
+            category: .generation,
+            metadata: Self.outcomeMetadata(outcome)
+                .setting(.repairAttempt, 0)
+                .setting(.semanticProtocolActive, true)
+        )
+
+        if outcome.isRepairable, recovery.consume() {
+            outcome = try await interpret(
+                request: request,
+                repairInstruction: LocalSemanticPrompt.repairInstruction(for: outcome),
+                descriptor: descriptor,
+                loaded: loaded,
+                configuration: configuration,
+                runtime: runtime
+            )
+            diagnostics.info(
+                .semanticActionRepaired,
+                category: .generation,
+                metadata: Self.outcomeMetadata(outcome)
+                    .setting(.repairAttempt, 1)
+                    .setting(.repairResult, outcome.symbol)
+            )
+        }
+
+        switch outcome {
+        case .validSemanticAction(let action):
+            return .action(action)
+        case .normalChat(let message):
+            return .noActionNeeded(message: message)
+        case .forbiddenImplementationDetails(let failure):
+            throw ActionModelError.semanticValidationFailed(failure.symbol)
+        case .malformedSemanticAction(let reason):
+            throw ActionModelError.semanticParsingFailed(reason)
+        case .protocolLeak, .internalToolProtocolLeak, .unsupportedSemanticIntent,
+             .failedActionAttempt:
+            throw ActionModelError.semanticParsingFailed(outcome.symbol)
+        }
+    }
+
+    /// One generation, classified. Shared by the first attempt and the repair.
+    private func interpret(
+        request: ActionModelRequest,
+        repairInstruction: String?,
+        descriptor: LocalModelDescriptor?,
+        loaded: LoadedModelInfo,
+        configuration: LocalInferenceConfiguration,
+        runtime: any LocalModelRuntime
+    ) async throws -> LocalSemanticOutcome {
+        let prompt = actionPrompt(
+            for: request,
+            repairInstruction: repairInstruction,
+            descriptor: descriptor,
+            loaded: loaded
+        )
+        let fitted = LocalPromptBudget.fit(prompt, configuration: configuration)
+        var options = LocalGenerationOptions.structured
+        // One JSON object. Room for paragraphs is room for the prose this whole
+        // protocol exists to stop.
+        options.maximumOutputTokens = min(
+            Self.actionOutputTokenLimit, configuration.maximumGenerationTokens
+        )
+        options.stopSequences = (descriptor?.chatTemplate ?? .modelDefault).stopSequences
+
+        let output: LocalGenerationOutput
+        do {
+            output = try await runtime.generate(fitted.prompt, options: options)
+        } catch let error as LocalRuntimeError {
+            throw ActionModelError.generationFailed(Self.errorKind(of: error))
+        } catch {
+            throw ActionModelError.generationFailed("unknown")
+        }
+        if output.stop == .cancelled { throw AIProviderError.cancelled }
+
+        return semanticParser.classify(
+            output.text, expectsAction: true, detectedCategory: request.detectedCategory
+        )
+    }
+
+    /// The whole prompt an action turn gets.
+    func actionPrompt(
+        for request: ActionModelRequest,
+        repairInstruction: String?,
+        descriptor: LocalModelDescriptor?,
+        loaded: LoadedModelInfo?
+    ) -> LocalPrompt {
+        var turns: [LocalChatTurn] = [
+            .system(Self.actionSystemPrompt),
+            .user(request.userRequest),
+        ]
+        if let repairInstruction { turns.append(.user(repairInstruction)) }
+        return LocalPrompt(
+            turns: turns, fallback: resolvedTemplate(descriptor: descriptor, loaded: loaded)
+        )
+    }
+
+    static let actionSystemPrompt: String =
+        "You turn a person's request into one action for the app to carry out. "
+        + "Reply with the JSON object and nothing else.\n\n"
+        + LocalSemanticPrompt.instructions()
+
+    /// Enough for one envelope with a couple of fields.
+    static let actionOutputTokenLimit = 192
+
     // MARK: Prompt construction
 
     /// Turns the provider-neutral request into chat turns.
@@ -1000,20 +1159,30 @@ public struct LocalModelProvider: AIProvider {
             }
         }
 
-        let fallback = descriptor?.chatTemplate ?? .modelDefault
-        let resolved: LocalChatTemplate
-        if fallback == .modelDefault, loaded?.hasEmbeddedChatTemplate != true {
-            // The file has no template of its own and the catalog deferred to
-            // it, so guess from the architecture rather than emitting labelled
-            // plain text at a model trained on markers.
-            resolved = LocalChatTemplate.inferred(
-                fromArchitecture: loaded?.architecture ?? descriptor?.architecture ?? ""
-            )
-        } else {
-            resolved = fallback
-        }
+        return LocalPrompt(
+            turns: turns, fallback: resolvedTemplate(descriptor: descriptor, loaded: loaded)
+        )
+    }
 
-        return LocalPrompt(turns: turns, fallback: resolved)
+    /// Which chat template to fall back to when the file carries none.
+    ///
+    /// Shared by the chat prompt and the action prompt: both are sent to the
+    /// same loaded model, and a turn formatted two different ways depending on
+    /// which entry point built it would be a bug nobody would look for.
+    func resolvedTemplate(
+        descriptor: LocalModelDescriptor?,
+        loaded: LoadedModelInfo?
+    ) -> LocalChatTemplate {
+        let fallback = descriptor?.chatTemplate ?? .modelDefault
+        guard fallback == .modelDefault, loaded?.hasEmbeddedChatTemplate != true else {
+            return fallback
+        }
+        // The file has no template of its own and the catalog deferred to it,
+        // so guess from the architecture rather than emitting labelled plain
+        // text at a model trained on markers.
+        return LocalChatTemplate.inferred(
+            fromArchitecture: loaded?.architecture ?? descriptor?.architecture ?? ""
+        )
     }
 
     /// How a previous assistant turn's proposed actions are shown back to it.

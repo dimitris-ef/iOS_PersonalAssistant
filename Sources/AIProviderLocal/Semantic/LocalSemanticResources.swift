@@ -1,3 +1,4 @@
+import AssistantAI
 import AssistantDomain
 import AssistantPersistence
 import Foundation

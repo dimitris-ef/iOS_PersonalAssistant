@@ -260,6 +260,27 @@ public enum LocalInferenceMetadataKey: String, Hashable, Sendable, CaseIterable,
     /// to the older direct tool-schema prompt.
     case semanticProtocolActive
 
+    // MARK: The action router and its backend
+    //
+    // Section 22 and 23 again: symbols only. "reminder" is a family name the
+    // app chose; the sentence that made it a reminder never leaves the router.
+
+    /// chat or action.
+    case routerDecision
+    /// Which phrase family carried an action decision.
+    case routerEvidence
+    /// How sure the router was. The router only ever routes on high-confidence
+    /// evidence, so the field exists to make the line self-describing rather
+    /// than to record a spectrum.
+    case routingConfidence
+    /// Which action backend was selected. An identifier this app assigned.
+    case actionBackendID
+    /// available or unavailable.
+    case actionBackendAvailability
+    /// Why a backend is unavailable, or which structured category a generation
+    /// failed under. Authored text, never model output and never user text.
+    case actionBackendReason
+
     // MARK: Acceleration and throughput
 
     /// True when this load ran the product's own configuration rather than a

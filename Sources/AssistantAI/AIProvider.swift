@@ -10,6 +10,10 @@ public enum AIProviderKind: String, Hashable, Codable, Sendable, CaseIterable {
     case remoteAPI
     /// Deterministic stand-in used by the development harness and tests.
     case development
+    /// The dedicated action model. Not a conversation partner: it interprets
+    /// phone actions and is never offered in the assistant's model picker,
+    /// which is the whole point of it being a separate kind.
+    case actionModel
 }
 
 public struct AIModel: Hashable, Codable, Sendable, Identifiable {

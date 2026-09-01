@@ -1,3 +1,4 @@
+import AssistantAI
 import Foundation
 
 /// The instructions a local model is given under the semantic protocol.

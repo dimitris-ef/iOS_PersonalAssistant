@@ -433,6 +433,13 @@ let package = Package(
         // MARK: Tests
 
         .testTarget(name: "AssistantDomainTests", dependencies: ["AssistantDomain"]),
+        // The action router, the action-model boundary and the semantic
+        // protocol they share. Separate from `AIProviderTests` because none of
+        // it depends on a provider — which is the property being asserted.
+        .testTarget(
+            name: "AssistantAITests",
+            dependencies: ["AssistantAI", "AssistantDomain"]
+        ),
         // Reaches `IdentifierPlaceholderCheck`'s internal word lists, and
         // imports `SystemSurfaces` alongside so the runtime identifiers and the
         // distribution identifiers can be compared.

@@ -211,6 +211,15 @@ public enum LocalInferenceEventName: String, Hashable, Sendable, CaseIterable, C
     case resourceResolution = "RESOURCE_RESOLUTION"
     /// Deterministic resolution finished: a call, a question, or nothing.
     case semanticActionResolved = "SEMANTIC_ACTION_RESOLVED"
+    /// Which way a user message was sent: the chat model, or the dedicated
+    /// action system.
+    case routerDecision = "ROUTER_DECISION"
+    /// Which action backend was chosen, and whether it can be used.
+    case actionBackend = "ACTION_BACKEND"
+    /// The action backend is about to interpret a request.
+    case actionProcessingStarted = "SEMANTIC_ACTION_PROCESSING_STARTED"
+    /// It did not produce a usable semantic action.
+    case actionBackendFailure = "ACTION_BACKEND_FAILURE"
     /// The resolver produced an `AIToolCall` for the existing pipeline.
     case toolCallCreated = "AITOOLCALL_CREATED"
     /// That call passed the existing schema and argument validation.
