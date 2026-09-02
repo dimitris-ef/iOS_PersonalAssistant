@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Metis Personal Action Feedback Record",
+  "description": "Future personalization record; not used for Part 4 base training.",
+  "type": "object",
+  "required": [
+    "interaction_id",
+    "input",
+    "base_prediction",
+    "feedback"
+  ],
+  "properties": {
+    "interaction_id": {
+      "type": "string"
+    },
+    "input": {
+      "type": "string"
+    },
+    "base_prediction": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "feedback": {
+      "enum": [
+        "like",
+        "dislike",
+        "edited",
+        "accepted"
+      ]
+    },
+    "corrected_target": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "created_at": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "local_only": {
+      "type": "boolean",
+      "const": true
+    }
+  },
+  "additionalProperties": false
+}

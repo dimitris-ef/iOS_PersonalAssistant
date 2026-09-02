@@ -1,0 +1,88 @@
+{
+  "name": "Metis Action Protocol",
+  "version": "1.0",
+  "intents": {
+    "reminder.create": {
+      "required": [
+        "title",
+        "timeExpression"
+      ],
+      "optional": [],
+      "changeable": []
+    },
+    "memory.store": {
+      "required": [
+        "content"
+      ],
+      "optional": [],
+      "changeable": []
+    },
+    "task.create": {
+      "required": [
+        "title"
+      ],
+      "optional": [
+        "timeExpression"
+      ],
+      "changeable": []
+    },
+    "task.complete": {
+      "required": [
+        "targetDescription"
+      ],
+      "optional": [],
+      "changeable": []
+    },
+    "calendar.create": {
+      "required": [
+        "title",
+        "timeExpression"
+      ],
+      "optional": [
+        "durationExpression",
+        "locationExpression"
+      ],
+      "changeable": []
+    },
+    "calendar.update": {
+      "required": [
+        "targetDescription"
+      ],
+      "optional": [],
+      "changeable": [
+        "timeExpression",
+        "durationExpression",
+        "locationExpression",
+        "title"
+      ]
+    }
+  },
+  "fields": [
+    "title",
+    "timeExpression",
+    "content",
+    "targetDescription",
+    "durationExpression",
+    "locationExpression"
+  ],
+  "forbidden_model_fields_examples": [
+    "relatedTaskID",
+    "eventID",
+    "UUID",
+    "dueDate",
+    "startDate",
+    "endDate",
+    "timestamp",
+    "listName",
+    "calendarName",
+    "notes",
+    "priority",
+    "status"
+  ],
+  "rules": [
+    "Use only user-level semantic fields.",
+    "Never emit resource IDs or machine-owned timestamps.",
+    "Natural-language time expressions remain unresolved until app-side deterministic resolution.",
+    "CHAT/ACTION routing is a separate training task."
+  ]
+}

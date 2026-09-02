@@ -1,0 +1,49 @@
+VALIDATOR
+=========
+DATASET VALID
+adversarial.jsonl            emit_action  600
+adversarial.jsonl            safe_failure 400
+golden_eval.jsonl            ACTION       50
+golden_eval.jsonl            CHAT         50
+golden_eval.jsonl            emit_action  300
+golden_eval.jsonl            safe_failure 100
+router-test.jsonl            ACTION       1500
+router-test.jsonl            CHAT         1500
+router-train.jsonl           ACTION       10000
+router-train.jsonl           CHAT         10000
+router-validation.jsonl      ACTION       1000
+router-validation.jsonl      CHAT         1000
+test.jsonl                   emit_action  4000
+train.jsonl                  emit_action  30000
+validation.jsonl             emit_action  3000
+unique ids: 63500
+unique semantic_action inputs: 38400
+unique router inputs: 25100
+
+STATS
+=====
+
+train.jsonl: 30000
+  intents: {'reminder.create': 5000, 'memory.store': 5000, 'calendar.update': 5000, 'task.complete': 5000, 'calendar.create': 5000, 'task.create': 5000}
+
+validation.jsonl: 3000
+  intents: {'calendar.update': 500, 'memory.store': 500, 'task.create': 500, 'calendar.create': 500, 'reminder.create': 500, 'task.complete': 500}
+
+test.jsonl: 4000
+  intents: {'calendar.create': 666, 'memory.store': 667, 'reminder.create': 667, 'task.create': 667, 'task.complete': 667, 'calendar.update': 666}
+
+adversarial.jsonl: 1000
+  intents: {'SAFE_FAILURE': 400, 'task.create': 100, 'calendar.update': 100, 'calendar.create': 100, 'task.complete': 100, 'reminder.create': 100, 'memory.store': 100}
+
+router-train.jsonl: 20000
+  routes: {'CHAT': 10000, 'ACTION': 10000}
+
+router-validation.jsonl: 2000
+  routes: {'ACTION': 1000, 'CHAT': 1000}
+
+router-test.jsonl: 3000
+  routes: {'CHAT': 1500, 'ACTION': 1500}
+
+golden_eval.jsonl: 500
+  intents: {'memory.store': 50, 'task.complete': 50, 'calendar.update': 50, 'reminder.create': 50, 'SAFE_FAILURE': 100, 'task.create': 50, 'calendar.create': 50}
+  routes: {'CHAT': 50, 'ACTION': 50}

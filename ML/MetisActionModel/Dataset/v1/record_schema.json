@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Metis Action Dataset Record",
+  "type": "object",
+  "required": [
+    "id",
+    "task",
+    "input",
+    "target",
+    "metadata"
+  ],
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "task": {
+      "enum": [
+        "semantic_action",
+        "router"
+      ]
+    },
+    "input": {
+      "type": "string",
+      "minLength": 1
+    },
+    "target": {},
+    "expected_behavior": {
+      "enum": [
+        "emit_action",
+        "safe_failure"
+      ]
+    },
+    "metadata": {
+      "type": "object"
+    }
+  },
+  "additionalProperties": false
+}
