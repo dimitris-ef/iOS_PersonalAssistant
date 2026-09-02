@@ -293,7 +293,95 @@ its GBNF documents as supported.
 
 ---
 
-## 11. Not done in Part 1
+## 11. Part 3: a dedicated action model
+
+Parts 1 and 2 gave actions their own route and their own sampler, but they
+still borrowed the chat model. Part 3 gives the route its own model.
+
+### Two selections, two lifecycles
+
+`AssistantSettings.actionModel` is an `ActionModelConfiguration` — a model id
+and an enabled flag — stored alongside, and never derived from,
+`selectedLocalModelID`. Schema V10 adds the two columns to
+`SDAssistantSettings`; the migration is lightweight because one column is
+optional and the other has a default.
+
+An upgrading store gets `selectedActionModelID = nil` rather than a copy of the
+chat selection. Pointing the action system at a model the user chose for
+conversation would be the app answering a question nobody asked.
+
+`ActionModelHost` is an actor holding its **own** `LocalModelRuntime`, obtained
+from its own `LocalRuntimeResolver.best(...)`. Selecting the same GGUF for both
+roles opens two `llama_context`s. That is deliberate: sharing weights across
+contexts is not something the pinned C API exposes safely, and the price is
+paid down by a small action context and unloading when idle.
+
+| | Chat model | Action model |
+| --- | --- | --- |
+| Selection | `selectedLocalModelID` | `actionModel.selectedModelID` |
+| Runtime instance | provider's | host's own |
+| Context | `LocalInferenceConfiguration.forDevice` (scales) | 1024, constant |
+| Generation cap | device-dependent | 192 tokens |
+| Conversation history | yes | never |
+
+### Lifecycle
+
+`ActionModelRuntimeState` is `unloaded → loading(id) → loaded(id)`, or
+`failed(reason:)`. It starts `unloaded` on every launch — a persisted selection
+is a preference, not a loaded model. The first action request loads it; after
+that it stays resident, because the second reminder of the day should not pay
+the load again. A memory warning unloads it, and does not touch the chat model.
+Switching selection unloads the old one and does **not** load the new one; the
+next request does that.
+
+### Compatibility, and the criterion that is banned
+
+`ActionModelCompatibilityResolver.resolve(record:fileExists:runtime:)` returns
+`compatible`, `experimental`, or `incompatible(reason:)` for five named
+reasons — model missing, invalid file, unsupported architecture, no runtime, no
+structured decoding — each with an authored sentence.
+
+It never consults parameter count or file size.
+`testSizeAloneDecidesNothing` resolves six records identical but for their size,
+from 180M to 7.6B, and asserts one verdict. A 300M model is a perfectly good
+extractor when a grammar guarantees the shape of its output; size-gating it
+would discard the whole reason the constrained path exists.
+
+An unrecognised architecture is `experimental`, not refused, so an upstream
+model release is not a reason to ship an app update.
+
+### One generator, two callers
+
+Rather than a second copy of the generation flow, the inference body moved out
+of `LocalModelProvider` into `SemanticActionGenerator`, which takes its runtime,
+loaded model and configuration as an `Environment`. The dedicated host and the
+chat-model backend call the same code and differ only in what they hand it.
+
+### Failure is a refusal
+
+No selection, an incompatible model, a deleted file, or a failed load each
+produce a named `ActionModelError` and stop. There is no path from any of them
+to the chat model — that would be the unconstrained generation Part 2 exists to
+forbid.
+
+### The screen
+
+Settings → AI Model → Action Model shows the three things worth knowing when
+somebody says reminders are broken: which model, whether it is usable, and
+whether it is loaded. Incompatible models stay listed with their reason instead
+of vanishing. It is not a second marketplace; downloads still live in Local
+Models.
+
+### Diagnostics
+
+Nine event names, `ACTION_MODEL_SELECTED` through `ACTION_MODEL_INFERENCE`, with
+metadata limited to the model id, the runtime state, load milliseconds,
+generation milliseconds and a parse-success flag. No prompt text, no generated
+text, no filenames.
+
+---
+
+## 12. Not done in Part 1
 
 Architecture only, by instruction. No tiny Metis Action Model, no training, no
 LoRA, no dataset, no distillation, no Core ML conversion, no constrained
@@ -308,3 +396,13 @@ one.
 Part 2 adds no model either: no training, no LoRA, no dataset, no distillation,
 no Core ML conversion, no custom tokenizer and no benchmark suite. It
 constrains the generation the existing backend already does.
+
+Part 3 adds the *support* for a dedicated action model, not the model. No
+training, no LoRA, no dataset, no distillation, no final Metis weights, no
+bundled weights, no benchmarking and no Core ML conversion. What it ships is a
+second selection, a second runtime and the lifecycle around them; what fills
+that slot today is whatever compatible GGUF the user has installed.
+
+RAM on a real iPhone, actual Metal offload, latency, tokens per second and
+thermal behaviour are device-only claims. Nothing in CI asserts them, and
+nothing here should be read as having measured them.
