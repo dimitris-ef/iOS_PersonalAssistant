@@ -68,6 +68,8 @@ struct SettingsScreen: View {
                     AppleOnDeviceDiagnosticsView()
                 case .localDiagnostics:
                     LocalInferenceDiagnosticsView()
+                case .actionModel:
+                    ActionModelSettingsView()
                 case .privacy(let topic):
                     PrivacyDetailView(topic: topic)
                 }
@@ -118,10 +120,16 @@ struct SettingsScreen: View {
                     }
                 }
             }
+            NavigationLink(value: SettingsViewModel.Route.actionModel) {
+                LabeledContent("Action Model") {
+                    Text("Reminders, tasks, calendar")
+                        .foregroundStyle(.secondary)
+                }
+            }
         } header: {
             Text("AI Model")
         } footer: {
-            Text("The model is a replaceable reasoning engine. Switching it never moves your conversations, tasks or memory.")
+            Text("The model is a replaceable reasoning engine. Switching it never moves your conversations, tasks or memory. Phone actions are interpreted by a separate model, so a chat model that can't use tools no longer stops reminders working.")
         }
     }
 

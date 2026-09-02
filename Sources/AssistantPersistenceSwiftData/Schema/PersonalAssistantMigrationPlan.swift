@@ -71,6 +71,7 @@ public enum PersonalAssistantMigrationPlan: SchemaMigrationPlan {
             PersonalAssistantSchemaV7.self,
             PersonalAssistantSchemaV8.self,
             PersonalAssistantSchemaV9.self,
+            PersonalAssistantSchemaV10.self,
         ]
     }
 
@@ -78,6 +79,7 @@ public enum PersonalAssistantMigrationPlan: SchemaMigrationPlan {
         [
             migrateV1toV2, migrateV2toV3, migrateV3toV4, migrateV4toV5,
             migrateV5toV6, migrateV6toV7, migrateV7toV8, migrateV8toV9,
+            migrateV9toV10,
         ]
     }
 
@@ -205,6 +207,16 @@ public enum PersonalAssistantMigrationPlan: SchemaMigrationPlan {
     static let migrateV8toV9 = MigrationStage.lightweight(
         fromVersion: PersonalAssistantSchemaV8.self,
         toVersion: PersonalAssistantSchemaV9.self
+    )
+
+    /// Two settings columns for the dedicated action model: one nullable, one
+    /// with a declared default. Inferrable, and nothing is derived from old
+    /// data — an upgrading store has no action model selected, which is the
+    /// truth rather than a downgrade. Pointing it at the chat model would be
+    /// the app answering a question the user has never been asked.
+    static let migrateV9toV10 = MigrationStage.lightweight(
+        fromVersion: PersonalAssistantSchemaV9.self,
+        toVersion: PersonalAssistantSchemaV10.self
     )
 }
 

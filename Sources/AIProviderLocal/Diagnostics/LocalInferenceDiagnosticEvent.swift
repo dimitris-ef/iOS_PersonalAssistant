@@ -228,6 +228,24 @@ public enum LocalInferenceEventName: String, Hashable, Sendable, CaseIterable, C
     case semanticParse = "SEMANTIC_PARSE"
     /// It did not produce a usable semantic action.
     case actionBackendFailure = "ACTION_BACKEND_FAILURE"
+
+    // MARK: The dedicated action model (Part 3)
+    //
+    // Its own vocabulary, deliberately: an action-model load is not a chat
+    // model load, and a report that used one name for both would make "which
+    // model was it holding when it died" unanswerable.
+
+    /// The user chose which model interprets actions.
+    case actionModelSelected = "ACTION_MODEL_SELECTED"
+    case actionModelLoadStarted = "ACTION_MODEL_LOAD_STARTED"
+    case actionModelLoadCompleted = "ACTION_MODEL_LOAD_COMPLETED"
+    case actionModelLoadFailed = "ACTION_MODEL_LOAD_FAILED"
+    case actionModelUnloadStarted = "ACTION_MODEL_UNLOAD_STARTED"
+    case actionModelUnloadCompleted = "ACTION_MODEL_UNLOAD_COMPLETED"
+    case actionModelInferenceStarted = "ACTION_MODEL_INFERENCE_STARTED"
+    case actionModelInferenceCompleted = "ACTION_MODEL_INFERENCE_COMPLETED"
+    /// The prompt budget for one action generation.
+    case actionModelInference = "ACTION_MODEL_INFERENCE"
     /// The resolver produced an `AIToolCall` for the existing pipeline.
     case toolCallCreated = "AITOOLCALL_CREATED"
     /// That call passed the existing schema and argument validation.

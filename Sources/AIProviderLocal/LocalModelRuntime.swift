@@ -159,6 +159,13 @@ public struct LocalRuntimeCapabilities: Hashable, Sendable {
     public var usesHardwareAcceleration: Bool
     /// True when a long load can be interrupted (section 118).
     public var supportsLoadCancellation: Bool
+    /// True when the runtime can hold generation to a grammar.
+    ///
+    /// Part 3, section 6. This is a compatibility input, not a preference: an
+    /// action request must be constrained or refused, so a runtime that cannot
+    /// constrain cannot serve one at all. Declared here rather than inferred
+    /// from the runtime's name so a future backend answers for itself.
+    public var supportsConstrainedGeneration: Bool
     /// Human-readable, for the debug screen only.
     public var runtimeName: String
     /// The pinned upstream version this build was made against.
@@ -168,12 +175,14 @@ public struct LocalRuntimeCapabilities: Hashable, Sendable {
         supportedFormats: [LocalModelFormat] = [.gguf],
         usesHardwareAcceleration: Bool = false,
         supportsLoadCancellation: Bool = false,
+        supportsConstrainedGeneration: Bool = false,
         runtimeName: String,
         runtimeVersion: String
     ) {
         self.supportedFormats = supportedFormats
         self.usesHardwareAcceleration = usesHardwareAcceleration
         self.supportsLoadCancellation = supportsLoadCancellation
+        self.supportsConstrainedGeneration = supportsConstrainedGeneration
         self.runtimeName = runtimeName
         self.runtimeVersion = runtimeVersion
     }

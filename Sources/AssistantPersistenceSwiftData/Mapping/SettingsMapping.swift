@@ -49,7 +49,9 @@ enum SettingsMapper {
             voiceSpeaksReplies: settings.voice.speaksReplies,
             voiceSpeaksTypedReplies: settings.voice.speaksTypedReplies,
             voiceLocaleIdentifier: settings.voice.localeIdentifier,
-            selectedLocalModelID: settings.selectedLocalModelID?.rawValue
+            selectedLocalModelID: settings.selectedLocalModelID?.rawValue,
+            selectedActionModelID: settings.actionModel.selectedModelID?.rawValue,
+            actionModelEnabled: settings.actionModel.isEnabled
         )
     }
 
@@ -89,6 +91,10 @@ enum SettingsMapper {
         row.voiceSpeaksTypedReplies = settings.voice.speaksTypedReplies
         row.voiceLocaleIdentifier = settings.voice.localeIdentifier
         row.selectedLocalModelID = settings.selectedLocalModelID?.rawValue
+        // Written beside the chat model and never *from* it: two columns, two
+        // preferences (Part 3, section 1).
+        row.selectedActionModelID = settings.actionModel.selectedModelID?.rawValue
+        row.actionModelEnabled = settings.actionModel.isEnabled
     }
 
     static func makeDomain(from row: SDAssistantSettings) throws -> AssistantSettings {
@@ -144,6 +150,10 @@ enum SettingsMapper {
                 speaksReplies: row.voiceSpeaksReplies,
                 speaksTypedReplies: row.voiceSpeaksTypedReplies,
                 localeIdentifier: row.voiceLocaleIdentifier
+            ),
+            actionModel: ActionModelConfiguration(
+                selectedModelID: row.selectedActionModelID.map { AIModelIdentifier($0) },
+                isEnabled: row.actionModelEnabled
             )
         )
     }

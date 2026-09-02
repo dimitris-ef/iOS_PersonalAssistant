@@ -160,6 +160,13 @@ public struct AssistantSettings: Hashable, Codable, Sendable {
     public var conversationContextLimit: Int
     public var memoryContextLimit: Int
     public var voice: VoicePreferences
+    /// Which model interprets phone actions (Part 3, section 1).
+    ///
+    /// Deliberately its own value rather than another loose field beside
+    /// `selectedLocalModelID`: the two are next to each other in this struct
+    /// and must never be read as interchangeable, and a named type is what
+    /// makes a call site say which one it meant.
+    public var actionModel: ActionModelConfiguration
 
     public init(
         preferredProviderID: AIProviderIdentifier? = nil,
@@ -171,7 +178,8 @@ public struct AssistantSettings: Hashable, Codable, Sendable {
         support: SupportPreferences = SupportPreferences(),
         conversationContextLimit: Int = 20,
         memoryContextLimit: Int = 10,
-        voice: VoicePreferences = VoicePreferences()
+        voice: VoicePreferences = VoicePreferences(),
+        actionModel: ActionModelConfiguration = ActionModelConfiguration()
     ) {
         self.preferredProviderID = preferredProviderID
         self.preferredModelID = preferredModelID
@@ -183,6 +191,7 @@ public struct AssistantSettings: Hashable, Codable, Sendable {
         self.conversationContextLimit = conversationContextLimit
         self.memoryContextLimit = memoryContextLimit
         self.voice = voice
+        self.actionModel = actionModel
     }
 
     /// Destructive tools ask first; everything else runs.

@@ -121,6 +121,13 @@ final class AppModel {
     /// be a second API to keep in step for no benefit.
     var localModels: LocalModelManager { environment.localModels }
 
+    /// The dedicated action model, for the screen that selects and loads it.
+    ///
+    /// Exposed for the same reason `localModels` is, and kept visibly separate
+    /// from it: they are two model lifecycles, and a single accessor would
+    /// invite a screen to change one while meaning the other.
+    var actionModelHost: ActionModelHost { environment.actionModelHost }
+
     /// The local-inference crash trail, and the previous session's remains.
     ///
     /// Held on the app model rather than created per screen so the recovery

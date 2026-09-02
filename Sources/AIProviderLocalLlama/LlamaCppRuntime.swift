@@ -81,6 +81,9 @@ public actor LlamaCppRuntime: LocalModelRuntime {
         // load by returning false — a real cancellation rather than a flag
         // checked after the fact.
         supportsLoadCancellation: true,
+        // `llama_sampler_init_grammar` is in the pinned b10506 header and the
+        // sampler chain puts it first — see `makeSampler`.
+        supportsConstrainedGeneration: true,
         runtimeName: "llama.cpp",
         runtimeVersion: LlamaCppRuntime.pinnedVersion
     )

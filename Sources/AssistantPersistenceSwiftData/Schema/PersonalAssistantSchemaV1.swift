@@ -724,6 +724,17 @@ public final class SDAssistantSettings {
     // no downloaded model, and nil is exactly what "none selected" means.
     public var selectedLocalModelID: String?
 
+    // The dedicated action model, added in V10. Two columns, and the pair is
+    // the point: `selectedActionModelID` is *not* `selectedLocalModelID`, and
+    // an upgrading store gets nil — no action model chosen — rather than
+    // quietly inheriting the chat model as its action model.
+    //
+    // `actionModelEnabled` defaults to true so the feature is not off for
+    // everyone who upgrades; with no model selected that still resolves to
+    // "unavailable, choose a model", which is the honest state.
+    public var selectedActionModelID: String?
+    public var actionModelEnabled: Bool = true
+
     public init(
         id: UUID,
         preferredProviderID: String?,
@@ -753,7 +764,9 @@ public final class SDAssistantSettings {
         voiceSpeaksReplies: Bool = false,
         voiceSpeaksTypedReplies: Bool = false,
         voiceLocaleIdentifier: String? = nil,
-        selectedLocalModelID: String? = nil
+        selectedLocalModelID: String? = nil,
+        selectedActionModelID: String? = nil,
+        actionModelEnabled: Bool = true
     ) {
         self.id = id
         self.preferredProviderID = preferredProviderID
@@ -784,6 +797,8 @@ public final class SDAssistantSettings {
         self.voiceSpeaksTypedReplies = voiceSpeaksTypedReplies
         self.voiceLocaleIdentifier = voiceLocaleIdentifier
         self.selectedLocalModelID = selectedLocalModelID
+        self.selectedActionModelID = selectedActionModelID
+        self.actionModelEnabled = actionModelEnabled
     }
 }
 

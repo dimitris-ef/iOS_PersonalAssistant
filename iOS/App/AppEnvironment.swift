@@ -94,6 +94,13 @@ final class AppEnvironment: Sendable {
     let localDiagnostics: LocalInferenceDiagnosticLogger
     /// Where those files live, for the screen that reads them back.
     let localDiagnosticStore: LocalInferenceDiagnosticStore
+    /// The dedicated action model: which one, whether it is loaded, and the
+    /// controls the Settings screen drives.
+    ///
+    /// Held concretely for the same reason `localModels` is — the screen talks
+    /// to it directly — and separate from `localModels` because the two have
+    /// separate lifecycles by design (Part 3, sections 10 and 17).
+    let actionModelHost: ActionModelHost
     /// Speech recognition and synthesis.
     ///
     /// Always present — on a platform without the Speech framework the input
@@ -156,6 +163,7 @@ final class AppEnvironment: Sendable {
         localModels: LocalModelManager,
         localDiagnostics: LocalInferenceDiagnosticLogger,
         localDiagnosticStore: LocalInferenceDiagnosticStore,
+        actionModelHost: ActionModelHost,
         notificationCoordinator: AppleNotificationCoordinator?,
         voice: VoiceServices?,
         commands: AssistantCommandService,
@@ -183,6 +191,7 @@ final class AppEnvironment: Sendable {
         self.localModels = localModels
         self.localDiagnostics = localDiagnostics
         self.localDiagnosticStore = localDiagnosticStore
+        self.actionModelHost = actionModelHost
         self.notificationCoordinator = notificationCoordinator
         self.voice = voice
         self.commands = commands
@@ -445,8 +454,33 @@ final class AppEnvironment: Sendable {
         // instance the registry holds, used through a different, much narrower
         // interface. It is not the *selected* provider, and nothing here reads
         // the user's model preference — that is the whole point.
+        // The dedicated action model (Part 3).
+        //
+        // Its **own** runtime instance, and that is the point rather than an
+        // implementation detail: section 17 forbids sharing a llama_context
+        // between chat and action inference, because a context carries KV
+        // state and sharing one would mean an action request reading the
+        // conversation's cache. Two instances is how that is made impossible
+        // rather than merely avoided.
+        //
+        // The manager is shared, deliberately — it owns storage, the installed
+        // records and GGUF validation, none of which is per-role (section 4).
+        let actionRuntime = LocalRuntimeResolver.best(diagnostics: localDiagnostics)
+        let actionHost = ActionModelHost(
+            manager: localModels,
+            settings: repositories.settings,
+            runtime: actionRuntime,
+            diagnostics: localDiagnostics,
+            dateProvider: dateProvider
+        )
         let actions = MetisActionSystem(
+            // The dedicated action model first, the Part 1 fallback second.
+            // `selectBackend` takes the first *available* one, so a build with
+            // no action model selected still behaves as it did before Part 3
+            // rather than losing the action path entirely — and a build with
+            // one selected never reaches the chat model for action work.
             registry: ActionModelRegistry(backends: [
+                LocalActionModelProvider(host: actionHost),
                 CurrentLocalSemanticActionBackend(provider: localProvider),
             ]),
             resolver: LocalSemanticActionResolver(
@@ -505,6 +539,7 @@ final class AppEnvironment: Sendable {
             localModels: localModels,
             localDiagnostics: localDiagnostics,
             localDiagnosticStore: diagnosticStore,
+            actionModelHost: actionHost,
             notificationCoordinator: platform?.notifications,
             voice: voice,
             commands: commands,

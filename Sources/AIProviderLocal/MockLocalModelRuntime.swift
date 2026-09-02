@@ -47,6 +47,10 @@ public actor MockLocalModelRuntime: LocalModelRuntime {
         supportedFormats: [.gguf],
         usesHardwareAcceleration: false,
         supportsLoadCancellation: true,
+        // The mock enforces the same grammar llama.cpp would, so a test that
+        // asks whether constrained generation is possible gets the same answer
+        // the device would give.
+        supportsConstrainedGeneration: true,
         runtimeName: "Mock",
         runtimeVersion: "test"
     )
@@ -68,6 +72,9 @@ public actor MockLocalModelRuntime: LocalModelRuntime {
     public private(set) var generateCount = 0
     /// The prompt the last generation was given. How a test checks the system
     /// prompt and the memory context actually arrived.
+    /// What the last load was asked for. How a test checks the *action* model
+    /// was opened with the action policy rather than the chat one.
+    public private(set) var lastLoadRequest: LocalModelLoadRequest?
     public private(set) var lastPrompt: LocalPrompt?
     public private(set) var lastOptions: LocalGenerationOptions?
     /// How many scripted responses the grammar refused to let through.
@@ -111,6 +118,7 @@ public actor MockLocalModelRuntime: LocalModelRuntime {
 
     public func loadModel(_ request: LocalModelLoadRequest) async throws -> LoadedModelInfo {
         loadCount += 1
+        lastLoadRequest = request
         if case .fail(let error) = loadBehaviour {
             loaded = nil
             throw error

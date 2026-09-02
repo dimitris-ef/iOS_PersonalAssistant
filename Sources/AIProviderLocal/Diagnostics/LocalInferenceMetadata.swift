@@ -234,6 +234,9 @@ public enum LocalInferenceMetadataKey: String, Hashable, Sendable, CaseIterable,
     case semanticIntent
     /// What the generation was classified as under the semantic protocol.
     case semanticOutcome
+    /// Whether the generation produced something the app can act on.
+    /// Section 25 of Part 2, and section 47 of Part 3.
+    case semanticParseSuccess
     /// Which contract rule refused it, as a symbol.
     case semanticValidation
     /// How many fields the action carried. A count, never the values.
@@ -300,6 +303,22 @@ public enum LocalInferenceMetadataKey: String, Hashable, Sendable, CaseIterable,
     /// Why a backend is unavailable, or which structured category a generation
     /// failed under. Authored text, never model output and never user text.
     case actionBackendReason
+
+    // MARK: The dedicated action model (Part 3)
+    //
+    // Section 41: a stable model identifier, never a filename — a path is
+    // different on every install, useless to a reader, and a needless
+    // disclosure in a log somebody may share.
+
+    /// Which model was selected to interpret actions.
+    case actionModelID
+    /// unloaded / loading / loaded / failed.
+    case actionModelRuntimeState
+    /// Section 45. Milliseconds to open the action model.
+    case actionModelLoadMs
+    /// Milliseconds spent generating one semantic action. Deliberately excludes
+    /// everything downstream: platform execution is not model latency.
+    case semanticGenerationMs
 
     // MARK: Acceleration and throughput
 

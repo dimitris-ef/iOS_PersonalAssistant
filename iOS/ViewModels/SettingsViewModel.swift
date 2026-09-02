@@ -21,6 +21,8 @@ final class SettingsViewModel {
         case appleDiagnostics
         /// The local inference crash trail.
         case localDiagnostics
+        /// The dedicated action model: which one, and whether it is loaded.
+        case actionModel
         case privacy(PrivacyTopic)
 
         var id: String {
@@ -32,6 +34,7 @@ final class SettingsViewModel {
             case .systemSurfaces: return "system-surfaces"
             case .appleDiagnostics: return "apple-diagnostics"
             case .localDiagnostics: return "local-diagnostics"
+            case .actionModel: return "action-model"
             case .privacy(let topic): return "privacy-\(topic.rawValue)"
             }
         }

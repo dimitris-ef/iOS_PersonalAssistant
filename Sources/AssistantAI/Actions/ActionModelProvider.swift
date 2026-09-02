@@ -94,6 +94,13 @@ public enum ActionModelAvailability: Hashable, Sendable {
 /// a log by accident.
 public enum ActionModelError: Error, Hashable, Sendable, CustomStringConvertible {
     case backendUnavailable(String)
+    /// The selected action model is not installed any more (Part 3, §35).
+    case modelMissing(String)
+    /// It is installed and cannot be used for actions (Part 3, §36).
+    case modelIncompatible(String)
+    /// It could not be opened (Part 3, §13). Not a reason to ask the chat
+    /// model instead — a failed load is a failed action request.
+    case loadFailed(String)
     /// The backend could not build the constraint it was asked to enforce.
     ///
     /// Section 17 and 26: this is a *failure*, not a licence to generate
@@ -109,6 +116,9 @@ public enum ActionModelError: Error, Hashable, Sendable, CustomStringConvertible
     public var symbol: String {
         switch self {
         case .backendUnavailable: return "backendUnavailable"
+        case .modelMissing: return "modelMissing"
+        case .modelIncompatible: return "modelIncompatible"
+        case .loadFailed: return "loadFailed"
         case .constraintInitializationFailed: return "constraintInitializationFailed"
         case .generationFailed: return "generationFailed"
         case .semanticParsingFailed: return "semanticParsingFailed"
@@ -119,6 +129,9 @@ public enum ActionModelError: Error, Hashable, Sendable, CustomStringConvertible
     public var description: String {
         switch self {
         case .backendUnavailable(let detail): return "action backend unavailable: \(detail)"
+        case .modelMissing(let detail): return "action model not installed: \(detail)"
+        case .modelIncompatible(let detail): return "action model incompatible: \(detail)"
+        case .loadFailed(let detail): return "action model load failed: \(detail)"
         case .constraintInitializationFailed(let detail):
             return "action constraint could not be built: \(detail)"
         case .generationFailed(let detail): return "action generation failed: \(detail)"

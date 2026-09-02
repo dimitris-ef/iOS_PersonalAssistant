@@ -319,6 +319,55 @@ final class ActionRoutingTests: XCTestCase {
         XCTAssertEqual(messages.last?.text, MetisActionSystem.unavailableMessage)
     }
 
+    // MARK: The dedicated action model — Part 3, sections 56 and 57
+
+    /// Section 56. A question loads nothing and asks nothing of the action
+    /// model — asserted on the counters rather than inferred from the reply.
+    func testChatNeverTouchesTheActionModel() async throws {
+        let harness = try await makeHarness()
+
+        _ = try await harness.engine.send(
+            "Explain why reminders are useful.", in: harness.conversationID
+        )
+
+        let actionCalls = await harness.backend.callCount
+        XCTAssertEqual(actionCalls, 0, "no action-model inference for a question")
+        XCTAssertEqual(harness.chat.receivedRequests.count, 1)
+    }
+
+    /// Section 57, and section 39. The action request never reaches the chat
+    /// provider, even for interpretation.
+    func testTheActionModelInterpretsAndTheChatModelIsNotConsulted() async throws {
+        let harness = try await makeHarness()
+
+        _ = try await harness.engine.send(
+            "Remind me in 10 minutes.", in: harness.conversationID
+        )
+
+        let actionCalls = await harness.backend.callCount
+        XCTAssertEqual(actionCalls, 1)
+        XCTAssertTrue(harness.chat.receivedRequests.isEmpty)
+    }
+
+    /// Section 55, at the engine level: the two selections are independent
+    /// settings, and changing the chat one leaves the action one alone.
+    func testChangingTheChatModelLeavesTheActionSelectionAlone() async throws {
+        let harness = try await makeHarness()
+
+        var settings = try await harness.repositories.settings.settings()
+        settings.actionModel.selectedModelID = "action-b"
+        try await harness.repositories.settings.update(settings)
+
+        settings = try await harness.repositories.settings.settings()
+        settings.selectedLocalModelID = "chat-c"
+        settings.preferredProviderID = "some.other.provider"
+        try await harness.repositories.settings.update(settings)
+
+        let after = try await harness.repositories.settings.settings()
+        XCTAssertEqual(after.actionModel.selectedModelID, "action-b")
+        XCTAssertEqual(after.selectedLocalModelID, "chat-c")
+    }
+
     // MARK: Backwards compatibility
 
     /// A build with no action system behaves exactly as the app did before the
