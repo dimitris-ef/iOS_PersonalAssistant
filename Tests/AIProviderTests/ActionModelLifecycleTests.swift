@@ -335,7 +335,7 @@ final class ActionModelLifecycleTests: XCTestCase {
         try FileManager.default.removeItem(
             at: store.url(forRelativePath: model.suggestedFileName)
         )
-        try await harness.repositories.localModels.delete(model.id)
+        try await harness.repositories.localModels.delete(id: model.id)
 
         let status = await harness.host.status()
         XCTAssertFalse(status.isUsable)
