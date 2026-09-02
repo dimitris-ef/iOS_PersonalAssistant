@@ -453,7 +453,8 @@ final class ActionModelLifecycleTests: XCTestCase {
             constraints: .universal
         )
 
-        let prompt = try XCTUnwrap(await harness.actionRuntime.lastPrompt)
+        let lastPrompt = await harness.actionRuntime.lastPrompt
+        let prompt = try XCTUnwrap(lastPrompt)
         XCTAssertEqual(prompt.turns.count, 2, "system instructions and the sentence")
         let text = prompt.turns.map(\.content).joined(separator: "\n").lowercased()
         XCTAssertTrue(text.contains("remind me in 10 minutes to change bottles."))

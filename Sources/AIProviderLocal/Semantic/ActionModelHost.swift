@@ -216,7 +216,14 @@ public actor ActionModelHost {
         of id: AIModelIdentifier,
         record: LocalModelRecord? = nil
     ) async -> ActionModelCompatibility {
-        let resolved = record ?? (await manager.installedRecord(for: id))
+        // Bound rather than written as `record ?? await …`: `??` takes its
+        // right-hand side as an autoclosure, which cannot carry an `await`.
+        let resolved: LocalModelRecord?
+        if let record {
+            resolved = record
+        } else {
+            resolved = await manager.installedRecord(for: id)
+        }
         // Section 35: the file is checked *now*, not trusted from the record. A
         // selection made before a reinstall points at something that is not
         // there, and "no longer installed" is a state to report rather than a
