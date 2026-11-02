@@ -43,6 +43,18 @@ after download when none is chosen (`ActionModelHost.adoptIfNoneSelected`);
 the chat menu names the action model; Settings row shows its name.
 The user also said build 17 has "a lot of problems" — not yet described.
 
+## Build 19: crash on send
+
+User: build 18 crashed the moment a message was sent. Found in
+`LlamaCppRuntime.generate`: it called `llama_sampler_accept` after
+`llama_sampler_sample`, which in b10506 already accepts. Harmless without a
+grammar; under the action grammar the token is accepted twice, the grammar
+stack empties, and llama.cpp throws `std::runtime_error` through C → abort.
+So every action request on a local model crashed; build 18 made it reachable
+by auto-adopting Metis Action. Removed the second accept. If a crash remains
+on plain chat messages, it is a different cause — ask for Local AI
+Diagnostics (Manage Models → Local AI Diagnostics, "Last stage").
+
 ## Next, in order
 
 1. **User tests build 17**: does it open with data intact; download Metis

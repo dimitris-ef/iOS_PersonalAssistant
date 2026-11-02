@@ -617,12 +617,18 @@ public actor LlamaCppRuntime: LocalModelRuntime {
                 break
             }
 
+            // `llama_sampler_sample` already accepts the token it returns
+            // (b10506, src/llama-sampler.cpp). Accepting it a second time was
+            // harmless for plain chat and fatal under a grammar: the grammar
+            // advanced twice over the same token, ran out of valid states, and
+            // threw a C++ exception that nothing can catch from Swift — the
+            // crash on send in builds 17 and 18 whenever an action request
+            // reached a local model.
             let token = llama_sampler_sample(sampler, context, -1)
             if llama_vocab_is_eog(vocab, token) {
                 stop = .endOfText
                 break
             }
-            llama_sampler_accept(sampler, token)
             output += piece(for: token, vocab: vocab)
             generated += 1
 
