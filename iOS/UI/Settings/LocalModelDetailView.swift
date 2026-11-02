@@ -86,7 +86,15 @@ struct LocalModelDetailView: View {
                         .foregroundStyle(.secondary)
                 }
 
-                if status.descriptor.toolSupport == .unsupported {
+                if status.descriptor.purpose == .metisAction {
+                    Text(
+                        "Made for actions — reminders, tasks and calendar events. It doesn't "
+                            + "hold conversations, so it isn't offered for chat. After it "
+                            + "downloads, choose it under Settings → AI Model → Action Model."
+                    )
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                } else if status.descriptor.toolSupport == .unsupported {
                     Text(
                         "This model can hold a conversation, but the assistant will not ask "
                             + "it to create tasks, reminders or calendar events."

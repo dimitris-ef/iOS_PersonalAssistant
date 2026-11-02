@@ -4,6 +4,20 @@ import AssistantPersistence
 import Foundation
 import NativeModelKit
 
+/// Why a model could not become the model you talk to.
+public enum LocalModelSelectionError: Error, Hashable, Sendable, LocalizedError {
+    /// Trained only to turn sentences into actions; see ``LocalModelPurpose``.
+    case notAChatModel(displayName: String)
+
+    public var errorDescription: String? {
+        switch self {
+        case .notAChatModel(let name):
+            return "\(name) is made for actions, not conversation. "
+                + "Choose it under Settings → AI Model → Action Model."
+        }
+    }
+}
+
 /// Orchestrates everything about local models except inference.
 ///
 /// ## What it owns
@@ -527,6 +541,12 @@ public actor LocalModelManager {
     /// tasks or routines — section 67, and the reason the model system was
     /// given its own repository rather than being folded into settings.
     public func select(_ id: AIModelIdentifier?) async throws {
+        // Enforced where the choice is written, not only where it is offered:
+        // an action-only model answers every message with an action, so it is
+        // never the model you talk to, whichever screen asked.
+        if let id, let descriptor = catalog.descriptor(for: id), !descriptor.purpose.isChatModel {
+            throw LocalModelSelectionError.notAChatModel(displayName: descriptor.displayName)
+        }
         var settings = try await settingsRepository.settings()
         guard settings.selectedLocalModelID != id else { return }
         settings.selectedLocalModelID = id

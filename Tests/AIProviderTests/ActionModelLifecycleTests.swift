@@ -39,7 +39,8 @@ final class ActionModelLifecycleTests: XCTestCase {
     private func descriptor(
         _ id: AIModelIdentifier,
         architecture: String = "qwen3",
-        parameters: Int64 = 500_000_000
+        parameters: Int64 = 500_000_000,
+        purpose: LocalModelPurpose = .general
     ) -> LocalModelDescriptor {
         LocalModelDescriptor(
             id: id,
@@ -52,7 +53,8 @@ final class ActionModelLifecycleTests: XCTestCase {
             defaultContextLength: 4096,
             kvCacheBytesPerToken: 32 * 1024,
             toolSupport: .supported,
-            chatTemplate: .chatML
+            chatTemplate: .chatML,
+            purpose: purpose
         )
     }
 
@@ -461,6 +463,91 @@ final class ActionModelLifecycleTests: XCTestCase {
         for forbidden in ["createreminder", "relatedtaskid", "eventid", "listname"] {
             XCTAssertFalse(text.contains(forbidden), "the action prompt showed \(forbidden)")
         }
+    }
+
+    // MARK: A model trained on the protocol
+
+    /// Metis Action 0.8B learned from a bare sentence going in and an action
+    /// coming out. The instruction page is a document it never saw: on the
+    /// golden set it cost 12 points of right-action accuracy. So it gets the
+    /// sentence alone.
+    func testAModelTrainedOnTheProtocolGetsTheSentenceAlone() async throws {
+        let harness = try await makeHarness(
+            installing: [descriptor("metis", purpose: .metisAction)], selectedAction: "metis"
+        )
+        await harness.actionRuntime.alwaysRespond(.raw(Self.reminderEnvelope))
+
+        _ = try await harness.host.generate(
+            request: request("Remind me in 10 minutes to change bottles."),
+            constraints: .universal
+        )
+
+        let lastPrompt = await harness.actionRuntime.lastPrompt
+        let prompt = try XCTUnwrap(lastPrompt)
+        XCTAssertEqual(prompt.turns.count, 1, "the sentence, and nothing it was not trained on")
+        XCTAssertEqual(prompt.turns.first?.role, LocalChatTurn.user("").role)
+        XCTAssertEqual(prompt.turns.first?.content, "Remind me in 10 minutes to change bottles.")
+    }
+
+    /// Dropping the page drops words, not the constraint.
+    func testTheSentenceAloneIsStillConstrained() async throws {
+        let harness = try await makeHarness(
+            installing: [descriptor("metis", purpose: .metisAction)], selectedAction: "metis"
+        )
+        await harness.actionRuntime.alwaysRespond(.raw(Self.reminderEnvelope))
+
+        _ = try await harness.host.generate(
+            request: request("Remind me in 10 minutes to change bottles."),
+            constraints: .universal
+        )
+
+        let lastOptions = await harness.actionRuntime.lastOptions
+        let options = try XCTUnwrap(lastOptions)
+        XCTAssertNotNil(options.grammar, "an unconstrained action generation is what Part 2 forbids")
+    }
+
+    /// The retry still happens and still narrows the grammar — that is what
+    /// stops a second wrong-family answer — but it adds no written instruction
+    /// the model was never trained to read.
+    func testTheRetryForATrainedModelIsAlsoTheSentenceAlone() async throws {
+        let harness = try await makeHarness(
+            installing: [descriptor("metis", purpose: .metisAction)], selectedAction: "metis"
+        )
+        // A reminder request answered with a memory: refused, then repaired.
+        await harness.actionRuntime.enqueue(
+            .raw(#"{"intent":"memory.store","arguments":{"content":"change bottles"}}"#),
+            .raw(Self.reminderEnvelope)
+        )
+
+        let produced = try await harness.host.generate(
+            request: request("Remind me in 10 minutes to change bottles."),
+            constraints: .universal
+        )
+
+        let generations = await harness.actionRuntime.generateCount
+        XCTAssertEqual(generations, 2, "the wrong-family answer should have been repaired")
+        guard case .action(let action) = produced else {
+            return XCTFail("expected the repaired reminder")
+        }
+        XCTAssertEqual(action.intent, .reminderCreate)
+        let lastPrompt = await harness.actionRuntime.lastPrompt
+        let prompt = try XCTUnwrap(lastPrompt)
+        XCTAssertEqual(prompt.turns.count, 1, "the repair added words the model never saw")
+    }
+
+    /// It answers everything with an action, so it is never the chat model —
+    /// enforced where the choice is written, whichever screen asked.
+    func testAnActionOnlyModelCannotBecomeTheChatModel() async throws {
+        let harness = try await makeHarness(installing: [descriptor("metis", purpose: .metisAction)])
+
+        do {
+            try await harness.manager.select("metis")
+            XCTFail("an action-only model was made the chat model")
+        } catch let error as LocalModelSelectionError {
+            XCTAssertEqual(error, .notAChatModel(displayName: "Model metis"))
+        }
+        let settings = try await harness.repositories.settings.settings()
+        XCTAssertNil(settings.selectedLocalModelID)
     }
 
     // MARK: The produced action still goes downstream — section 70

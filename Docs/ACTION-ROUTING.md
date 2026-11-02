@@ -381,7 +381,78 @@ text, no filenames.
 
 ---
 
-## 12. Not done in Part 1
+## 12. Metis Action 0.8B: the first trained model, measured
+
+The slot Part 3 built now has a model in it. **Metis Action 0.8B**
+(`metis-action-0.8b-q4-k-m`) is a Qwen 3.5 0.8B fine-tune (752,393,024
+parameters, architecture `qwen35`, trained with Unsloth, LoRA merged), shipped
+as a 529 MB Q4_K_M GGUF from the `0.8b-training-001` GitHub release.
+
+### How it was measured
+
+Off-device, against llama.cpp **b10506** — the exact version the app pins —
+built from source on CPU. The grammar and the action prompt were ported to
+Python line for line; the grammar port was checked by running all 29,933
+training answers through llama.cpp's own `test-gbnf-validator`. The server ran
+with `--no-jinja`, so the chat template went through `llama_chat_apply_template`
+as `LlamaCppRuntime` does, and at the action policy's own context, batch, micro-
+batch and thread count (identical answers to the default settings on 40 of 40
+samples in the recommended setup).
+
+The exam was the 300 action records of `golden_eval.jsonl`. Every one of them
+starts with a stray `"Evaluation wording: "` prefix — a generator artefact that
+appears in no training file — so they were measured with it removed, on a copy.
+
+| Setup | Right action | Exactly right¹ | Changes lost | s / answer² |
+| --- | --- | --- | --- | --- |
+| Instruction page, fixed change order (**before this change**) | 73.3% | 61.7% | 49 | 2.4 |
+| Sentence alone, any change order (**after**) | 85.3% | 71.0% | 3 | 0.9 |
+
+¹ Counting "the restaurant" and "at the restaurant" as the same location.
+² CPU in a cloud container, not a phone. Relative, not absolute.
+
+On a 60-record sample of each training set it picks the right action 100% of
+the time, and is exactly right on 95% of v2 against 85% of v1 — so it was most
+likely trained on the curated v2 file.
+
+### What changed because of it
+
+**The sentence alone** (`LocalModelPurpose.metisAction`). The model learned
+from a bare sentence; the protocol's instruction page is a document it never
+saw. With the page, 35 of 50 "change an event" requests became "create a
+to-do" — the appointment never moves, and the app reports success. General
+models still get the page. A trained model's repair keeps the narrowed grammar
+and drops the written instruction.
+
+**Changes in any order** (`SemanticActionGrammar`). See its "Key order" note:
+492 of 939 multi-change records list changes out of declaration order, and the
+fixed order made the model drop the second change or misfile it —
+"rename it checkup" became `"durationExpression":"checkup"`.
+
+**Never the chat model.** It answers everything with an action, so the chat
+picker, the Local Models row and `LocalModelManager.select` all refuse it. It
+is chosen under Action Model.
+
+An empty `<think>` block before the answer — which the model's own Jinja
+template adds and `llama_chat_apply_template` does not — was also measured: it
+made no positive difference (83.3% with it, 85.3% without), so nothing changed.
+
+### What is still wrong
+
+Almost every remaining mistake is unfamiliar wording, and the model's guess
+when unsure is `calendar.update` ("Cross buy Sam off" → change an event). In
+the app that fails *safe* — an update has to find an existing event first, so
+it asks which one — but it is still a miss. The fix is training data with more
+varied phrasing, not a larger model. The router's intent-mismatch repair only
+covers reminder ↔ memory, so it does not recover these.
+
+Device-only, and not claimed here: real memory use, Metal offload, latency and
+heat on an iPhone, and whether `LlamaCppRuntime`'s own decode loop behaves as
+llama-server's did on this hybrid recurrent architecture.
+
+---
+
+## 13. Not done in Part 1
 
 Architecture only, by instruction. No tiny Metis Action Model, no training, no
 LoRA, no dataset, no distillation, no Core ML conversion, no constrained

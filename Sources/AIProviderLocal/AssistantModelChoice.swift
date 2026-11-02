@@ -63,6 +63,9 @@ public enum AssistantLocalChoices {
 
     /// Whether one model may be chosen as the assistant.
     public static func isSelectable(_ status: LocalModelStatus) -> Bool {
+        // A model trained only to turn sentences into actions answers every
+        // message with an action. It is chosen under Action Model, never here.
+        guard status.descriptor.purpose.isChatModel else { return false }
         // Installed covers downloaded, loading, loaded and unloading — every
         // state in which the file is on the device. A model mid-download is
         // not installed, which is what excludes it.

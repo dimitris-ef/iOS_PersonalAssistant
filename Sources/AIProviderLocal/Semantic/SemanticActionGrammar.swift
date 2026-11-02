@@ -40,10 +40,34 @@ import Foundation
 /// reminder-create ::= "{" ws "\"intent\"" ws ":" ws "\"reminder.create\"" …
 /// ```
 ///
-/// Fixed key order is deliberate (section 19). Permitting any permutation
-/// multiplies the rules by the factorial of the field count and buys nothing:
-/// the model is being *told* what to emit, so there is no user expectation
-/// about key order to respect.
+/// ## Key order
+///
+/// `arguments` keys are in a fixed order (section 19). That was argued as
+/// "the model is being *told* what to emit", which held for a general model
+/// prompted with an example — and still holds for `arguments` in practice:
+/// across all 29,933 records of the curated v2 training set, not one puts its
+/// arguments in another order.
+///
+/// `requestedChanges` keys are accepted in **any order, each at most once**.
+/// A fine-tuned model learns its key order from its training data, not from
+/// an instruction, and in that same training set 492 of 939 multi-change
+/// `calendar.update` records list their changes out of declaration order —
+/// `timeExpression` before `title`, `durationExpression` before `title`. Under
+/// a fixed order, a model that starts with the time can never write the title
+/// afterwards: the change is silently dropped, or worse, pushed into a field
+/// nobody asked for. On the real Metis Action 0.8B, "move my dentist
+/// appointment to 4pm and rename it checkup" produced
+/// `"durationExpression":"checkup"`. Measured over the 300-action golden set
+/// (with its stray "Evaluation wording:" prefix removed), lost changes fell
+/// from 10 to 3 with this rule, and llama.cpp's own grammar
+/// checker rejects none of the 29,933 training answers under it against 492
+/// under the fixed order.
+///
+/// Order carries no meaning in a JSON object and the parser decodes into a
+/// dictionary, so this widens nothing the app acts on. The cost is size:
+/// every ordered selection of distinct fields, 64 alternatives for the four
+/// changeable fields. That grows factorially, which is fine at four and is
+/// why `testTheChangesRuleStaysSmall` exists.
 public enum SemanticActionGrammar {
 
     /// The start symbol handed to `llama_sampler_init_grammar`.
@@ -125,23 +149,40 @@ public enum SemanticActionGrammar {
         return "\"{\" ws " + body + " ws \"}\""
     }
 
-    /// "At least one of these, in this order."
+    /// "At least one of these, each at most once, in any order."
     ///
     /// `calendar.update` must actually change something (the validator refuses
-    /// an empty `requestedChanges`), so the grammar refuses it too. Expressed as
-    /// one alternative per possible *first* field, each followed by the later
-    /// fields as optional suffixes — linear in the field count, and with no
-    /// ambiguity about ordering.
+    /// an empty `requestedChanges`), so the grammar refuses it too. A repeated
+    /// key is refused as well: it would be legal JSON that silently keeps only
+    /// one of the two values. See "Key order" above for why any order.
+    ///
+    /// One alternative per ordered selection of distinct fields, generated in
+    /// a fixed sequence so the grammar is byte-identical between runs.
     private static func atLeastOne(of fields: [LocalSemanticField]) -> String {
         var alternatives: [String] = []
-        for (index, field) in fields.enumerated() {
-            var alternative = pair(field)
-            for later in fields[(index + 1)...] {
-                alternative += " ( ws \",\" ws " + pair(later) + " )?"
+        for length in 1...max(1, fields.count) {
+            for selection in orderedSelections(of: fields, length: length) {
+                alternatives.append(selection.map(pair).joined(separator: " ws \",\" ws "))
             }
-            alternatives.append(alternative)
         }
         return "( " + alternatives.joined(separator: " | ") + " )"
+    }
+
+    /// Every ordered selection of `length` distinct fields: first by which
+    /// field leads, in the given order, then recursively for the rest.
+    static func orderedSelections(
+        of fields: [LocalSemanticField], length: Int
+    ) -> [[LocalSemanticField]] {
+        guard length > 0 else { return [[]] }
+        var result: [[LocalSemanticField]] = []
+        for (index, field) in fields.enumerated() {
+            var rest = fields
+            rest.remove(at: index)
+            for tail in orderedSelections(of: rest, length: length - 1) {
+                result.append([field] + tail)
+            }
+        }
+        return result
     }
 
     private static func pair(_ field: LocalSemanticField) -> String {

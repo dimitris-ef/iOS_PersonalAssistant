@@ -270,4 +270,69 @@ final class SemanticActionGrammarTests: XCTestCase {
             }
         }
     }
+
+    // MARK: Change order
+
+    /// The real Metis Action 0.8B answers "move my dentist appointment to 4pm
+    /// and rename it checkup" time-first. Under the old fixed order the title
+    /// could not follow, and the model put "checkup" in `durationExpression`.
+    func testChangesAreAcceptedInAnyOrder() throws {
+        let grammar = try compiled()
+        for changes in [
+            #""timeExpression":"4pm","title":"checkup""#,
+            #""title":"checkup","timeExpression":"4pm""#,
+            #""durationExpression":"half an hour","title":"one-on-one with Alex""#,
+            #""locationExpression":"the hotel","durationExpression":"an hour","#
+                + #""timeExpression":"at 5","title":"standup""#,
+        ] {
+            let action = #"{"intent":"calendar.update","arguments":"#
+                + #"{"targetDescription":"my dentist appointment"},"requestedChanges":{"#
+                + changes + "}}"
+            XCTAssertTrue(grammar.matches(action), "rejected: \(changes)")
+        }
+    }
+
+    /// Legal JSON, but one of the two values would be silently lost.
+    func testAChangeCannotBeGivenTwice() throws {
+        let grammar = try compiled()
+        for changes in [
+            #""title":"a","title":"b""#,
+            #""title":"a","timeExpression":"5","title":"b""#,
+        ] {
+            let action = #"{"intent":"calendar.update","arguments":"#
+                + #"{"targetDescription":"x"},"requestedChanges":{"# + changes + "}}"
+            XCTAssertFalse(grammar.matches(action), "accepted a repeated key: \(changes)")
+        }
+    }
+
+    /// Only the changes are relaxed. No training record puts its arguments in
+    /// another order, so the arguments keep theirs.
+    func testArgumentsKeepTheirOrder() throws {
+        let grammar = try compiled()
+        XCTAssertFalse(
+            grammar.matches(
+                #"{"intent":"reminder.create","arguments":{"timeExpression":"in 10 minutes","title":"x"}}"#
+            )
+        )
+    }
+
+    /// Any-order grows factorially: fine at four fields, not at eight. If the
+    /// protocol ever grows its changeable set, this is where it shows up.
+    func testTheChangesRuleStaysSmall() {
+        let fields = LocalSemanticActionSchema.universal.changeableFields(for: .calendarUpdate)
+        let alternatives = (1...fields.count).reduce(0) {
+            $0 + SemanticActionGrammar.orderedSelections(of: fields, length: $1).count
+        }
+        XCTAssertEqual(alternatives, 64)
+        XCTAssertLessThan(SemanticActionGrammar.gbnf(for: .universal).utf8.count, 32_000)
+    }
+
+    /// The generator is deterministic: a grammar that differs between launches
+    /// is a constraint nobody can reproduce a failure against.
+    func testTheGrammarIsIdenticalBetweenBuilds() {
+        XCTAssertEqual(
+            SemanticActionGrammar.gbnf(for: .universal),
+            SemanticActionGrammar.gbnf(for: .universal)
+        )
+    }
 }

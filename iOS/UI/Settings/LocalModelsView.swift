@@ -287,14 +287,23 @@ private struct LocalModelRow: View {
             // Section 7. Next to the size and the quantization, because "will
             // this actually set my reminder" belongs with the other facts
             // somebody weighs before downloading a gigabyte.
-            Label(
-                status.descriptor.toolSupport.badge,
-                systemImage: status.descriptor.toolSupport.symbolName
-            )
-            .font(.caption)
-            .foregroundStyle(
-                status.descriptor.toolSupport == .supported ? Color.secondary : Color.orange
-            )
+            if status.descriptor.purpose == .metisAction {
+                // The chat-side badges ("Chat only", "Supports actions") would
+                // both mislead here: this model does nothing but actions, and
+                // is chosen under Action Model rather than with Use for Chat.
+                Label("Action model — not for chat", systemImage: "bolt.fill")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else {
+                Label(
+                    status.descriptor.toolSupport.badge,
+                    systemImage: status.descriptor.toolSupport.symbolName
+                )
+                .font(.caption)
+                .foregroundStyle(
+                    status.descriptor.toolSupport == .supported ? Color.secondary : Color.orange
+                )
+            }
 
             if let summary = status.descriptor.summary {
                 Text(summary)

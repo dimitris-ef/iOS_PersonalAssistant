@@ -226,20 +226,35 @@ struct SemanticActionGenerator: Sendable {
     /// Sections 18 and 19: the protocol, the sentence, and — for a repair — one
     /// short instruction. No history, no memories, no personality, no tool
     /// schemas, and no date. `ActionModelPromptTests` asserts the turn count.
+    ///
+    /// ## A model trained on the protocol gets the sentence alone
+    ///
+    /// A general model has never seen the protocol, so it is shown it. A model
+    /// fine-tuned on it learned from a bare sentence going in, and the page is
+    /// a document it has never seen — see ``LocalModelPurpose`` for what that
+    /// cost on Metis Action 0.8B. So it gets exactly what it trained on: one
+    /// user turn.
+    ///
+    /// The same reasoning drops the repair's written instruction for it. The
+    /// repair still happens, and still narrows the *grammar* to the routed
+    /// family — that is what actually stops a second wrong-family answer, and
+    /// it needs no words the model was never trained to read.
     static func actionPrompt(
         for request: ActionModelRequest,
         repairInstruction: String?,
         descriptor: LocalModelDescriptor?,
         loaded: LoadedModelInfo?
     ) -> LocalPrompt {
+        let fallback = resolvedTemplate(descriptor: descriptor, loaded: loaded)
+        if descriptor?.purpose.expectsBareActionPrompt == true {
+            return LocalPrompt(turns: [.user(request.userRequest)], fallback: fallback)
+        }
         var turns: [LocalChatTurn] = [
             .system(actionSystemPrompt),
             .user(request.userRequest),
         ]
         if let repairInstruction { turns.append(.user(repairInstruction)) }
-        return LocalPrompt(
-            turns: turns, fallback: resolvedTemplate(descriptor: descriptor, loaded: loaded)
-        )
+        return LocalPrompt(turns: turns, fallback: fallback)
     }
 
     static let actionSystemPrompt: String =

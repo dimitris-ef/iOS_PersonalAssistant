@@ -106,8 +106,13 @@ public enum ActionModelCompatibilityResolver {
     ///
     /// Broader than the chat-tools list on purpose: a grammar removes the
     /// failure mode that list is conservative about.
+    // `qwen35` is listed explicitly even though it would prefix-match `qwen3`:
+    // it is a different, hybrid recurrent/attention architecture with its own
+    // llama.cpp implementation (`src/models/qwen35.cpp` at b10506), and Metis
+    // Action 0.8B is built on it. A verdict that is right by accident of
+    // spelling is one rename away from being wrong.
     public static let supportedFamilies: Set<String> = [
-        "qwen2", "qwen3", "llama", "smollm", "smollm2", "smollm3",
+        "qwen2", "qwen3", "qwen35", "llama", "smollm", "smollm2", "smollm3",
         "gemma", "gemma2", "gemma3", "phi2", "phi3", "mistral", "stablelm",
     ]
 

@@ -148,6 +148,37 @@ public enum LocalModelToolSupport: String, Hashable, Codable, Sendable, CaseIter
     }
 }
 
+/// What a model was trained to do.
+///
+/// ## Why a model needs to say this
+///
+/// A general instruct model has never seen the Metis action protocol, so it is
+/// shown the protocol — an instruction page of intents, fields and rules — in
+/// front of the person's sentence. A model *fine-tuned* on the protocol learned
+/// it from 30,000 examples of a bare sentence going in and an action coming
+/// out, and the instruction page is a document it has never seen. Measured on
+/// Metis Action 0.8B over the 300-action golden set: 73% right action with the
+/// page, 85% without it, and 2.5× faster because there is no page to read.
+/// With the page, 35 of 50 "change an event" requests became "create a to-do".
+///
+/// The same training means it is not a chat model. It answers everything with
+/// an action, so it is never offered as the model you talk to.
+public enum LocalModelPurpose: String, Hashable, Codable, Sendable, CaseIterable {
+    /// A general instruct model. Chats; interprets actions when shown the
+    /// protocol's instruction page.
+    case general
+    /// Fine-tuned on the Metis action protocol. Gets the bare sentence, and is
+    /// offered only as the action model.
+    case metisAction
+
+    /// Whether it may be chosen as the model you talk to.
+    public var isChatModel: Bool { self != .metisAction }
+
+    /// Whether an action request should be the sentence alone, without the
+    /// protocol's instruction page.
+    public var expectsBareActionPrompt: Bool { self == .metisAction }
+}
+
 /// What a model is allowed to be used for, in the words of whoever made it.
 ///
 /// Recorded, shown, and never interpreted by code. The app does not decide
@@ -220,6 +251,8 @@ public struct LocalModelDescriptor: Identifiable, Hashable, Codable, Sendable {
     public var license: LocalModelLicense?
     /// One line for the model list.
     public var summary: String?
+    /// What it was trained to do. `.general` unless the catalog says otherwise.
+    public var purpose: LocalModelPurpose
 
     public init(
         id: AIModelIdentifier,
@@ -237,7 +270,8 @@ public struct LocalModelDescriptor: Identifiable, Hashable, Codable, Sendable {
         toolSupport: LocalModelToolSupport = .experimental,
         chatTemplate: LocalChatTemplate = .modelDefault,
         license: LocalModelLicense? = nil,
-        summary: String? = nil
+        summary: String? = nil,
+        purpose: LocalModelPurpose = .general
     ) {
         self.id = id
         self.displayName = displayName
@@ -255,6 +289,7 @@ public struct LocalModelDescriptor: Identifiable, Hashable, Codable, Sendable {
         self.chatTemplate = chatTemplate
         self.license = license
         self.summary = summary
+        self.purpose = purpose
     }
 
     /// "1.7B", "3B", "494M" — the number people actually compare models by.
@@ -299,7 +334,7 @@ extension LocalModelDescriptor {
         case id, displayName, architecture, parameterCount, quantization, format
         case fileSizeBytes, checksumSHA256, downloadURL
         case defaultContextLength, maximumContextLength, kvCacheBytesPerToken
-        case toolSupport, chatTemplate, license, summary
+        case toolSupport, chatTemplate, license, summary, purpose
     }
 
     public init(from decoder: Decoder) throws {
@@ -332,7 +367,9 @@ extension LocalModelDescriptor {
                 LocalChatTemplate.self, forKey: .chatTemplate
             ) ?? .modelDefault,
             license: try container.decodeIfPresent(LocalModelLicense.self, forKey: .license),
-            summary: try container.decodeIfPresent(String.self, forKey: .summary)
+            summary: try container.decodeIfPresent(String.self, forKey: .summary),
+            purpose: try container.decodeIfPresent(LocalModelPurpose.self, forKey: .purpose)
+                ?? .general
         )
     }
 
@@ -354,5 +391,8 @@ extension LocalModelDescriptor {
         try container.encode(chatTemplate, forKey: .chatTemplate)
         try container.encodeIfPresent(license, forKey: .license)
         try container.encodeIfPresent(summary, forKey: .summary)
+        // Omitted for `.general`, so the twelve existing entries round-trip to
+        // exactly the JSON they were written as.
+        if purpose != .general { try container.encode(purpose, forKey: .purpose) }
     }
 }

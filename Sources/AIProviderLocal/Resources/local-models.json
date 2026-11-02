@@ -2,6 +2,30 @@
   "version": 1,
   "models": [
     {
+      "id": "metis-action-0.8b-q4-k-m",
+      "displayName": "Metis Action 0.8B",
+      "architecture": "qwen35",
+      "parameterCount": 752393024,
+      "quantization": "Q4_K_M",
+      "format": "gguf",
+      "fileSizeBytes": 529297088,
+      "checksumSHA256": "e9ed51432be2140b93cd6232ef6b2aaddcecaf626d9a56020aacf4d07e10fa63",
+      "downloadURL": "https://github.com/dimitris-ef/0.8b-training-001/releases/download/prerealse/metis-action-0.8b-Q4_K_M.gguf",
+      "defaultContextLength": 1024,
+      "maximumContextLength": 262144,
+      "kvCacheBytesPerToken": 12288,
+      "toolSupport": "supported",
+      "chatTemplate": "modelDefault",
+      "license": {
+        "identifier": "Apache-2.0",
+        "displayName": "Apache 2.0 (Qwen 3.5 base)",
+        "url": "https://www.apache.org/licenses/LICENSE-2.0",
+        "isRedistributable": true
+      },
+      "summary": "MetisAI's own action model. Turns requests into reminders, tasks and events; not for chat. Choose it under Settings → AI Model → Action Model.",
+      "purpose": "metisAction"
+    },
+    {
       "id": "smollm2-360m-instruct-q8-0",
       "displayName": "SmolLM2 360M Instruct",
       "architecture": "llama",

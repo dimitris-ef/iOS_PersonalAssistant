@@ -27,6 +27,9 @@ struct ActionModelSettingsView: View {
         let id: AIModelIdentifier
         let displayName: String
         let compatibility: ActionModelCompatibility
+        /// Fine-tuned on the action protocol, rather than a general model
+        /// being asked to interpret actions.
+        let isMadeForActions: Bool
 
         var isSelectable: Bool { compatibility.isUsable }
     }
@@ -118,6 +121,11 @@ struct ActionModelSettingsView: View {
                             // than vanishing from the list. Somebody who
                             // downloaded it deserves to know it cannot be used
                             // here, and for what reason.
+                            if candidate.isMadeForActions, candidate.isSelectable {
+                                Text("Made for actions")
+                                    .font(.caption)
+                                    .foregroundStyle(.tint)
+                            }
                             if case .incompatible(let reason) = candidate.compatibility {
                                 Text(reason.message)
                                     .font(.caption)
@@ -176,7 +184,8 @@ struct ActionModelSettingsView: View {
             Candidate(
                 id: $0.status.descriptor.id,
                 displayName: $0.status.descriptor.displayName,
-                compatibility: $0.compatibility
+                compatibility: $0.compatibility,
+                isMadeForActions: $0.status.descriptor.purpose == .metisAction
             )
         }
     }

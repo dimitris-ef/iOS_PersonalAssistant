@@ -261,6 +261,20 @@ public enum LocalModelRowPresenter {
         runtime: LocalModelRuntimeState,
         failure: LocalModelRowFailure?
     ) -> [LocalModelAction] {
+        let offered = chatActions(for: status, runtime: runtime, failure: failure)
+        guard !status.descriptor.purpose.isChatModel else { return offered }
+        // An action-only model is never the chat model, and Load here would
+        // load it into the *chat* runtime. The action model loads from its own
+        // screen; this row keeps download, unload and delete.
+        let chatOnly: Set<LocalModelAction> = [.use, .load, .retryLoad]
+        return offered.filter { !chatOnly.contains($0) }
+    }
+
+    private static func chatActions(
+        for status: LocalModelStatus,
+        runtime: LocalModelRuntimeState,
+        failure: LocalModelRowFailure?
+    ) -> [LocalModelAction] {
         switch runtime {
         case .downloading:
             // A way out of a multi-gigabyte transfer, always (section 20).
