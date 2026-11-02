@@ -1043,6 +1043,11 @@ final class AppModel {
     /// `AssistantLocalChoices`, which is the rule worth testing.
     private(set) var assistantChoices: [AssistantModelChoice] = []
 
+    /// The action model's name, for the line under the chat picker. Metis
+    /// Action is never a chat choice, and without this line it looked as if
+    /// the download had gone nowhere.
+    private(set) var actionModelName: String?
+
     /// What will answer the next message.
     var activeAssistantChoice: AssistantModelChoice? {
         let providerID = settings.preferredProviderID
@@ -1077,6 +1082,7 @@ final class AppModel {
             }
         }
         assistantChoices = choices
+        actionModelName = await environment.actionModelHost.status().displayName
     }
 
     /// Applies a pick from the chat selector.

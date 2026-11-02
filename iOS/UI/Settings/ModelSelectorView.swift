@@ -1,3 +1,4 @@
+import AIProviderLocal
 import AssistantAI
 import AssistantDomain
 import SwiftUI
@@ -15,6 +16,7 @@ import SwiftUI
 ///    repositories and are never touched.
 struct ModelSelectorView: View {
     @Environment(AppModel.self) private var model
+    @State private var actionStatus = ActionModelStatus()
 
     var body: some View {
         List {
@@ -32,6 +34,21 @@ struct ModelSelectorView: View {
                 Text("Your conversations, tasks and memory belong to the app, not to the model. Switching never moves or resets them.")
             }
 
+            // Here as well as in Settings: the app's own hints say "Settings →
+            // AI Model → Action Model", and in build 17 this screen — titled
+            // AI Model — had no such entry, so a downloaded Metis Action could
+            // not be found from it.
+            Section {
+                NavigationLink(value: SettingsViewModel.Route.actionModel) {
+                    LabeledContent("Action Model") {
+                        Text(actionStatus.displayName ?? "None selected")
+                            .foregroundStyle(actionStatus.isUsable ? Color.secondary : Color.orange)
+                    }
+                }
+            } footer: {
+                Text("A separate model turns requests into reminders, tasks and calendar events. Metis Action is chosen here, not above.")
+            }
+
             if !anyProviderIsReady {
                 Section {
                     Label {
@@ -46,7 +63,10 @@ struct ModelSelectorView: View {
         }
         .navigationTitle("AI Model")
         .navigationBarTitleDisplayMode(.inline)
-        .task { await model.refreshProviderState() }
+        .task {
+            await model.refreshProviderState()
+            actionStatus = await model.actionModelHost.status()
+        }
     }
 
     private var anyProviderIsReady: Bool {

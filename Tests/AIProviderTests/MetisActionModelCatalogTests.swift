@@ -141,6 +141,26 @@ final class MetisActionModelCatalogTests: XCTestCase {
         XCTAssertTrue(general.actions.contains(.load))
     }
 
+    /// Build 17 offered nothing in place of Use for Chat, so a downloaded
+    /// Metis Action could not be put to use from the screen it was downloaded
+    /// on.
+    func testItsRowOffersUseForActionsUntilItIsTheActionModel() {
+        let row = LocalModelRowPresenter.state(for: status(.metisAction))
+        XCTAssertEqual(row.actions.first, .useForActions)
+
+        let chosen = LocalModelRowPresenter.state(for: status(.metisAction), isActionModel: true)
+        XCTAssertFalse(chosen.actions.contains(.useForActions))
+        XCTAssertTrue(chosen.actions.contains(.delete))
+
+        let notDownloaded = LocalModelRowPresenter.state(
+            for: status(.metisAction, lifecycle: .notDownloaded)
+        )
+        XCTAssertFalse(notDownloaded.actions.contains(.useForActions))
+
+        let general = LocalModelRowPresenter.state(for: status(.general))
+        XCTAssertFalse(general.actions.contains(.useForActions))
+    }
+
     // MARK: Compatibility
 
     /// Recognised on purpose, not because "qwen35" happens to begin with

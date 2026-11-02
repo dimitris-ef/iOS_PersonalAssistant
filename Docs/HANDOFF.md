@@ -31,6 +31,18 @@ as completing a task.* Work happens on branch
   the golden set as the app now runs it — `Docs/ACTION-ROUTING.md` §12.
   Device speed/memory/heat are still unmeasured.
 
+## Build 18 (in progress)
+
+User report on build 17: the downloaded Metis Action 0.8B "didn't show" when
+choosing models. Cause: it is (by design) never a chat model, and the only
+place to pick it was Settings → Action Model — but every hint in the app said
+"Settings → AI Model → Action Model", and the AI Model screen had no such
+entry. Fixes: Action Model link on the AI Model screen; "Use for Actions"
+button and a bolt tick on its Manage Models row; auto-adopted as action model
+after download when none is chosen (`ActionModelHost.adoptIfNoneSelected`);
+the chat menu names the action model; Settings row shows its name.
+The user also said build 17 has "a lot of problems" — not yet described.
+
 ## Next, in order
 
 1. **User tests build 17**: does it open with data intact; download Metis

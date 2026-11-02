@@ -89,8 +89,9 @@ struct LocalModelDetailView: View {
                 if status.descriptor.purpose == .metisAction {
                     Text(
                         "Made for actions — reminders, tasks and calendar events. It doesn't "
-                            + "hold conversations, so it isn't offered for chat. After it "
-                            + "downloads, choose it under Settings → AI Model → Action Model."
+                            + "hold conversations, so it isn't in the chat model list. Once "
+                            + "downloaded it becomes the action model if none is chosen yet; "
+                            + "otherwise tap Use for Actions."
                     )
                     .font(.footnote)
                     .foregroundStyle(.secondary)

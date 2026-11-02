@@ -22,7 +22,7 @@
         "url": "https://www.apache.org/licenses/LICENSE-2.0",
         "isRedistributable": true
       },
-      "summary": "MetisAI's own action model. Turns requests into reminders, tasks and events; not for chat. Choose it under Settings → AI Model → Action Model.",
+      "summary": "MetisAI's own action model. Turns requests into reminders, tasks and events; not for chat. Once downloaded, tap Use for Actions.",
       "purpose": "metisAction"
     },
     {

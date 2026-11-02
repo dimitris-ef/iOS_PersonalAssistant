@@ -200,6 +200,11 @@ private struct AssistantModelMenu: View {
             if model.assistantChoices.isEmpty {
                 Text("No model is available")
             }
+            // Metis Action is never a chat choice, so it is named here instead:
+            // reminders, tasks and events go to it whatever is picked above.
+            Section("For reminders and events") {
+                Text(model.actionModelName ?? "No action model — see Settings")
+            }
         } label: {
             HStack(spacing: 3) {
                 Text(currentTitle)

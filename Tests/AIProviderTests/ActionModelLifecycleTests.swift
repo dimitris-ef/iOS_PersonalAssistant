@@ -550,6 +550,41 @@ final class ActionModelLifecycleTests: XCTestCase {
         XCTAssertNil(settings.selectedLocalModelID)
     }
 
+    // MARK: Adopted on download
+
+    func testADownloadedActionModelIsAdoptedWhenNoneIsChosen() async throws {
+        let harness = try await makeHarness(
+            installing: [descriptor("metis", purpose: .metisAction)], selectedAction: nil
+        )
+        let adopted = await harness.host.adoptIfNoneSelected("metis")
+        XCTAssertTrue(adopted)
+        let configuration = await harness.host.configuration()
+        XCTAssertEqual(configuration.selectedModelID, "metis")
+        let settings = try await harness.repositories.settings.settings()
+        XCTAssertNil(settings.selectedLocalModelID, "the chat model must not change")
+    }
+
+    func testAnInstalledChoiceIsNeverOverridden() async throws {
+        let harness = try await makeHarness(
+            installing: [descriptor("action-b"), descriptor("metis", purpose: .metisAction)],
+            selectedAction: "action-b"
+        )
+        let adopted = await harness.host.adoptIfNoneSelected("metis")
+        XCTAssertFalse(adopted)
+        let configuration = await harness.host.configuration()
+        XCTAssertEqual(configuration.selectedModelID, "action-b")
+    }
+
+    func testAChoicePointingAtADeletedModelIsReplaced() async throws {
+        let harness = try await makeHarness(
+            installing: [descriptor("metis", purpose: .metisAction)], selectedAction: "gone"
+        )
+        let adopted = await harness.host.adoptIfNoneSelected("metis")
+        XCTAssertTrue(adopted)
+        let configuration = await harness.host.configuration()
+        XCTAssertEqual(configuration.selectedModelID, "metis")
+    }
+
     // MARK: The produced action still goes downstream — section 70
 
     func testTheProducedActionIsTheExistingSemanticAction() async throws {

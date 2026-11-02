@@ -38,6 +38,13 @@ final class LocalModelsViewModel {
     var failure: Failure?
     var pendingDeletion: LocalModelStatus?
 
+    /// The model chosen under Action Model, so its row can say so and offer
+    /// "Use for Actions" to the others.
+    private(set) var actionModelID: AIModelIdentifier?
+    /// Set by the screen before the first refresh. Optional so a preview with
+    /// no environment still renders.
+    var actionHost: ActionModelHost?
+
     /// What the person typed into the search field.
     var query = ""
     /// Which slice of the list they asked for.
@@ -85,7 +92,8 @@ final class LocalModelsViewModel {
         LocalModelRowPresenter.state(
             for: status,
             isDownloading: isDownloading(status.id),
-            failure: rowFailure(for: status.id)
+            failure: rowFailure(for: status.id),
+            isActionModel: status.id == actionModelID
         )
     }
 
@@ -105,6 +113,8 @@ final class LocalModelsViewModel {
             await cancelDownload(manager)
         case .use:
             await select(status, manager: manager)
+        case .useForActions:
+            await selectForActions(status, manager: manager)
         case .load, .retryLoad:
             await load(status, manager: manager)
         case .unload:
@@ -121,6 +131,7 @@ final class LocalModelsViewModel {
         isRefreshing = true
         defer { isRefreshing = false }
         statuses = await manager.statuses()
+        actionModelID = await actionHost?.configuration().selectedModelID
         // Re-read rather than cached: storage changes while this screen is
         // open, and a stale figure is what refuses a download that would now
         // succeed (section 115).
@@ -164,6 +175,12 @@ final class LocalModelsViewModel {
                 kind: .download
             )
         }
+        // A model made for actions is no use until it is the action model. If
+        // none is chosen yet, this one becomes it, rather than waiting for
+        // somebody to find the Action Model screen.
+        if failure == nil, !status.descriptor.purpose.isChatModel {
+            await actionHost?.adoptIfNoneSelected(status.id)
+        }
         await refresh(manager)
     }
 
@@ -186,6 +203,23 @@ final class LocalModelsViewModel {
         failure = nil
         do {
             try await manager.select(status.id)
+        } catch {
+            failure = Failure(
+                modelID: status.id,
+                message: error.localizedDescription,
+                isRetryable: true,
+                kind: .load
+            )
+        }
+        await refresh(manager)
+    }
+
+    /// Makes a model the action model. Nothing else: the chat model is not
+    /// touched, and nothing is loaded until the first action needs it.
+    func selectForActions(_ status: LocalModelStatus, manager: LocalModelManager) async {
+        failure = nil
+        do {
+            try await actionHost?.select(status.id)
         } catch {
             failure = Failure(
                 modelID: status.id,

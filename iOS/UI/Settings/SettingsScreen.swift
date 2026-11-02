@@ -1,3 +1,4 @@
+import AIProviderLocal
 import AssistantDomain
 import AssistantPlatform
 import AssistantVoice
@@ -16,6 +17,9 @@ struct SettingsScreen: View {
     @AppStorage("assistantName") private var assistantName = "Assistant"
     @AppStorage("assistantPersonality") private var personality = AssistantPersonality.warm
     @AppStorage("assistantResponseLength") private var responseLength = ResponseLength.balanced
+    /// The chosen action model's name, re-read whenever this screen reappears
+    /// so a choice made one level down shows here on the way back.
+    @State private var actionModelName: String?
 
     var body: some View {
         NavigationStack {
@@ -32,6 +36,9 @@ struct SettingsScreen: View {
             }
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
+            .onAppear {
+                Task { actionModelName = await model.actionModelHost.status().displayName }
+            }
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }
@@ -122,8 +129,8 @@ struct SettingsScreen: View {
             }
             NavigationLink(value: SettingsViewModel.Route.actionModel) {
                 LabeledContent("Action Model") {
-                    Text("Reminders, tasks, calendar")
-                        .foregroundStyle(.secondary)
+                    Text(actionModelName ?? "None selected")
+                        .foregroundStyle(actionModelName == nil ? Color.orange : Color.secondary)
                 }
             }
         } header: {

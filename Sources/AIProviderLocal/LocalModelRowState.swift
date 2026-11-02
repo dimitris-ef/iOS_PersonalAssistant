@@ -28,6 +28,8 @@ public enum LocalModelAction: String, Hashable, Sendable, Identifiable, CaseIter
     case retryDownload
     /// Make this the model Local AI answers with. Does not load it.
     case use
+    /// Make this the model that turns sentences into actions. Does not load it.
+    case useForActions
     /// Bring the weights into memory now, rather than on the next message.
     case load
     /// The last load failed. Try it again.
@@ -46,6 +48,7 @@ public enum LocalModelAction: String, Hashable, Sendable, Identifiable, CaseIter
         case .cancelDownload: return "Cancel"
         case .retryDownload: return "Try Again"
         case .use: return "Use for Chat"
+        case .useForActions: return "Use for Actions"
         case .load: return "Load"
         case .retryLoad: return "Try Loading Again"
         case .unload: return "Unload"
@@ -58,7 +61,7 @@ public enum LocalModelAction: String, Hashable, Sendable, Identifiable, CaseIter
     /// The one action a row leads with, if any.
     public var isProminent: Bool {
         switch self {
-        case .download, .use, .retryDownload, .retryLoad: return true
+        case .download, .use, .useForActions, .retryDownload, .retryLoad: return true
         case .cancelDownload, .load, .unload, .delete: return false
         }
     }
@@ -183,15 +186,21 @@ public struct LocalModelRowState: Hashable, Sendable {
 /// left an error on screen that Retry should act on.
 public enum LocalModelRowPresenter {
 
+    /// - Parameter isActionModel: whether this model is the one chosen under
+    ///   Action Model. The status cannot know: that choice is a separate
+    ///   setting from the chat model's.
     public static func state(
         for status: LocalModelStatus,
         isDownloading: Bool = false,
-        failure: LocalModelRowFailure? = nil
+        failure: LocalModelRowFailure? = nil,
+        isActionModel: Bool = false
     ) -> LocalModelRowState {
         let runtime = runtimeState(for: status, isDownloading: isDownloading, failure: failure)
         return LocalModelRowState(
             runtime: runtime,
-            actions: actions(for: status, runtime: runtime, failure: failure),
+            actions: actions(
+                for: status, runtime: runtime, failure: failure, isActionModel: isActionModel
+            ),
             sizeLabel: sizeLabel(for: status),
             precisionLabel: status.descriptor.quantization?.rawValue,
             familyLabel: status.installed?.architecture ?? status.descriptor.architecture
@@ -259,7 +268,8 @@ public enum LocalModelRowPresenter {
     static func actions(
         for status: LocalModelStatus,
         runtime: LocalModelRuntimeState,
-        failure: LocalModelRowFailure?
+        failure: LocalModelRowFailure?,
+        isActionModel: Bool = false
     ) -> [LocalModelAction] {
         let offered = chatActions(for: status, runtime: runtime, failure: failure)
         guard !status.descriptor.purpose.isChatModel else { return offered }
@@ -267,7 +277,14 @@ public enum LocalModelRowPresenter {
         // load it into the *chat* runtime. The action model loads from its own
         // screen; this row keeps download, unload and delete.
         let chatOnly: Set<LocalModelAction> = [.use, .load, .retryLoad]
-        return offered.filter { !chatOnly.contains($0) }
+        var actions = offered.filter { !chatOnly.contains($0) }
+        // What it offers instead is the one choice that makes it useful. Build
+        // 17 left that choice on a screen two levels away, and a downloaded
+        // Metis Action looked like it had gone nowhere.
+        if status.lifecycle.isInstalled, !isActionModel, !runtime.isError, !runtime.isBusy {
+            actions.insert(.useForActions, at: 0)
+        }
+        return actions
     }
 
     private static func chatActions(

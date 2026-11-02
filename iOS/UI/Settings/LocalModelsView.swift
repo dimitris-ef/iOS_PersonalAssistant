@@ -112,7 +112,10 @@ struct LocalModelsView: View {
             placement: .navigationBarDrawer(displayMode: .automatic),
             prompt: "Search models"
         )
-        .task { await viewModel.refresh(model.localModels) }
+        .task {
+            viewModel.actionHost = model.actionModelHost
+            await viewModel.refresh(model.localModels)
+        }
         // Refreshed on every appearance rather than once: free space and the
         // loaded model both change while this screen is off screen.
         .refreshable { await viewModel.refresh(model.localModels) }
@@ -265,6 +268,14 @@ private struct LocalModelRow: View {
                                     .foregroundStyle(Color.accentColor)
                                     .accessibilityLabel("In use")
                             }
+                            if viewModel.actionModelID == status.id {
+                                // The action model's own tick. Without it a
+                                // chosen Metis Action looked like it was not in
+                                // use at all, because the tick meant chat only.
+                                Image(systemName: "bolt.circle.fill")
+                                    .foregroundStyle(Color.accentColor)
+                                    .accessibilityLabel("In use for actions")
+                            }
                         }
                         // Size, precision and family on one line (section 42).
                         // Every part is omitted when unknown rather than
@@ -291,7 +302,12 @@ private struct LocalModelRow: View {
                 // The chat-side badges ("Chat only", "Supports actions") would
                 // both mislead here: this model does nothing but actions, and
                 // is chosen under Action Model rather than with Use for Chat.
-                Label("Action model — not for chat", systemImage: "bolt.fill")
+                Label(
+                    viewModel.actionModelID == status.id
+                        ? "In use for actions — not for chat"
+                        : "Action model — not for chat",
+                    systemImage: "bolt.fill"
+                )
                     .font(.caption)
                     .foregroundStyle(.secondary)
             } else {

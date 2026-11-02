@@ -172,6 +172,28 @@ public actor ActionModelHost {
         )
     }
 
+    /// Makes `id` the action model if no installed one is chosen yet.
+    ///
+    /// Called when a model made for actions finishes downloading. Build 17
+    /// left that choice to a screen two levels away, so a freshly downloaded
+    /// Metis Action did nothing until somebody found it. A choice already made
+    /// is never overridden; a choice pointing at a deleted file is.
+    ///
+    /// - Returns: true when the selection changed.
+    @discardableResult
+    public func adoptIfNoneSelected(_ id: AIModelIdentifier) async -> Bool {
+        if let current = await configuration().selectedModelID {
+            let currentFile = await manager.installedFileURL(for: current)
+            if currentFile != nil { return false }
+        }
+        do {
+            try await select(id)
+            return true
+        } catch {
+            return false
+        }
+    }
+
     public func setEnabled(_ enabled: Bool) async throws {
         if !enabled, state.isLoaded { await unload() }
         var current = try await settings.settings()
