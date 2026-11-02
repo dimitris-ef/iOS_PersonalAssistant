@@ -43,7 +43,7 @@ after download when none is chosen (`ActionModelHost.adoptIfNoneSelected`);
 the chat menu names the action model; Settings row shows its name.
 The user also said build 17 has "a lot of problems" — not yet described.
 
-## Build 19: crash on send
+## Build 20 (live, VALID): crash on send (build 19 run was cancelled, never shipped)
 
 User: build 18 crashed the moment a message was sent. Found in
 `LlamaCppRuntime.generate`: it called `llama_sampler_accept` after
