@@ -31,7 +31,7 @@ as completing a task.* Work happens on branch
   the golden set as the app now runs it — `Docs/ACTION-ROUTING.md` §12.
   Device speed/memory/heat are still unmeasured.
 
-## Build 18 (in progress)
+## Build 18 (live on TestFlight, VALID, head `cdc9968`)
 
 User report on build 17: the downloaded Metis Action 0.8B "didn't show" when
 choosing models. Cause: it is (by design) never a chat model, and the only
