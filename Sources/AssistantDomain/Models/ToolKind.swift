@@ -67,6 +67,62 @@ public enum ToolKind: String, Hashable, Codable, Sendable, CaseIterable {
     }
 }
 
+extension ToolKind {
+    /// What the action does, as a person would say it: "add a reminder".
+    ///
+    /// For the sentence under a reply. `createReminder` is a wire name, and
+    /// build 20 showed it to the user verbatim ("1 action completed:
+    /// createReminder").
+    public var plainAction: String {
+        switch self {
+        case .createCalendarEvent: return "add a calendar event"
+        case .updateCalendarEvent: return "change a calendar event"
+        case .deleteCalendarEvent: return "delete a calendar event"
+        case .createReminder: return "add a reminder"
+        case .completeReminder: return "complete a reminder"
+        case .createAlarm: return "set an alarm"
+        case .updateAlarm: return "change an alarm"
+        case .cancelAlarm: return "cancel an alarm"
+        case .scheduleNotification: return "schedule a notification"
+        case .storeMemory: return "remember something"
+        case .updateMemory: return "update a memory"
+        case .createTask: return "add a task"
+        case .completeTask: return "complete a task"
+        case .createFollowUp: return "add a follow-up"
+        case .getUpcomingSchedule: return "check your schedule"
+        case .createRoutine: return "set up a routine"
+        case .addTaskDependency: return "link two tasks"
+        case .startTask: return "start a task"
+        case .askClarification: return "ask a question"
+        }
+    }
+
+    /// The same, done: "added a reminder".
+    public var plainActionDone: String {
+        switch self {
+        case .createCalendarEvent: return "added a calendar event"
+        case .updateCalendarEvent: return "changed a calendar event"
+        case .deleteCalendarEvent: return "deleted a calendar event"
+        case .createReminder: return "added a reminder"
+        case .completeReminder: return "completed a reminder"
+        case .createAlarm: return "set an alarm"
+        case .updateAlarm: return "changed an alarm"
+        case .cancelAlarm: return "cancelled an alarm"
+        case .scheduleNotification: return "scheduled a notification"
+        case .storeMemory: return "remembered that"
+        case .updateMemory: return "updated a memory"
+        case .createTask: return "added a task"
+        case .completeTask: return "completed a task"
+        case .createFollowUp: return "added a follow-up"
+        case .getUpcomingSchedule: return "checked your schedule"
+        case .createRoutine: return "set up a routine"
+        case .addTaskDependency: return "linked two tasks"
+        case .startTask: return "started a task"
+        case .askClarification: return "asked a question"
+        }
+    }
+}
+
 /// Whether a tool may run, and under what conditions.
 public enum ToolAuthorization: String, Hashable, Codable, Sendable, CaseIterable {
     case allowed

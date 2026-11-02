@@ -834,8 +834,7 @@ final class AgentLoopTests: XCTestCase {
 
         // Written by the app, not by another model call, and it names what was
         // actually done rather than what was planned.
-        XCTAssertTrue(result.assistantMessage.text.contains("1 action completed"))
-        XCTAssertTrue(result.assistantMessage.text.contains("createTask"))
+        XCTAssertTrue(result.assistantMessage.text.contains("Done: added a task."))
 
         let tasks = try await harness.repositories.tasks.tasks(matching: TaskFilter())
         XCTAssertEqual(tasks.count, 1, "A failed continuation must not undo what happened")
@@ -863,8 +862,9 @@ final class AgentLoopTests: XCTestCase {
         let result = try await harness.engine.send("Add the appointment and the task", in: harness.conversationID)
 
         XCTAssertEqual(result.status, .partialSuccess)
-        XCTAssertTrue(result.assistantMessage.text.contains("createCalendarEvent did not happen"))
-        XCTAssertTrue(result.assistantMessage.text.contains("createTask"))
+        XCTAssertTrue(result.assistantMessage.text.contains("Couldn't add a calendar event"))
+        XCTAssertTrue(result.assistantMessage.text.contains("added a task"))
+        XCTAssertFalse(result.assistantMessage.text.contains("createTask"), "wire names are not for people")
     }
 
     // MARK: 87 — the safety pipeline, in every round

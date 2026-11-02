@@ -67,11 +67,11 @@ public struct TurnSummarizer: Sendable {
         }
 
         if !done.isEmpty {
-            sentences.append("\(count(done.count, "action")) completed: \(list(done)).")
+            sentences.append("Done: \(list(done, \.plainActionDone)).")
         }
 
         if !pending.isEmpty {
-            sentences.append("\(count(pending.count, "action")) waiting for your approval: \(list(pending)).")
+            sentences.append("Waiting for your approval: \(list(pending, \.plainAction)).")
         }
 
         for problem in problems {
@@ -79,7 +79,7 @@ public struct TurnSummarizer: Sendable {
             // someone that something is wrong without telling them what, which
             // leaves them to work it out — precisely the load this app exists
             // to carry.
-            sentences.append("\(problem.toolName) did not happen: \(reason(for: problem)).")
+            sentences.append("Couldn't \(phrase(problem, \.plainAction)): \(reason(for: problem)).")
         }
 
         if sentences.isEmpty {
@@ -91,12 +91,14 @@ public struct TurnSummarizer: Sendable {
         return sentences.joined(separator: " ")
     }
 
-    private func list(_ results: [AIToolResult]) -> String {
-        results.map(\.toolName).joined(separator: ", ")
+    /// "added a reminder, added a task". The wire name only for a tool this
+    /// build does not know, which is better than saying nothing.
+    private func list(_ results: [AIToolResult], _ wording: KeyPath<ToolKind, String>) -> String {
+        results.map { phrase($0, wording) }.joined(separator: ", ")
     }
 
-    private func count(_ value: Int, _ noun: String) -> String {
-        "\(value) \(noun)\(value == 1 ? "" : "s")"
+    private func phrase(_ result: AIToolResult, _ wording: KeyPath<ToolKind, String>) -> String {
+        ToolKind(rawValue: result.toolName)?[keyPath: wording] ?? result.toolName
     }
 
     /// The sentence the executor wrote, if it wrote one, and otherwise the
