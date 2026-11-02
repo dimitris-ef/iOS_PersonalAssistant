@@ -1,0 +1,176 @@
+{
+ "A": {
+  "n": 300,
+  "seconds": 719,
+  "valid_json": 1.0,
+  "intent_acc": 0.7333333333333333,
+  "exact_match": 0.5433333333333333,
+  "lost_changes": 49,
+  "extra_changes": 8,
+  "per_intent_exact": {
+   "calendar.create": 0.42,
+   "calendar.update": 0.02,
+   "memory.store": 0.62,
+   "reminder.create": 0.84,
+   "task.complete": 0.48,
+   "task.create": 0.88
+  },
+  "field_acc": {
+   "arg.content": 0.5961538461538461,
+   "arg.durationExpression": 0.8888888888888888,
+   "arg.locationExpression": 0.0,
+   "arg.targetDescription": 0.32038834951456313,
+   "arg.timeExpression": 0.72,
+   "arg.title": 0.6571428571428571,
+   "chg.durationExpression": 0.05,
+   "chg.locationExpression": 0.0,
+   "chg.timeExpression": 0.18181818181818182,
+   "chg.title": 0.11764705882352941
+  }
+ },
+ "B": {
+  "n": 300,
+  "seconds": 508,
+  "valid_json": 1.0,
+  "intent_acc": 0.7333333333333333,
+  "exact_match": 0.5466666666666666,
+  "lost_changes": 45,
+  "extra_changes": 6,
+  "per_intent_exact": {
+   "calendar.create": 0.42,
+   "calendar.update": 0.04,
+   "memory.store": 0.62,
+   "reminder.create": 0.84,
+   "task.complete": 0.48,
+   "task.create": 0.88
+  },
+  "field_acc": {
+   "arg.content": 0.5961538461538461,
+   "arg.durationExpression": 0.8888888888888888,
+   "arg.locationExpression": 0.0,
+   "arg.targetDescription": 0.32038834951456313,
+   "arg.timeExpression": 0.72,
+   "arg.title": 0.6571428571428571,
+   "chg.durationExpression": 0.05263157894736842,
+   "chg.locationExpression": 0.0,
+   "chg.timeExpression": 0.3333333333333333,
+   "chg.title": 0.23529411764705882
+  }
+ },
+ "C": {
+  "n": 300,
+  "seconds": 256,
+  "valid_json": 1.0,
+  "intent_acc": 0.8533333333333334,
+  "exact_match": 0.6066666666666667,
+  "lost_changes": 10,
+  "extra_changes": 56,
+  "per_intent_exact": {
+   "calendar.create": 0.38,
+   "calendar.update": 0.62,
+   "memory.store": 0.88,
+   "reminder.create": 0.8,
+   "task.complete": 0.36,
+   "task.create": 0.6
+  },
+  "field_acc": {
+   "arg.content": 0.8461538461538461,
+   "arg.durationExpression": 0.6153846153846154,
+   "arg.locationExpression": 0.0,
+   "arg.targetDescription": 0.5573770491803278,
+   "arg.timeExpression": 0.782608695652174,
+   "arg.title": 0.72,
+   "chg.durationExpression": 0.6538461538461539,
+   "chg.locationExpression": 0.0,
+   "chg.timeExpression": 0.23076923076923078,
+   "chg.title": 0.48
+  }
+ },
+ "D": {
+  "n": 300,
+  "seconds": 259,
+  "valid_json": 1.0,
+  "intent_acc": 0.8533333333333334,
+  "exact_match": 0.6133333333333333,
+  "lost_changes": 3,
+  "extra_changes": 66,
+  "per_intent_exact": {
+   "calendar.create": 0.38,
+   "calendar.update": 0.66,
+   "memory.store": 0.88,
+   "reminder.create": 0.8,
+   "task.complete": 0.36,
+   "task.create": 0.6
+  },
+  "field_acc": {
+   "arg.content": 0.8461538461538461,
+   "arg.durationExpression": 0.6153846153846154,
+   "arg.locationExpression": 0.0,
+   "arg.targetDescription": 0.5573770491803278,
+   "arg.timeExpression": 0.782608695652174,
+   "arg.title": 0.72,
+   "chg.durationExpression": 0.6551724137931034,
+   "chg.locationExpression": 0.0,
+   "chg.timeExpression": 0.24242424242424243,
+   "chg.title": 0.5555555555555556
+  }
+ },
+ "E": {
+  "n": 300,
+  "seconds": 258,
+  "valid_json": 1.0,
+  "intent_acc": 0.8333333333333334,
+  "exact_match": 0.5766666666666667,
+  "lost_changes": 11,
+  "extra_changes": 59,
+  "per_intent_exact": {
+   "calendar.create": 0.38,
+   "calendar.update": 0.6,
+   "memory.store": 0.84,
+   "reminder.create": 0.72,
+   "task.complete": 0.3,
+   "task.create": 0.62
+  },
+  "field_acc": {
+   "arg.content": 0.7924528301886793,
+   "arg.durationExpression": 0.6153846153846154,
+   "arg.locationExpression": 0.0,
+   "arg.targetDescription": 0.5161290322580645,
+   "arg.timeExpression": 0.7794117647058824,
+   "arg.title": 0.7066666666666667,
+   "chg.durationExpression": 0.6296296296296297,
+   "chg.locationExpression": 0.0,
+   "chg.timeExpression": 0.21428571428571427,
+   "chg.title": 0.4230769230769231
+  }
+ },
+ "F": {
+  "n": 300,
+  "seconds": 277,
+  "valid_json": 1.0,
+  "intent_acc": 0.8333333333333334,
+  "exact_match": 0.5833333333333334,
+  "lost_changes": 4,
+  "extra_changes": 68,
+  "per_intent_exact": {
+   "calendar.create": 0.38,
+   "calendar.update": 0.64,
+   "memory.store": 0.84,
+   "reminder.create": 0.72,
+   "task.complete": 0.3,
+   "task.create": 0.62
+  },
+  "field_acc": {
+   "arg.content": 0.7924528301886793,
+   "arg.durationExpression": 0.6153846153846154,
+   "arg.locationExpression": 0.0,
+   "arg.targetDescription": 0.5161290322580645,
+   "arg.timeExpression": 0.7794117647058824,
+   "arg.title": 0.7066666666666667,
+   "chg.durationExpression": 0.6333333333333333,
+   "chg.locationExpression": 0.0,
+   "chg.timeExpression": 0.23529411764705882,
+   "chg.title": 0.5
+  }
+ }
+}
