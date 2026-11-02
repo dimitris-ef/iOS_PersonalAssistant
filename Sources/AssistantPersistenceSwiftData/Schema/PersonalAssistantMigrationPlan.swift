@@ -35,14 +35,41 @@ import SwiftData
 /// of ranking: treating everything from before this feature as doubtful would
 /// quietly discard what the assistant already knew about someone.
 ///
-/// ## Adding V4
+/// ## Why the plan starts at V9
 ///
-/// 1. Copy the models into a new `PersonalAssistantSchemaV4` enum and change
-///    them there. Never edit an older version — it describes what is already on
-///    disk, and rewriting history makes the migration a lie. See the note in
-///    `PersonalAssistantSchemaV2` about nesting the models per version, which
-///    is a prerequisite for any change that is not purely additive.
-/// 2. Add `PersonalAssistantSchemaV4.self` to `schemas`, after V3.
+/// Build 16 crashed on launch for everyone who had the app installed, and the
+/// cause is worth stating plainly because it was invisible to every test.
+///
+/// SwiftData identifies an existing store's version by a checksum of its model
+/// shapes, computed from the classes each `VersionedSchema` lists. Every
+/// version here listed the *same shared classes*, so every version computed
+/// today's shapes. V1 through V5 differ only by columns added to shared
+/// classes, so they computed identical checksums; V10 did the same to V9. None
+/// of that mattered while no store ever migrated — and none ever had: V9 was
+/// in place before TestFlight build 1, and builds 1 to 15 all created and kept
+/// a V9 store. Build 16 was the first to migrate one. A staged migration
+/// validates the whole plan, found duplicate checksums, and trapped.
+///
+/// So the plan now holds only versions whose classes really describe them: V9,
+/// with its one changed class frozen as `PersonalAssistantSchemaV9`
+/// `.SDAssistantSettings`, and V10. V1–V8 stay in the source as history and
+/// are not migration targets. No shipped build ever wrote a store older than
+/// V9; a development store that old fails to open with a thrown error the app
+/// shows, rather than a trap.
+///
+/// `SchemaVersioningTests.testEveryVersionInThePlanIsDistinct` would have
+/// caught this, and `StoreUpgradeTests` opens a real V9 store written in V9's
+/// shape. Neither existed before.
+///
+/// ## Adding V11
+///
+/// 1. **Freeze before you change.** Copy every class you are about to edit
+///    into V10 as a nested type, exactly as it is now, and list the copy in
+///    `PersonalAssistantSchemaV10.models`. Only then edit the shared class. A
+///    shared class edited in place silently rewrites every version that lists
+///    it — that is the build 16 crash, and "purely additive" does not exempt a
+///    change from it.
+/// 2. Add `PersonalAssistantSchemaV11.self` to `schemas`, after V10.
 /// 3. Add a stage to `stages`:
 ///    - `.lightweight` when SwiftData can infer the change: adding an optional
 ///      property, adding a model, deleting a property, renaming via
@@ -52,36 +79,33 @@ import SwiftData
 ///      old data. The `willMigrate`/`didMigrate` closures get a context for the
 ///      old and new stores respectively.
 /// 4. Add a test that opens a store written by the previous version, migrates
-///    it, and asserts the data survived. A migration without that test is a
-///    guess.
+///    it, and asserts the data survived — in `StoreUpgradeTests`, writing the
+///    old store through the old (frozen) classes. A migration without that
+///    test is a guess.
 ///
 /// The rule that outranks all of the above: **a migration never deletes data.**
 /// If a field cannot be derived, it becomes optional or takes a documented
 /// default. It does not become a reason to start the store over.
 @available(iOS 17, macOS 14, tvOS 17, watchOS 10, *)
 public enum PersonalAssistantMigrationPlan: SchemaMigrationPlan {
+    /// V9 onwards only. See "Why the plan starts at V9".
     public static var schemas: [any VersionedSchema.Type] {
         [
-            PersonalAssistantSchemaV1.self,
-            PersonalAssistantSchemaV2.self,
-            PersonalAssistantSchemaV3.self,
-            PersonalAssistantSchemaV4.self,
-            PersonalAssistantSchemaV5.self,
-            PersonalAssistantSchemaV6.self,
-            PersonalAssistantSchemaV7.self,
-            PersonalAssistantSchemaV8.self,
             PersonalAssistantSchemaV9.self,
             PersonalAssistantSchemaV10.self,
         ]
     }
 
     public static var stages: [MigrationStage] {
-        [
-            migrateV1toV2, migrateV2toV3, migrateV3toV4, migrateV4toV5,
-            migrateV5toV6, migrateV6toV7, migrateV7toV8, migrateV8toV9,
-            migrateV9toV10,
-        ]
+        [migrateV9toV10]
     }
+
+    // MARK: History — not in the plan
+    //
+    // The stages below are kept for what their notes record about each
+    // version. They are not migration targets: V1–V8 list shared classes that
+    // no longer describe them, and listing them would hand SwiftData duplicate
+    // checksums again.
 
     /// Purely additive, all-nullable. Nothing to compute, nothing to lose.
     static let migrateV1toV2 = MigrationStage.lightweight(

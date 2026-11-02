@@ -78,11 +78,136 @@ public enum PersonalAssistantSchemaV9: VersionedSchema {
             SDRoutine.self,
             SDReminderPlan.self,
             SDReminderStage.self,
-            SDAssistantSettings.self,
+            // Frozen: V10 added two columns to the shared class. See below.
+            PersonalAssistantSchemaV9.SDAssistantSettings.self,
             SDUserProfile.self,
             SDLocalModel.self,
             SDHandledAction.self,
         ]
+    }
+
+    /// The settings row exactly as V9 stored it. **Frozen — never edit.**
+    ///
+    /// ## Why this copy exists
+    ///
+    /// SwiftData identifies an existing store's version by a checksum of its
+    /// model shapes, computed from the Swift classes each `VersionedSchema`
+    /// lists. When every version lists the same shared class, every version
+    /// computes the class's *current* shape. So when V10 added two columns to
+    /// the shared `SDAssistantSettings`, V9 silently gained them too: V9 and
+    /// V10 became indistinguishable, and neither matched the V9 store actually
+    /// on disk.
+    ///
+    /// No store had ever needed migrating before — every TestFlight build from
+    /// 1 to 15 created and kept a V9 store — so nothing noticed until build 16,
+    /// the first to migrate one. SwiftData's staged migration found duplicate
+    /// version checksums and trapped on launch, on every device that had the
+    /// app installed.
+    ///
+    /// This is that row as build 15 (`f8fb1dc`) declared it, property for
+    /// property. It is the only V9 class that needs a copy: the store-model
+    /// diff from build 15 to V10 is exactly these two columns, nothing else.
+    @available(iOS 17, macOS 14, tvOS 17, watchOS 10, *)
+    @Model
+    public final class SDAssistantSettings {
+        @Attribute(.unique) public var id: UUID
+        public var preferredProviderID: String?
+        public var preferredModelID: String?
+        public var routingPolicyRaw: String
+        public var toolAuthorizations: [String: String]
+        public var defaultAuthorizationRaw: String
+        public var conversationContextLimit: Int
+        public var memoryContextLimit: Int
+
+        public var supportAdvanceNoticeDays: [Int]
+        public var supportMorningOfHour: Int
+        public var supportMorningOfMinute: Int
+        public var supportPreparationLeadDefault: Double
+        public var supportFinalCallLead: Double
+        public var supportDefaultEscalationRaw: String
+        public var supportFlexibleNudgesPerDay: Int
+
+        public var supportFollowUpIsEnabled: Bool
+        public var supportFollowUpMaximum: Int
+        public var supportFollowUpInterval: Double
+        public var supportFollowUpEscalatesEachTime: Bool
+
+        public var supportSnoozeIsAllowed: Bool
+        public var supportSnoozeDefaultDuration: Double
+        public var supportSnoozeMaximum: Int
+        public var supportSnoozeEscalateAfter: Int
+
+        public var supportCompletionRequiresExplicitConfirmation: Bool
+        public var supportCompletionMarkMissedAfter: Double?
+
+        public var voiceSpeaksReplies: Bool = false
+        public var voiceSpeaksTypedReplies: Bool = false
+        public var voiceLocaleIdentifier: String?
+
+        public var selectedLocalModelID: String?
+
+        public init(
+            id: UUID,
+            preferredProviderID: String?,
+            preferredModelID: String?,
+            routingPolicyRaw: String,
+            toolAuthorizations: [String: String],
+            defaultAuthorizationRaw: String,
+            conversationContextLimit: Int,
+            memoryContextLimit: Int,
+            supportAdvanceNoticeDays: [Int],
+            supportMorningOfHour: Int,
+            supportMorningOfMinute: Int,
+            supportPreparationLeadDefault: Double,
+            supportFinalCallLead: Double,
+            supportDefaultEscalationRaw: String,
+            supportFlexibleNudgesPerDay: Int,
+            supportFollowUpIsEnabled: Bool,
+            supportFollowUpMaximum: Int,
+            supportFollowUpInterval: Double,
+            supportFollowUpEscalatesEachTime: Bool,
+            supportSnoozeIsAllowed: Bool,
+            supportSnoozeDefaultDuration: Double,
+            supportSnoozeMaximum: Int,
+            supportSnoozeEscalateAfter: Int,
+            supportCompletionRequiresExplicitConfirmation: Bool,
+            supportCompletionMarkMissedAfter: Double?,
+            voiceSpeaksReplies: Bool = false,
+            voiceSpeaksTypedReplies: Bool = false,
+            voiceLocaleIdentifier: String? = nil,
+            selectedLocalModelID: String? = nil
+        ) {
+            self.id = id
+            self.preferredProviderID = preferredProviderID
+            self.preferredModelID = preferredModelID
+            self.routingPolicyRaw = routingPolicyRaw
+            self.toolAuthorizations = toolAuthorizations
+            self.defaultAuthorizationRaw = defaultAuthorizationRaw
+            self.conversationContextLimit = conversationContextLimit
+            self.memoryContextLimit = memoryContextLimit
+            self.supportAdvanceNoticeDays = supportAdvanceNoticeDays
+            self.supportMorningOfHour = supportMorningOfHour
+            self.supportMorningOfMinute = supportMorningOfMinute
+            self.supportPreparationLeadDefault = supportPreparationLeadDefault
+            self.supportFinalCallLead = supportFinalCallLead
+            self.supportDefaultEscalationRaw = supportDefaultEscalationRaw
+            self.supportFlexibleNudgesPerDay = supportFlexibleNudgesPerDay
+            self.supportFollowUpIsEnabled = supportFollowUpIsEnabled
+            self.supportFollowUpMaximum = supportFollowUpMaximum
+            self.supportFollowUpInterval = supportFollowUpInterval
+            self.supportFollowUpEscalatesEachTime = supportFollowUpEscalatesEachTime
+            self.supportSnoozeIsAllowed = supportSnoozeIsAllowed
+            self.supportSnoozeDefaultDuration = supportSnoozeDefaultDuration
+            self.supportSnoozeMaximum = supportSnoozeMaximum
+            self.supportSnoozeEscalateAfter = supportSnoozeEscalateAfter
+            self.supportCompletionRequiresExplicitConfirmation =
+                supportCompletionRequiresExplicitConfirmation
+            self.supportCompletionMarkMissedAfter = supportCompletionMarkMissedAfter
+            self.voiceSpeaksReplies = voiceSpeaksReplies
+            self.voiceSpeaksTypedReplies = voiceSpeaksTypedReplies
+            self.voiceLocaleIdentifier = voiceLocaleIdentifier
+            self.selectedLocalModelID = selectedLocalModelID
+        }
     }
 }
 

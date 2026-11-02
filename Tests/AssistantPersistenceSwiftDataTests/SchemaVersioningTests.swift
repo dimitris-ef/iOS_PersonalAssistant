@@ -39,7 +39,35 @@ final class SchemaVersioningTests: XCTestCase {
         // In ascending order, so the plan describes a path rather than a set.
         let versions = schemas.map { $0.versionIdentifier }
         XCTAssertEqual(versions, versions.sorted())
-        XCTAssertEqual(versions.first, PersonalAssistantSchemaV1.versionIdentifier)
+        // V9, not V1: the oldest store any shipped build ever wrote. See "Why
+        // the plan starts at V9" on the plan.
+        XCTAssertEqual(versions.first, PersonalAssistantSchemaV9.versionIdentifier)
+    }
+
+    /// No two versions in the plan may describe the same store.
+    ///
+    /// SwiftData tells versions apart by a checksum of their model shapes. Two
+    /// versions with the same shapes are indistinguishable, and a staged
+    /// migration over them traps on launch — which is what build 16 did, for
+    /// everyone. The plan then listed V1–V5 (identical, because they only ever
+    /// added columns to shared classes) and V9 = V10 (the same mistake again).
+    /// This compares every entity's property names per version, which is
+    /// enough to have caught both.
+    func testEveryVersionInThePlanIsDistinct() {
+        let shapes = PersonalAssistantMigrationPlan.schemas.map { version -> String in
+            Schema(version.models, version: version.versionIdentifier).entities
+                .map { entity -> String in
+                    let names = entity.properties.map { $0.name }.sorted()
+                    return entity.name + "(" + names.joined(separator: ",") + ")"
+                }
+                .sorted()
+                .joined(separator: ";")
+        }
+        XCTAssertEqual(
+            Set(shapes).count,
+            shapes.count,
+            "two versions describe the same store; SwiftData cannot tell them apart and traps"
+        )
     }
 
     /// Every model has to be listed, or its table is simply absent and the

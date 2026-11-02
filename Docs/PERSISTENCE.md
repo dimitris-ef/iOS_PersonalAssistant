@@ -42,7 +42,8 @@ iOS deployment target is unchanged at 17.
 
 ## Current schema
 
-The container opens at **version 9**. The table below describes
+The container opens at **version 10**, and the migration plan knows **V9 and
+V10 only** — see "The build 16 crash" below for why. The table below describes
 `PersonalAssistantSchemaV1`, `Schema.Version(1, 0, 0)` — the shape everything
 since has added to, and the file that must never be edited because it describes
 what is already on disk.
@@ -54,9 +55,10 @@ what is already on disk.
 | V6–V7 | Routines and occurrences; memory relations, embeddings and lifecycle |
 | V8 | Installed local models (`SDLocalModel`) |
 | V9 | Platform delivery state on each stage, `revision` on each plan, and `SDHandledAction` — see [`BACKGROUND.md`](BACKGROUND.md) |
+| V10 | `selectedActionModelID` and `actionModelEnabled` on settings — the dedicated action model |
 
-Every stage is an inferred `.lightweight` migration: each added property is
-optional or carries a declared default, and each new model is a new entity.
+V9 → V10 is an inferred `.lightweight` migration: one optional column and one
+with a declared default.
 
 | Model | Holds | Relationships |
 | --- | --- | --- |
@@ -106,10 +108,43 @@ launch, even though V1 needs no stages. Adding it later is not possible in any
 cheap way: a store created without a plan has no path forward except deletion,
 and by then the data being deleted belongs to someone.
 
-Adding V2 is documented in the migration plan's own comments. The short version:
-copy the models into a new `PersonalAssistantSchemaV2`, never edit V1 (it
-describes what is already on disk), add a `.lightweight` or `.custom` stage, and
-write a test that opens a V1 store and asserts the data survived.
+### The build 16 crash
+
+TestFlight build 16 crashed on launch for everyone who had the app installed,
+with every test green.
+
+SwiftData identifies an existing store's version by a checksum of its model
+shapes, computed from the classes each `VersionedSchema` lists. Here every
+version listed the **same shared classes**, so every version computed *today's*
+shapes. V1–V5 only ever added columns to shared classes, so they were
+identical; V10 added two columns to the shared `SDAssistantSettings`, so V9
+became identical to V10 — and no longer matched the V9 store on disk.
+
+None of it mattered while no store ever migrated, and none ever had: V9 was in
+place before TestFlight build 1, and builds 1–15 all created and kept a V9
+store. Build 16 was the first to migrate one, and a staged migration validates
+the whole plan: duplicate checksums, trap.
+
+The fix: V9 carries a frozen copy of the one class V10 changed
+(`PersonalAssistantSchemaV9.SDAssistantSettings`, property-for-property as
+build 15 declared it), and the plan lists only V9 and V10. V1–V8 stay in the
+source as history. No shipped build ever wrote a store older than V9.
+
+Every test created a fresh store at the newest version, so none could see this.
+`StoreUpgradeTests` now writes a real V9 store through V9's frozen classes and
+opens it with the current container, and
+`SchemaVersioningTests.testEveryVersionInThePlanIsDistinct` fails if any two
+versions in the plan describe the same store.
+
+### Adding a version
+
+Documented in the migration plan's own comments. The rule that matters most,
+because ignoring it is what crashed build 16: **freeze before you change.** Copy
+every class you are about to edit into the current version as a nested type,
+exactly as it is, list the copy there, and only then edit the shared class.
+"Purely additive" does not exempt a change. Then add the new version and a
+stage, and add a `StoreUpgradeTests` case that writes the previous version's
+store through its frozen classes and asserts the data survived.
 
 **A migration never deletes data.** If a field cannot be derived it becomes
 optional or takes a documented default. There is no code anywhere in this layer
