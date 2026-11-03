@@ -364,7 +364,12 @@ final class CloudExplicitnessTests: XCTestCase {
         let after = Set(
             (try? FileManager.default.contentsOfDirectory(atPath: temporary.path)) ?? []
         )
-        XCTAssertEqual(after.subtracting(before), [], "encoding wrote a temporary file")
+        // The temporary directory is shared with the system, and macOS daemons
+        // create their own `com.apple.*` entries in it at any moment — one did
+        // during a CI run and failed this test for something the encoder never
+        // touched. Those are excluded; anything else that appears is ours.
+        let created = after.subtracting(before).filter { !$0.hasPrefix("com.apple.") }
+        XCTAssertEqual(created, [], "encoding wrote a temporary file")
     }
 
     /// The WAV really is a WAV, at the format the service is told to expect.
