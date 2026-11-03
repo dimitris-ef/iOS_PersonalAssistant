@@ -55,6 +55,17 @@ by auto-adopting Metis Action. Removed the second accept. If a crash remains
 on plain chat messages, it is a different cause — ask for Local AI
 Diagnostics (Manage Models → Local AI Diagnostics, "Last stage").
 
+## Since build 20 (not shipped yet, CI green at `61dda30`)
+
+- User confirmed on build 20: "remind me in 10 minutes to fix the bottles" →
+  reminder created by Metis Action 0.8B. Crash fix works.
+- The summary line said "1 action completed: createReminder" (wire name).
+  Now `ToolKind.plainAction` / `plainActionDone`: "Done: added a reminder."
+- `CloudExplicitnessTests.testEncodingAudioTouchesNoFiles` failed once on a
+  macOS `com.apple.dataaccess` temp entry; it now ignores `com.apple.*`.
+- Asked the user for: speed, whether the reminder fired, harder sentences,
+  plain chat, and the other build 17 problems. Ship the next build with those.
+
 ## Next, in order
 
 1. **User tests build 17**: does it open with data intact; download Metis
