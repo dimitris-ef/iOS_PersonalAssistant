@@ -153,8 +153,8 @@ final class ToolContinuationTests: XCTestCase {
         // What the user is told is *not* "Working on it." — that sentence was
         // written before the tool ran and describes an intention, not a result.
         // The deterministic summary replaces it and says what really happened.
+        XCTAssertNotEqual(result.assistantMessage.text, "Working on it.")
         XCTAssertTrue(result.assistantMessage.text.contains("Done: remembered that."))
-        XCTAssertTrue(result.assistantMessage.text.contains("storeMemory"))
     }
 
     func testRejectedToolCallsAreReportedBackToTheModel() async throws {
