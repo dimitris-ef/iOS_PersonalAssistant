@@ -8,6 +8,7 @@ Last updated 2026-11-04 (evening). Update this at the end of every session.
   lookup for "move the dentist…" (P7); "move the/reschedule/postpone" go to
   the action model and Apple's chat model is not sent tool descriptions that
   don't fit (P8). Builds 22 and 23 were cancelled by GitHub before starting.
+  Swift Tests green on `d8b95d3` (re-run after the outage).
 - Before that, build 21 (VALID, head `aebe0f2`): multiple chats,
   Quick Task, history fitted to Apple's on-device window, plain wording under
   replies. See [BUILD-HISTORY.md](BUILD-HISTORY.md).
