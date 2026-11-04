@@ -4,12 +4,11 @@ Last updated 2026-11-04. Update this at the end of every session.
 
 ## Where things stand
 
-- **Latest on TestFlight: build 20** (VALID). The crash on send is fixed and
-  confirmed on the phone; Metis Action 0.8B created a reminder from "remind me
-  in 10 minutes to fix the bottles".
-- **Build 21 is being prepared** with: multiple chats, Quick Task, history
-  fitted to Apple's on-device window, and plain wording under replies. See
-  [BUILD-HISTORY.md](BUILD-HISTORY.md).
+- **Latest on TestFlight: build 21** (VALID, head `aebe0f2`): multiple chats,
+  Quick Task, history fitted to Apple's on-device window, plain wording under
+  replies. See [BUILD-HISTORY.md](BUILD-HISTORY.md).
+- Build 20 confirmed on the phone: no crash on send; Metis Action 0.8B created
+  a reminder from "remind me in 10 minutes to fix the bottles".
 - The owner chats with **Apple's on-device model**; actions go to **Metis
   Action 0.8B** (chosen automatically after download since build 18).
 
@@ -33,8 +32,7 @@ assumed one.
 
 ## Next step for whoever picks this up
 
-1. Check the latest TestFlight run succeeded; record it in BUILD-HISTORY.md.
-2. Wait for the owner's device report; log each problem in
+1. Wait for the owner's device report; log each problem in
    PROBLEMS-AND-FIXES.md before fixing it.
-3. Then the feedback feature (ROADMAP "Next" 2). Needs schema V11 — read
+2. Then the feedback feature (ROADMAP "Next" 2). Needs schema V11 — read
    HOW-WE-WORK.md "Changing a SwiftData model" first.

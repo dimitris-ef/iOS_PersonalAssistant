@@ -62,7 +62,7 @@ One entry per problem. Status: **open**, **fixed (build N)**, or
 - **Owner saw:** an internal name instead of words.
 - **Fix:** `ToolKind.plainAction` / `plainActionDone`; the summary now reads
   "Done: added a reminder."
-- **Status:** fixed, ships in build 21.
+- **Status:** fixed (build 21), awaiting device confirmation.
 
 ## P6 — "That conversation is too long for the on-device model" (build 20)
 
@@ -74,4 +74,4 @@ One entry per problem. Status: **open**, **fixed (build N)**, or
 - **Fix:** only the most recent messages that fit are sent to Apple's model
   (older ones stay saved, just not re-read); and multiple chats with a New Chat
   button.
-- **Status:** fixed, ships in build 21.
+- **Status:** fixed (build 21), awaiting device confirmation.

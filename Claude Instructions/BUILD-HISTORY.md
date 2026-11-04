@@ -4,7 +4,7 @@ Newest first. "Owner found" is what was seen on the phone, in the owner's words
 where possible. Details of each problem are in
 [PROBLEMS-AND-FIXES.md](PROBLEMS-AND-FIXES.md) under the same number.
 
-## Build 21 — in progress
+## Build 21 — 2026-11-04 (head `aebe0f2`, VALID)
 
 - Multiple chats: a chats list, New Chat, switch, delete.
 - Quick Task: type a reminder/task/event, the action model does it, nothing is
@@ -12,6 +12,7 @@ where possible. Details of each problem are in
 - Apple's on-device model is sent only as much recent history as fits its
   window, instead of failing with "conversation too long" (P6).
 - Plain wording under replies: "Done: added a reminder." (P5).
+- **Owner found:** waiting for the device report.
 
 ## Build 20 — 2026-11-02 (head `2487967`)
 
