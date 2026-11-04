@@ -4,12 +4,13 @@ Last updated 2026-11-04 (evening). Update this at the end of every session.
 
 ## Where things stand
 
-- **Latest on TestFlight: build 21** (VALID, head `aebe0f2`): multiple chats,
+- **Latest on TestFlight: build 24** (VALID, head `acd662e`): calendar
+  lookup for "move the dentist…" (P7); "move the/reschedule/postpone" go to
+  the action model and Apple's chat model is not sent tool descriptions that
+  don't fit (P8). Builds 22 and 23 were cancelled by GitHub before starting.
+- Before that, build 21 (VALID, head `aebe0f2`): multiple chats,
   Quick Task, history fitted to Apple's on-device window, plain wording under
   replies. See [BUILD-HISTORY.md](BUILD-HISTORY.md).
-- **Next build in progress** (22 and 23 were cancelled by GitHub before starting): calendar lookup for "move the dentist…" (P7),
-  wider change phrases and no tool descriptions for Apple when they don't
-  fit (P8).
 - Build 20 confirmed on the phone: no crash on send; Metis Action 0.8B created
   a reminder from "remind me in 10 minutes to fix the bottles".
 - The owner chats with **Apple's on-device model**; actions go to **Metis
