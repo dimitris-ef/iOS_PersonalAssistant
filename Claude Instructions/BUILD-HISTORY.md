@@ -12,7 +12,13 @@ macOS machine. Not a code failure: Apple SDK Check compiled the same commit
 successfully at 16:49. Its number was used up; the code below ships as the
 next successful build.
 
-## Build 23 — in progress
+## Build 23 — never shipped
+
+Cancelled the same way at 17:56–18:11 UTC, and so was a Swift Tests re-run.
+No reason given by the API; the owner was asked to look at the run page and
+at GitHub → Settings → Billing (Actions minutes) in case macOS minutes ran out.
+
+## Next build — in progress
 
 - Calendar events can be found to move or change them (P7).
 - "Move the …", "reschedule", "postpone" go to the action model (P8).

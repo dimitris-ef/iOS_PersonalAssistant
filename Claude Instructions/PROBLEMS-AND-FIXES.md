@@ -93,7 +93,7 @@ One entry per problem. Status: **open**, **fixed (build N)**, or
   `LocalDescriptionMatching.matches` also accepts the title's words being a
   subset of the description's ("Dentist" ⊂ "the dentist appointment I have");
   "Dentist bill" still does not match "dentist appointment".
-- **Status:** fixed, ships in the next build (23).
+- **Status:** fixed, ships in the next successful build.
 
 ## P8 — "Conversation too long" even in a brand-new chat (build 21)
 
@@ -113,4 +113,4 @@ One entry per problem. Status: **open**, **fixed (build N)**, or
   would leave under 1,000 tokens for the conversation, they are dropped for
   that request (never mid-turn) and the model is told it cannot act and to
   suggest asking directly or Quick Task.
-- **Status:** fixed, ships in the next build (23).
+- **Status:** fixed, ships in the next successful build.
