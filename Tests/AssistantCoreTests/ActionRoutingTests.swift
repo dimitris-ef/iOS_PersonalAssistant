@@ -385,4 +385,35 @@ final class ActionRoutingTests: XCTestCase {
         let actionCalls = await harness.backend.callCount
         XCTAssertEqual(actionCalls, 0)
     }
+
+    // MARK: Quick Task — kept out of every chat
+
+    func testAQuickTaskActsAndLeavesNoChatBehind() async throws {
+        let harness = try await makeHarness()
+        let before = try await harness.repositories.conversations.allConversations()
+
+        let result = try await harness.engine.performQuickAction(
+            "remind me in 10 minutes to change the bottles"
+        )
+
+        XCTAssertEqual(result.results.first?.kind, .createReminder)
+        XCTAssertTrue(result.results.first?.outcome.didChangeAnything == true)
+        XCTAssertFalse(result.text.isEmpty)
+        let after = try await harness.repositories.conversations.allConversations()
+        XCTAssertEqual(after.map(\.id), before.map(\.id), "no conversation was created")
+        XCTAssertEqual(after.first?.messages.count, before.first?.messages.count, "no chat was touched")
+        XCTAssertEqual(harness.chat.receivedRequests.count, 0, "the chat model is not asked")
+    }
+
+    /// Choosing Quick Task already says it is an action, so a sentence the
+    /// router would not recognise still goes to the action model.
+    func testAQuickTaskAlwaysGoesToTheActionModel() async throws {
+        let harness = try await makeHarness()
+
+        _ = try await harness.engine.performQuickAction("bottles in ten")
+
+        let actionCalls = await harness.backend.callCount
+        XCTAssertEqual(actionCalls, 1)
+        XCTAssertEqual(harness.chat.receivedRequests.count, 0)
+    }
 }

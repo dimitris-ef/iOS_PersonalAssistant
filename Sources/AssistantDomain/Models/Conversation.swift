@@ -70,4 +70,28 @@ public struct Conversation: Identifiable, Hashable, Codable, Sendable {
         guard messages.count > limit else { return messages }
         return Array(messages.suffix(limit))
     }
+
+    /// The name shown in the chats list.
+    ///
+    /// A title somebody gave it, else the start of the first thing they said,
+    /// else "New chat". "Assistant" is the placeholder every chat was created
+    /// with before there was more than one, so it names nothing and is skipped.
+    public var displayTitle: String {
+        if let title = title?.trimmingCharacters(in: .whitespacesAndNewlines),
+            !title.isEmpty, title != Self.legacyPlaceholderTitle
+        {
+            return title
+        }
+        guard
+            let first = messages.first(where: { $0.role == .user })?.text
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+            !first.isEmpty
+        else { return "New chat" }
+        let line = first.split(whereSeparator: \.isNewline).first.map(String.init) ?? first
+        guard line.count > Self.displayTitleLength else { return line }
+        return String(line.prefix(Self.displayTitleLength)).trimmingCharacters(in: .whitespaces) + "…"
+    }
+
+    static let legacyPlaceholderTitle = "Assistant"
+    static let displayTitleLength = 40
 }

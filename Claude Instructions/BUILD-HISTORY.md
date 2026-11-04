@@ -1,0 +1,54 @@
+# Build history
+
+Newest first. "Owner found" is what was seen on the phone, in the owner's words
+where possible. Details of each problem are in
+[PROBLEMS-AND-FIXES.md](PROBLEMS-AND-FIXES.md) under the same number.
+
+## Build 21 — in progress
+
+- Multiple chats: a chats list, New Chat, switch, delete.
+- Quick Task: type a reminder/task/event, the action model does it, nothing is
+  kept as a chat.
+- Apple's on-device model is sent only as much recent history as fits its
+  window, instead of failing with "conversation too long" (P6).
+- Plain wording under replies: "Done: added a reminder." (P5).
+
+## Build 20 — 2026-11-02 (head `2487967`)
+
+- Fix: crash on send for every action request on a local model (P4).
+- **Owner found:** "remind me in 10 minutes to fix the bottles" worked —
+  Metis Action 0.8B created the reminder. The reply said "1 action completed:
+  createReminder" (P5). After more messages the chat refused: "That
+  conversation is too long for the on-device model. Starting a new one will
+  help." — and there was no way to start a new one (P6).
+
+## Build 19 — never shipped
+
+The TestFlight run was cancelled after 15 minutes with no error and no logs.
+Its number was used up; the same code shipped as build 20.
+
+## Build 18 — 2026-11-02 (head `cdc9968`)
+
+- Metis Action findable: "Use for Actions" button, bolt tick, auto-chosen after
+  download, Action Model link on the AI Model screen, action model named in
+  the chat menu (P3).
+- **Owner found:** the app crashed the moment a message was sent (P4).
+
+## Build 17 — 2026-11-02 (head `6fa7d26`)
+
+- Fix for the build 16 launch crash (P1).
+- Ships Metis Action 0.8B v0.1 in the model catalog (P2 notes).
+- **Owner found:** "a lot of problems" (only partly described yet); the
+  downloaded Metis Action did not show anywhere it could be chosen (P3).
+
+## Build 16
+
+- **Owner found:** crashed on launch for every existing install (P1).
+
+## Builds 1–15 — 2026-08-29 to 2026-09-02
+
+First TestFlight deploy on 2026-08-29 (Part 14). These builds brought Apple
+on-device AI, local models (llama.cpp), the crash trail and Local AI
+Diagnostics, the universal semantic action protocol, the action router, grammar
+constrained actions, and the dedicated action model. Per-build device reports
+from that period were not archived; see `git log` and `Docs/` for detail.

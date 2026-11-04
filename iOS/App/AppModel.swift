@@ -29,6 +29,8 @@ final class AppModel {
     // MARK: Shared state
 
     private(set) var conversation: Conversation
+    /// Every chat, most recently used first, for the chats list.
+    private(set) var conversations: [Conversation] = []
     private(set) var tasks: [TaskItem] = []
     private(set) var memories: [MemoryItem] = []
     private(set) var events: [CalendarItem] = []
@@ -256,6 +258,86 @@ final class AppModel {
 
         try await loadActionHistory(for: latest.id)
         return latest
+    }
+
+    // MARK: Quick Task
+
+    /// True while a Quick Task is running.
+    private(set) var isPerformingQuickTask = false
+
+    /// One sentence to the action model, kept out of every chat.
+    ///
+    /// Returns what to show in the Quick Task sheet, or nil when nothing was
+    /// sent. Errors are returned as the sentence rather than raised as a
+    /// banner, because the banner sits behind the sheet where nobody sees it.
+    func performQuickTask(_ text: String) async -> (message: String, succeeded: Bool)? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, !isPerformingQuickTask else { return nil }
+        isPerformingQuickTask = true
+        defer { isPerformingQuickTask = false }
+        do {
+            let result = try await environment.engine.performQuickAction(trimmed)
+            await reload()
+            let succeeded = result.status == .success || result.status == .partialSuccess
+            return (result.text, succeeded)
+        } catch {
+            return (Self.describe(error), false)
+        }
+    }
+
+    // MARK: Chats
+
+    /// Re-reads the chats list.
+    func refreshConversations() async {
+        conversations = (try? await environment.repositories.conversations.allConversations()) ?? []
+    }
+
+    /// Opens a fresh, empty chat.
+    ///
+    /// The old one is kept, whole, in the chats list. Build 20 had a single
+    /// conversation, so when Apple's on-device model said "start a new one"
+    /// there was no way to.
+    func startNewConversation() async {
+        guard !isAssistantResponding else { return }
+        // An empty chat already is a new chat; making another would only
+        // litter the list with blanks.
+        guard !conversation.messages.isEmpty else { return }
+        do {
+            conversation = try await environment.engine.startConversation(title: nil)
+            actionPlans = [:]
+            toolResults = [:]
+            await refreshConversations()
+        } catch {
+            banner = BannerMessage(text: "Couldn't start a new chat.", style: .warning)
+        }
+    }
+
+    /// Switches to another chat, with the action cards under its replies.
+    func openConversation(_ id: Conversation.ID) async {
+        guard !isAssistantResponding, id != conversation.id else { return }
+        do {
+            guard let found = try await environment.repositories.conversations.conversation(id: id)
+            else { return }
+            try await loadActionHistory(for: id)
+            conversation = found
+        } catch {
+            banner = BannerMessage(text: "Couldn't open that chat.", style: .warning)
+        }
+    }
+
+    /// Deletes one chat. Tasks, reminders and memories it created stay —
+    /// they belong to the app, not to the conversation they came from.
+    func deleteConversation(_ id: Conversation.ID) async {
+        guard !isAssistantResponding else { return }
+        do {
+            try await environment.repositories.conversations.delete(id: id)
+            if id == conversation.id {
+                conversation = try await loadOrStartConversation()
+            }
+            await refreshConversations()
+        } catch {
+            banner = BannerMessage(text: "Couldn't delete that chat.", style: .warning)
+        }
     }
 
     /// Rebuilds the cards shown under past assistant replies.

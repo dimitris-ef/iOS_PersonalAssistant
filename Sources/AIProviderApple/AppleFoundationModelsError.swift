@@ -94,7 +94,7 @@ enum AppleFoundationModelsErrorMapper {
         switch generation {
         case .exceededContextWindowSize:
             return .invalidResponse(
-                "That conversation is too long for the on-device model. Starting a new one will help."
+                "That conversation is too long for the on-device model. Tap New Chat at the top left to start a fresh one."
             )
         case .assetsUnavailable:
             return .unavailable(

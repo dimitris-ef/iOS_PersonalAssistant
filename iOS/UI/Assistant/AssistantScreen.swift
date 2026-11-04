@@ -13,6 +13,8 @@ struct AssistantScreen: View {
     @Environment(AppModel.self) private var model
     @State private var viewModel = AssistantViewModel()
     @FocusState private var isComposerFocused: Bool
+    @State private var isShowingChats = false
+    @State private var isShowingQuickTask = false
 
     var body: some View {
         NavigationStack {
@@ -21,9 +23,37 @@ struct AssistantScreen: View {
                 .safeAreaInset(edge: .bottom, spacing: 0) { composerArea }
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
+                    ToolbarItemGroup(placement: .topBarLeading) {
+                        Button {
+                            isShowingChats = true
+                        } label: {
+                            Image(systemName: "bubble.left.and.bubble.right")
+                        }
+                        .accessibilityLabel("Chats")
+
+                        Button {
+                            Task { await model.startNewConversation() }
+                        } label: {
+                            Image(systemName: "square.and.pencil")
+                        }
+                        .accessibilityLabel("New Chat")
+                        .disabled(
+                            model.isAssistantResponding || model.conversation.messages.isEmpty
+                        )
+                    }
                     ToolbarItem(placement: .principal) { AssistantHeaderView() }
-                    ToolbarItem(placement: .topBarTrailing) { SettingsToolbarButton() }
+                    ToolbarItemGroup(placement: .topBarTrailing) {
+                        Button {
+                            isShowingQuickTask = true
+                        } label: {
+                            Image(systemName: "bolt.fill")
+                        }
+                        .accessibilityLabel("Quick Task")
+                        SettingsToolbarButton()
+                    }
                 }
+                .sheet(isPresented: $isShowingChats) { ConversationsListView() }
+                .sheet(isPresented: $isShowingQuickTask) { QuickTaskSheet() }
         }
     }
 

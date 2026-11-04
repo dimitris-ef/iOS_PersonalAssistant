@@ -43,6 +43,10 @@ public struct AppleFoundationModelsProvider: AIProvider {
     /// The framework exposes one system model rather than a catalogue.
     public static let systemModelID: AIModelIdentifier = "apple.system-language-model"
 
+    /// The system model's context window, in tokens. Apple documents 4,096 for
+    /// the on-device model; instructions, tools, history and reply share it.
+    public static let contextWindowTokens = 4096
+
     public let metadata: AIProviderMetadata
 
     private let availabilityReader: any AppleModelAvailabilityReading
@@ -154,7 +158,18 @@ public struct AppleFoundationModelsProvider: AIProvider {
 extension AppleFoundationModelsProvider {
 
     /// One round: build a session, ask, collect whatever tools were proposed.
-    fileprivate func generate(_ request: AIRequest) async throws -> AIResponse {
+    fileprivate func generate(_ unfitted: AIRequest) async throws -> AIResponse {
+        // The on-device window is about 4,096 tokens for everything at once.
+        // Older history is left out rather than letting the whole request
+        // fail with "too long" (build 20). It stays in the conversation.
+        let request = ContextWindowFitter.fit(
+            unfitted, windowTokens: AppleFoundationModelsProvider.contextWindowTokens
+        )
+        if request.messages.count < unfitted.messages.count {
+            AppleProviderLog.debug(
+                "history trimmed to fit: \(unfitted.messages.count) -> \(request.messages.count) messages"
+            )
+        }
         let collector = AppleFoundationToolCollector()
         let tools = AppleFoundationToolAdapter.adapters(for: request.tools, collector: collector)
         let definitions = tools.map { Transcript.ToolDefinition(tool: $0) }

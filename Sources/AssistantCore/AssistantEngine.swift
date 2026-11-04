@@ -8,6 +8,21 @@ import Foundation
 import PersonalMemory
 
 /// Everything one turn produced.
+/// What a Quick Task did. No conversation: nothing was kept but the
+/// reminders, tasks or events it created.
+public struct QuickActionResult: Sendable {
+    /// The sentence to show: what happened, or why nothing did.
+    public let text: String
+    public let results: [ToolResult]
+    public let status: AgentTurnStatus
+
+    public init(text: String, results: [ToolResult], status: AgentTurnStatus) {
+        self.text = text
+        self.results = results
+        self.status = status
+    }
+}
+
 public struct AssistantTurnResult: Sendable {
     public let conversation: Conversation
     public let assistantMessage: Message
@@ -214,6 +229,53 @@ public final class AssistantEngine: Sendable {
         let conversation = Conversation(title: title, createdAt: dateProvider.now)
         try await repositories.conversations.save(conversation)
         return conversation
+    }
+
+    /// One sentence straight to the action model, kept out of every chat.
+    ///
+    /// Quick Task: "remind me at 6 to call mum" should not need a chat to live
+    /// in, and should not fill one up. The request runs through the same
+    /// action system, validation, authorization and execution as a chat
+    /// turn — only the transcript is thrown away. The reminder, task or event
+    /// it creates is saved exactly as from a chat.
+    ///
+    /// A sentence the router would have sent to chat still goes to the action
+    /// model: choosing Quick Task already says this is an action.
+    public func performQuickAction(_ text: String) async throws -> QuickActionResult {
+        let now = dateProvider.now
+        // Exists only for this call. The context assembler and the agent loop
+        // take a conversation; nothing ever saves this one.
+        var scratch = Conversation(createdAt: now)
+        scratch.append(Message(role: .user, text: text, createdAt: now))
+
+        let schedule = await upcomingEvents()
+        let context = try await contextAssembler.assemble(
+            conversation: scratch,
+            query: text,
+            calendarEvents: schedule.events,
+            calendarIsReadable: schedule.isReadable
+        )
+
+        let decision = await routeDecision(for: text)
+        let metadata: ActionRouteMetadata
+        if case .action(let routed) = decision {
+            metadata = routed
+        } else {
+            metadata = ActionRouteMetadata(category: .other, evidence: .taskCreation)
+        }
+        guard let provider = await actionProvider(for: metadata) else {
+            return QuickActionResult(
+                text: MetisActionSystem.unavailableMessage, results: [], status: .failed
+            )
+        }
+
+        let turn = try await agentRunner().run(
+            provider: provider,
+            context: context,
+            conversationID: scratch.id
+        )
+        try await linkReminderPlans(turn.reminderPlans)
+        return QuickActionResult(text: turn.text, results: turn.results, status: turn.status)
     }
 
     public func send(_ text: String, in conversationID: Conversation.ID) async throws -> AssistantTurnResult {
