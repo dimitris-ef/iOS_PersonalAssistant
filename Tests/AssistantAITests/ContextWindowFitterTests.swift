@@ -77,4 +77,63 @@ final class ContextWindowFitterTests: XCTestCase {
         )
         XCTAssertEqual(ContextWindowFitter.fit(request, windowTokens: 4096), request)
     }
+
+    // MARK: Tools — build 21's "too long" in a brand-new chat
+
+    private func bulkyTools() -> [AIToolSchema] {
+        (0..<40).map { index in
+            AIToolSchema(
+                name: "tool\(index)",
+                description: String(repeating: "Describes what this tool does. ", count: 12),
+                parameters: .object(properties: [:], required: [])
+            )
+        }
+    }
+
+    func testToolsThatFillTheWindowAreLeftOutAndTheModelIsTold() {
+        let request = AIRequest(
+            systemPrompt: "You are a helpful assistant.",
+            messages: [user("move the dentist appointment to 5")],
+            tools: bulkyTools()
+        )
+        let fitted = ContextWindowFitter.fitDroppingToolsIfNeeded(request, windowTokens: 4096)
+
+        XCTAssertTrue(fitted.droppedTools)
+        XCTAssertTrue(fitted.request.tools.isEmpty)
+        XCTAssertTrue(fitted.request.systemPrompt.contains("You cannot use tools here"))
+        XCTAssertEqual(fitted.request.messages.last?.content, "move the dentist appointment to 5")
+    }
+
+    func testToolsThatLeaveRoomAreKept() {
+        let request = AIRequest(
+            systemPrompt: "Brief.",
+            messages: [user("hello")],
+            tools: Array(bulkyTools().prefix(2))
+        )
+        let fitted = ContextWindowFitter.fitDroppingToolsIfNeeded(request, windowTokens: 4096)
+
+        XCTAssertFalse(fitted.droppedTools)
+        XCTAssertEqual(fitted.request.tools.count, 2)
+        XCTAssertEqual(fitted.request.systemPrompt, "Brief.")
+    }
+
+    func testToolsAreNeverTakenAwayHalfwayThroughATurn() {
+        let callID = ToolCallID()
+        let request = AIRequest(
+            systemPrompt: "Brief.",
+            messages: [
+                user("remind me in 10 minutes"),
+                AIMessage(
+                    role: .assistant, content: "",
+                    toolCalls: [AIToolCall(id: callID, name: "tool0", arguments: .object([:]))]
+                ),
+                AIMessage(role: .tool, content: "Reminder added.", toolCallID: callID),
+            ],
+            tools: bulkyTools()
+        )
+        let fitted = ContextWindowFitter.fitDroppingToolsIfNeeded(request, windowTokens: 4096)
+
+        XCTAssertFalse(fitted.droppedTools)
+        XCTAssertEqual(fitted.request.tools.count, request.tools.count)
+    }
 }

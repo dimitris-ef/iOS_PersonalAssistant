@@ -117,8 +117,16 @@ public enum LocalActionIntent {
     /// change verb paired with a calendar noun — "move my dentist appointment"
     /// is the calendar, "move my task" is not.
     static let calendarVerbPhrases = ["schedule ", "book "]
+    /// Only ever used together with a calendar noun (see `calendarNouns`), so
+    /// "move the" here cannot route "move the boxes" anywhere.
+    ///
+    /// Build 21 knew only "move my …": "move the dentist appointment to 15
+    /// November" went to the chat model, which could not do it either.
     static let calendarChangePhrases = [
-        "move my", "reschedule", "push my", "shift my", "cancel my", "change my",
+        "move my", "move the", "move our", "move it",
+        "reschedule", "postpone", "bring forward",
+        "push my", "push the", "push back", "shift my", "shift the",
+        "cancel my", "cancel the", "change my", "change the",
     ]
     static let calendarNouns = [
         "appointment", "event", "meeting", "calendar", "booking",

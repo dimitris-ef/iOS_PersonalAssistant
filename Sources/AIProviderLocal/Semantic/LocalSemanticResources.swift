@@ -17,6 +17,9 @@ public enum LocalDescriptionMatching {
         "the", "a", "an", "my", "our", "his", "her", "their", "your", "this",
         "that", "these", "those", "to", "of", "for", "on", "at", "in", "with",
         "and", "or", "is", "was", "it", "me", "i",
+        // How people refer to a thing, never part of what it is called:
+        // "the dentist appointment I have", "go to the dentist".
+        "have", "has", "go", "going", "got", "need",
     ]
 
     static func tokens(_ text: String) -> Set<String> {
@@ -29,17 +32,27 @@ public enum LocalDescriptionMatching {
 
     /// Whether a described thing plausibly refers to a stored one.
     ///
-    /// A match needs either a substring hit or every meaningful word of the
-    /// description present in the title. "My dentist appointment" matches
-    /// "Dentist appointment"; it does not match "Dentist bill".
+    /// A match needs a substring hit, or every meaningful word of one side
+    /// present in the other. "My dentist appointment" matches "Dentist
+    /// appointment", and — the other way round — "Dentist" or "Go to the
+    /// dentist" (build 21: a person says more than the title holds). It does
+    /// not match "Dentist bill": neither side's words contain the other's.
     public static func matches(description: String, title: String) -> Bool {
         let loweredTitle = title.lowercased()
         let loweredDescription = description.lowercased()
         if loweredTitle.contains(loweredDescription) { return true }
 
         let described = tokens(description)
-        guard !described.isEmpty else { return false }
-        return described.isSubset(of: tokens(title))
+        let titled = tokens(title)
+        guard !described.isEmpty, !titled.isEmpty else { return false }
+        return described.isSubset(of: titled) || titled.isSubset(of: described)
+    }
+
+    /// The candidates whose label matches, as the three-way answer.
+    public static func match(
+        description: String, among candidates: [LocalResourceCandidate]
+    ) -> LocalResourceMatch {
+        match(candidates.filter { matches(description: description, title: $0.label) })
     }
 
     /// Turns whatever matched into the three-way answer.
@@ -78,6 +91,20 @@ public struct LocalSemanticResources: LocalSemanticResourceResolving {
 
     public func resolveCalendarEvent(matching description: String) async -> LocalResourceMatch {
         await events(description)
+    }
+
+    /// The calendar half, from whatever lists the events.
+    ///
+    /// The calendar lives behind `PlatformServices`, which this layer cannot
+    /// see, so the composition root passes a closure that lists events and
+    /// this does the matching. Until build 22 nothing was passed at all, and
+    /// "move the dentist appointment" could never find the appointment.
+    public static func events(
+        listing: @escaping @Sendable () async -> [LocalResourceCandidate]
+    ) -> @Sendable (String) async -> LocalResourceMatch {
+        { description in
+            LocalDescriptionMatching.match(description: description, among: await listing())
+        }
     }
 
     /// The task half, backed by the app's own repository.

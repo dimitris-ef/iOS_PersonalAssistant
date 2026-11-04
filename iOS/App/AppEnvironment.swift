@@ -397,13 +397,28 @@ final class AppEnvironment: Sendable {
         // and "the same object" is the only way to keep that true.
         let appleProvider = AppleFoundationModelsProvider()
 
-        // The app's own store, so an identifier for something that already
-        // exists comes from a lookup rather than from the model. Calendar
-        // lookup is not wired yet: `PlatformServices` is above this layer, and
-        // until it is passed down, a request to change an existing event asks
-        // which one rather than guessing.
+        // The app's own store and the calendar, so an identifier for something
+        // that already exists comes from a lookup rather than from the model.
+        // Until build 22 the calendar half was never passed, so "move the
+        // dentist appointment" could not find the appointment it had just made.
+        let calendarForLookup = services.calendar
+        let clockForLookup: any DateProvider = dateProvider
         let actionResources = LocalSemanticResources(
-            tasks: LocalSemanticResources.tasks(from: repositories.tasks)
+            tasks: LocalSemanticResources.tasks(from: repositories.tasks),
+            events: LocalSemanticResources.events {
+                // From yesterday to a year ahead: what "move my appointment"
+                // can sensibly mean. Unreadable (no permission) is no match,
+                // which asks rather than guesses.
+                let now = clockForLookup.now
+                let window = TimeWindow(
+                    start: now.addingTimeInterval(-86_400),
+                    end: now.addingTimeInterval(366 * 86_400)
+                )
+                guard let found = try? await calendarForLookup.events(in: window) else { return [] }
+                return found.map {
+                    LocalResourceCandidate(identifier: $0.id.rawValue.uuidString, label: $0.title)
+                }
+            }
         )
 
         // One instance, referenced twice — once as a chat provider the user may

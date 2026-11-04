@@ -473,6 +473,40 @@ final class LocalSemanticActionTests: XCTestCase {
         )
     }
 
+    /// Build 21: "move the dentist appointment I have" against an event the
+    /// app had just created, titled with fewer words than the request.
+    func testAFullerDescriptionStillFindsAShorterTitle() {
+        XCTAssertTrue(
+            LocalDescriptionMatching.matches(
+                description: "the dentist appointment I have", title: "Dentist"
+            )
+        )
+        XCTAssertTrue(
+            LocalDescriptionMatching.matches(
+                description: "dentist appointment", title: "Go to the dentist"
+            )
+        )
+        XCTAssertFalse(
+            LocalDescriptionMatching.matches(description: "dentist appointment", title: "Gym")
+        )
+    }
+
+    func testCalendarEventsAreLookedUpFromTheListing() async {
+        let lookup = LocalSemanticResources.events {
+            [
+                LocalResourceCandidate(identifier: "e1", label: "Dentist"),
+                LocalResourceCandidate(identifier: "e2", label: "Team meeting"),
+            ]
+        }
+        let resources = LocalSemanticResources(events: lookup)
+
+        let found = await resources.resolveCalendarEvent(matching: "the dentist appointment")
+        XCTAssertEqual(found, .one(LocalResourceCandidate(identifier: "e1", label: "Dentist")))
+
+        let missing = await resources.resolveCalendarEvent(matching: "the haircut")
+        XCTAssertEqual(missing, LocalResourceMatch.none)
+    }
+
     // MARK: Recovery budget
 
     /// Section 39. One budget for the turn, spent once, whichever path spends

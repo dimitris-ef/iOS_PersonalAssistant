@@ -4,6 +4,13 @@ Newest first. "Owner found" is what was seen on the phone, in the owner's words
 where possible. Details of each problem are in
 [PROBLEMS-AND-FIXES.md](PROBLEMS-AND-FIXES.md) under the same number.
 
+## Build 22 — in progress
+
+- Calendar events can be found to move or change them (P7).
+- "Move the …", "reschedule", "postpone" go to the action model (P8).
+- Apple's chat model is no longer sent tool descriptions that fill its whole
+  window (P8).
+
 ## Build 21 — 2026-11-04 (head `aebe0f2`, VALID)
 
 - Multiple chats: a chats list, New Chat, switch, delete.
@@ -12,7 +19,10 @@ where possible. Details of each problem are in
 - Apple's on-device model is sent only as much recent history as fits its
   window, instead of failing with "conversation too long" (P6).
 - Plain wording under replies: "Done: added a reminder." (P5).
-- **Owner found:** waiting for the device report.
+- **Owner found:** Quick Task created "dentist, 18 November, 6 p.m."
+  correctly. "Move the dentist appointment I have to 15 November, 5 p.m."
+  could not find it (P7). In a new chat the same request said "conversation
+  too long" (P8).
 
 ## Build 20 — 2026-11-02 (head `2487967`)
 

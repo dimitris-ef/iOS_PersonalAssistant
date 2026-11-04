@@ -47,6 +47,6 @@
 
 Files-picker GGUF import (#123); no SHA-256 on the Hugging Face catalog entries
 (Hugging Face is blocked from the cloud session); calendar event lookup not
-wired, so `calendar.update` asks which event; no CI check that
+wired (fixed in build 22, P7); no CI check that
 `protocol_v1.json` still matches the Swift protocol. Full list:
 `Docs/OPEN-ITEMS.md`.

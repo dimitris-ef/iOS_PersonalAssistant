@@ -74,6 +74,16 @@ final class MetisActionRouterTests: XCTestCase {
     func testCalendarChangesRoutedToTheActionSystem() async {
         await assertAction("Move my dentist appointment to 5.", .calendar)
         await assertAction("Cancel my meeting on Thursday.", .calendar)
+        // Build 21: "the", not "my", went to the chat model.
+        await assertAction("Move the dentist appointment to 15 November, 5 p.m.", .calendar)
+        await assertAction("Reschedule the team meeting to Monday.", .calendar)
+        await assertAction("Postpone the dentist appointment by a week.", .calendar)
+    }
+
+    /// The wider change phrases still need a calendar noun.
+    func testAChangeWithoutACalendarThingIsNotACalendarChange() async {
+        await assertChat("Help me move the boxes upstairs.")
+        await assertChat("Should I change the plan?")
     }
 
     /// Section 3, stated as the property it is: the decision is a function of

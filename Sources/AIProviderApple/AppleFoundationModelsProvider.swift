@@ -162,9 +162,16 @@ extension AppleFoundationModelsProvider {
         // The on-device window is about 4,096 tokens for everything at once.
         // Older history is left out rather than letting the whole request
         // fail with "too long" (build 20). It stays in the conversation.
-        let request = ContextWindowFitter.fit(
+        // Build 21 showed the tool descriptions alone could fill it, so they
+        // are left out when they would crowd out the conversation (actions go
+        // to the action model anyway).
+        let fitted = ContextWindowFitter.fitDroppingToolsIfNeeded(
             unfitted, windowTokens: AppleFoundationModelsProvider.contextWindowTokens
         )
+        let request = fitted.request
+        if fitted.droppedTools {
+            AppleProviderLog.debug("tools left out to fit the on-device window")
+        }
         if request.messages.count < unfitted.messages.count {
             AppleProviderLog.debug(
                 "history trimmed to fit: \(unfitted.messages.count) -> \(request.messages.count) messages"

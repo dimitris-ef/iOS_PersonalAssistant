@@ -75,3 +75,42 @@ One entry per problem. Status: **open**, **fixed (build N)**, or
   (older ones stay saved, just not re-read); and multiple chats with a New Chat
   button.
 - **Status:** fixed (build 21), awaiting device confirmation.
+
+## P7 — "Move the dentist appointment" could not find it (build 21)
+
+- **Owner saw:** Quick Task "I have to go to the dentist, 18th of November,
+  6 p.m." added the appointment correctly. Then "move the dentist appointment
+  I have to 15th of November, 5 p.m." answered that it couldn't find it.
+- **Plain cause:** to change an existing appointment the app has to look it up
+  in the calendar first, and that lookup had never been connected — the app
+  could look up tasks, but not calendar events. So the answer was always
+  "couldn't find". The matching was also too strict: the request said more
+  words ("dentist appointment I have") than the event's title.
+- **Technical:** `AppEnvironment` built `LocalSemanticResources` with only the
+  task closure; `events` defaulted to `{ _ in .none }` (a known open item).
+  Now `LocalSemanticResources.events(listing:)` matches against
+  `services.calendar.events(in:)` from yesterday to a year ahead.
+  `LocalDescriptionMatching.matches` also accepts the title's words being a
+  subset of the description's ("Dentist" ⊂ "the dentist appointment I have");
+  "Dentist bill" still does not match "dentist appointment".
+- **Status:** fixed, ships in build 22.
+
+## P8 — "Conversation too long" even in a brand-new chat (build 21)
+
+- **Owner saw:** in a new chat, "move the dentist appointment to 15 November,
+  5 p.m." answered that the conversation was too long.
+- **Plain cause, two parts:**
+  1. The app only recognised "move **my** appointment", not "move **the**
+     appointment", so the sentence went to the chat model (Apple's) instead
+     of Metis Action.
+  2. Every message to Apple's model also carries the descriptions of all 19 of
+     the app's tools, plus open tasks and upcoming events. Together that is
+     more than Apple's whole 4,096-token window, so even a new chat could not
+     fit. Build 21 only trimmed old messages, which could not help.
+- **Technical:** `LocalActionIntent.calendarChangePhrases` gains "move the",
+  "reschedule", "postpone", "cancel the", "change the", etc. (still gated on a
+  calendar noun). `ContextWindowFitter.fitDroppingToolsIfNeeded`: if tools
+  would leave under 1,000 tokens for the conversation, they are dropped for
+  that request (never mid-turn) and the model is told it cannot act and to
+  suggest asking directly or Quick Task.
+- **Status:** fixed, ships in build 22.
