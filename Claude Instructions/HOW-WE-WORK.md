@@ -26,6 +26,9 @@ repo `dimitris-ef/0.8b-training-001`).
   number = the workflow's run number. It succeeds only when App Store Connect
   reports the build VALID. Takes ~15–20 min: wait, then check once. A run that
   is cancelled still uses up its number (build 19).
+- **A job "cancelled" after exactly 15 minutes** with no logs means GitHub never
+  gave it a macOS machine (builds 19 and 22). It is not the code. Re-run it
+  later; do not change code because of it.
 - Be frugal: one well-timed check, not polling. Ask for one run, not lists.
 
 ## Working with the owner

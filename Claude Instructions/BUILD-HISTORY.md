@@ -4,7 +4,15 @@ Newest first. "Owner found" is what was seen on the phone, in the owner's words
 where possible. Details of each problem are in
 [PROBLEMS-AND-FIXES.md](PROBLEMS-AND-FIXES.md) under the same number.
 
-## Build 22 — in progress
+## Build 22 — never shipped
+
+The TestFlight run (and several CI runs the same afternoon, 2026-11-04
+16:09–17:09 UTC) was cancelled after exactly 15 minutes without ever getting a
+macOS machine. Not a code failure: Apple SDK Check compiled the same commit
+successfully at 16:49. Its number was used up; the code below ships as the
+next successful build.
+
+## Build 23 — in progress
 
 - Calendar events can be found to move or change them (P7).
 - "Move the …", "reschedule", "postpone" go to the action model (P8).
