@@ -132,4 +132,4 @@ One entry per problem. Status: **open**, **fixed (build N)**, or
   in `ActionTurnProvider` before resolving. Real changes are untouched.
 - **Fix (model side, later):** v0.2 training needs more "I have a … at …"
   style sentences labelled `calendar.create` (ROADMAP "Next" 3).
-- **Status:** fixed, ships in the next build.
+- **Status:** fixed (build 25), awaiting device confirmation.
