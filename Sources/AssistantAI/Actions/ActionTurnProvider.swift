@@ -163,13 +163,19 @@ public struct ActionTurnProvider: AIProvider {
                 providerID: metadata.id
             )
 
-        case .action(let action):
+        case .action(let generated):
             diagnostics.record(
                 .semanticParse(
                     backendID: backend.id,
                     success: true,
-                    generatedIntent: action.intent.rawValue
+                    generatedIntent: generated.intent.rawValue
                 )
+            )
+            // "I have an appointment with a dentist on the 18th at 6" read as
+            // a change to an existing event (build 24). A sentence with no
+            // change word in it is adding one; see the type for the rule.
+            let action = LocalSemanticIntentCorrection.corrected(
+                generated, userRequest: userRequest
             )
             switch await resolver.resolve(action) {
             case .resolved(let call):

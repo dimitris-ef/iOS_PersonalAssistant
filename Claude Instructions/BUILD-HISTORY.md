@@ -18,13 +18,19 @@ Cancelled the same way at 17:56–18:11 UTC, and so was a Swift Tests re-run.
 No reason given by the API; the owner was asked to look at the run page and
 at GitHub → Settings → Billing (Actions minutes) in case macOS minutes ran out.
 
+## Next build — in progress
+
+- A stated appointment misread as a change is created instead (P9).
+
 ## Build 24 — 2026-11-04 (head `acd662e`, VALID)
 
 - Calendar events can be found to move or change them (P7).
 - "Move the …", "reschedule", "postpone" go to the action model (P8).
 - Apple's chat model is no longer sent tool descriptions that fill its whole
   window (P8).
-- **Owner found:** waiting for the device report.
+- **Owner found:** (had deleted the old dentist event first) "I have an
+  appointment with a dentist 18th of November, 6 p.m." in Quick Task asked
+  "what is it called?" instead of adding it (P9).
 
 ## Build 21 — 2026-11-04 (head `aebe0f2`, VALID)
 

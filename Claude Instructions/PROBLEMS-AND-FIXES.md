@@ -114,3 +114,22 @@ One entry per problem. Status: **open**, **fixed (build N)**, or
   that request (never mid-turn) and the model is told it cannot act and to
   suggest asking directly or Quick Task.
 - **Status:** fixed (build 24), awaiting device confirmation.
+
+## P9 — A new appointment was treated as changing an old one (build 24)
+
+- **Owner saw:** after deleting the old dentist event by hand, Quick Task "I
+  have an appointment with a dentist 18th of November, 6 p.m." answered "I
+  couldn't find an event matching 'dentist appointment'. What is it called?"
+- **Plain cause:** Metis Action misunderstood the sentence as *change* the
+  dentist appointment rather than *add* one. The app then searched the
+  calendar for an existing one, found none, and asked. This is Metis Action
+  0.8B v0.1's most common mistake: unfamiliar wording falls back to
+  "change an event".
+- **Fix (app side):** `LocalSemanticIntentCorrection` — if the model says
+  `calendar.update` but the person's sentence contains no change word (move,
+  reschedule, postpone, change, cancel, rename, …) and there is a time, it is
+  turned into `calendar.create` with the model's own title and time. Applied
+  in `ActionTurnProvider` before resolving. Real changes are untouched.
+- **Fix (model side, later):** v0.2 training needs more "I have a … at …"
+  style sentences labelled `calendar.create` (ROADMAP "Next" 3).
+- **Status:** fixed, ships in the next build.

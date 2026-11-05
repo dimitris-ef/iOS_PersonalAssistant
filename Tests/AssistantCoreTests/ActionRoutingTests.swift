@@ -416,4 +416,28 @@ final class ActionRoutingTests: XCTestCase {
         XCTAssertEqual(actionCalls, 1)
         XCTAssertEqual(harness.chat.receivedRequests.count, 0)
     }
+
+    /// Build 24, end to end: the model misread a new appointment as a change
+    /// to one that did not exist. It is now created.
+    func testAStatedAppointmentMisreadAsAChangeIsCreated() async throws {
+        let backend = ScriptedActionBackend(
+            result: .success(
+                .action(
+                    LocalSemanticAction(
+                        intent: .calendarUpdate,
+                        arguments: [.targetDescription: "dentist appointment"],
+                        requestedChanges: [.timeExpression: "tomorrow at 6 pm"]
+                    )
+                )
+            )
+        )
+        let harness = try await makeHarness(backend: backend)
+
+        let result = try await harness.engine.performQuickAction(
+            "I have an appointment with a dentist tomorrow at 6 pm"
+        )
+
+        XCTAssertEqual(result.results.first?.kind, .createCalendarEvent)
+        XCTAssertTrue(result.results.first?.outcome.didChangeAnything == true)
+    }
 }

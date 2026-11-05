@@ -20,7 +20,9 @@
    as the exam. Format drafted: `ML/MetisActionModel/Dataset/v1/feedback_record_schema.json`.
    Storing it needs schema **V11 — freeze before you change**.
 3. **Metis Action v0.2 training**: more varied phrasing (misses are mostly
-   unfamiliar wording defaulting to `calendar.update`), plus real sentences.
+   unfamiliar wording defaulting to `calendar.update`), plus real sentences —
+   include statements like "I have an appointment with X on … at …" labelled
+   `calendar.create` (P9).
    Keep the bare-sentence format. Measure with `ML/MetisActionModel/Eval/`
    against `baseline-v0.1-golden.json`.
 
