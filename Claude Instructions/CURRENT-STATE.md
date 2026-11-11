@@ -1,9 +1,12 @@
 # Current state
 
-Last updated 2026-11-05. Update this at the end of every session.
+Last updated 2026-11-11. Update this at the end of every session.
 
 ## Where things stand
 
+- **Build 26 in progress**: the cloud model does its own actions when chosen
+  (owner's plan to test the app independently of the model; see ROADMAP
+  "Decision — 2026-11-11").
 - **Latest on TestFlight: build 25** (VALID, head `042be25`): a stated
   appointment that Metis Action misreads as a change is created instead (P9).
 - Build 24 (VALID, head `acd662e`): calendar

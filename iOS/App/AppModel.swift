@@ -1164,7 +1164,15 @@ final class AppModel {
             }
         }
         assistantChoices = choices
-        actionModelName = await environment.actionModelHost.status().displayName
+        // A cloud model that is chosen and set up does its own actions (the
+        // engine's rule), so that is what the menu names.
+        if let option = selectedProviderOption,
+            option.metadata.kind == .remoteAPI, option.isAvailable
+        {
+            actionModelName = "\(option.metadata.displayName) (cloud)"
+        } else {
+            actionModelName = await environment.actionModelHost.status().displayName
+        }
     }
 
     /// Applies a pick from the chat selector.

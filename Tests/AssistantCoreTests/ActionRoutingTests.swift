@@ -440,4 +440,43 @@ final class ActionRoutingTests: XCTestCase {
         XCTAssertEqual(result.results.first?.kind, .createCalendarEvent)
         XCTAssertTrue(result.results.first?.outcome.didChangeAnything == true)
     }
+
+    // MARK: A cloud model does its own actions — owner's plan, 2026-11-11
+
+    func testACloudChatModelHandlesActionsItself() async throws {
+        let harness = try await makeHarness(chatKind: .remoteAPI)
+
+        _ = try await harness.engine.send(
+            "Remind me in 10 minutes to change the bottles.", in: harness.conversationID
+        )
+
+        XCTAssertEqual(harness.chat.receivedRequests.count, 1, "the cloud model was asked")
+        XCTAssertFalse(
+            harness.chat.receivedRequests.first?.tools.isEmpty ?? true,
+            "with the app's tools"
+        )
+        let actionCalls = await harness.backend.callCount
+        XCTAssertEqual(actionCalls, 0, "the action model is not used")
+    }
+
+    func testQuickTaskUsesTheCloudModelToo() async throws {
+        let harness = try await makeHarness(chatKind: .remoteAPI)
+
+        _ = try await harness.engine.performQuickAction("remind me in 10 minutes")
+
+        XCTAssertEqual(harness.chat.receivedRequests.count, 1)
+        let actionCalls = await harness.backend.callCount
+        XCTAssertEqual(actionCalls, 0)
+    }
+
+    /// On-device chat models keep the dedicated action path.
+    func testAnOnDeviceChatModelStillUsesTheActionModel() async throws {
+        let harness = try await makeHarness(chatKind: .downloadedLocalModel)
+
+        _ = try await harness.engine.send("Remind me in 10 minutes.", in: harness.conversationID)
+
+        XCTAssertTrue(harness.chat.receivedRequests.isEmpty)
+        let actionCalls = await harness.backend.callCount
+        XCTAssertEqual(actionCalls, 1)
+    }
 }

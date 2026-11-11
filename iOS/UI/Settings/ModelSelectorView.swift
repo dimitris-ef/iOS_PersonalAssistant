@@ -46,7 +46,7 @@ struct ModelSelectorView: View {
                     }
                 }
             } footer: {
-                Text("A separate model turns requests into reminders, tasks and calendar events. Metis Action is chosen here, not above.")
+                Text("A separate model turns requests into reminders, tasks and calendar events. Metis Action is chosen here, not above. When the cloud model is selected and set up, it does actions itself.")
             }
 
             if !anyProviderIsReady {

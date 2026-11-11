@@ -6,6 +6,25 @@
 - [x] Quick Task — one sentence to the action model; nothing kept as a chat.
 - [x] Fit history to Apple's on-device window (P6).
 
+## Decision — 2026-11-11: test the app with a cloud model first
+
+Owner's plan: use a strong cloud (API) model so the app itself can be tested
+without the on-device model's understanding getting in the way. Once the app
+is shown to work, any remaining misunderstanding is the model's, and the focus
+moves to the offline model (Metis Action training).
+
+How it works since build 26: when the chosen AI model is the **Cloud model**
+and it is set up (endpoint, key, model name), it handles actions itself with
+the app's tools, in chat and in Quick Task
+(`AssistantEngine.chatModelThatActs`). Any on-device chat model keeps the
+Metis Action path. No new setting, no database change.
+
+Considered and set aside: exposing the phone as an MCP server. An iPhone
+cannot be reached from the internet and iOS suspends background apps, so it
+would need a relay server; inside the app the model and the tools already
+live together, so MCP would add nothing. Worth revisiting only for
+controlling the phone from another device.
+
 ## Next
 
 1. **Owner tests build 21**: speed of an action, whether the reminder fired,

@@ -256,6 +256,14 @@ public final class AssistantEngine: Sendable {
             calendarIsReadable: schedule.isReadable
         )
 
+        if let cloud = await chatModelThatActs(settings: context.settings) {
+            let turn = try await agentRunner().run(
+                provider: cloud, context: context, conversationID: scratch.id
+            )
+            try await linkReminderPlans(turn.reminderPlans)
+            return QuickActionResult(text: turn.text, results: turn.results, status: turn.status)
+        }
+
         let decision = await routeDecision(for: text)
         let metadata: ActionRouteMetadata
         if case .action(let routed) = decision {
@@ -318,27 +326,36 @@ public final class AssistantEngine: Sendable {
         // something goes to the action system whatever the user is chatting to.
         //
         // Everything after this line is identical for both paths.
+        //
+        // One exception comes first: a cloud model the person chose, set up and
+        // available, does its own actions with the app's tools. It is capable
+        // enough to, and it is how the app is tested independently of how well
+        // a small on-device model understands (owner's plan, 2026-11-11).
         let provider: any AIProvider
-        switch await routeDecision(for: text) {
-        case .chat:
-            provider = try await router.selectProvider(
-                from: providers, settings: context.settings
-            )
-        case .action(let metadata):
-            guard let actionProvider = await actionProvider(for: metadata) else {
-                // Section 15 and 16, the hard requirement: the request was
-                // plainly an action and the action system cannot run it, so the
-                // user is told. It is *not* passed to the chat model, which
-                // would answer it in fluent sentences describing a reminder
-                // that does not exist.
-                return try await record(
-                    plainReply: MetisActionSystem.unavailableMessage,
-                    in: &conversation,
-                    providerID: ActionTurnProvider.providerID,
-                    status: .failed
+        if let cloud = await chatModelThatActs(settings: context.settings) {
+            provider = cloud
+        } else {
+            switch await routeDecision(for: text) {
+            case .chat:
+                provider = try await router.selectProvider(
+                    from: providers, settings: context.settings
                 )
+            case .action(let metadata):
+                guard let actionProvider = await actionProvider(for: metadata) else {
+                    // Section 15 and 16, the hard requirement: the request was
+                    // plainly an action and the action system cannot run it, so
+                    // the user is told. It is *not* passed to the chat model,
+                    // which would answer it in fluent sentences describing a
+                    // reminder that does not exist.
+                    return try await record(
+                        plainReply: MetisActionSystem.unavailableMessage,
+                        in: &conversation,
+                        providerID: ActionTurnProvider.providerID,
+                        status: .failed
+                    )
+                }
+                provider = actionProvider
             }
-            provider = actionProvider
         }
 
         let turn = try await agentRunner().run(
@@ -403,6 +420,22 @@ public final class AssistantEngine: Sendable {
             )
         )
         return decision
+    }
+
+    /// The chosen chat model, when it should do actions itself.
+    ///
+    /// Only a cloud model (remote API) the person selected, and only while it
+    /// is set up and available. Every on-device model keeps the dedicated
+    /// action path: they are not reliable with nineteen tools, and Apple's
+    /// cannot even fit them. A cloud model that is not set up is not used,
+    /// so actions still work through the action model.
+    private func chatModelThatActs(settings: AssistantSettings) async -> (any AIProvider)? {
+        guard let id = settings.preferredProviderID,
+            let provider = await providers.provider(for: id),
+            provider.metadata.kind == .remoteAPI
+        else { return nil }
+        let availability = await provider.availability()
+        return availability.isAvailable ? provider : nil
     }
 
     /// The action system, wrapped as the one interface the agent loop takes.

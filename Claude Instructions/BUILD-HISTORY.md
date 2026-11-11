@@ -18,6 +18,11 @@ Cancelled the same way at 17:56–18:11 UTC, and so was a Swift Tests re-run.
 No reason given by the API; the owner was asked to look at the run page and
 at GitHub → Settings → Billing (Actions minutes) in case macOS minutes ran out.
 
+## Build 26 — in progress
+
+- A chosen, set-up cloud model does actions itself (chat and Quick Task);
+  the chat menu names it. On-device models keep Metis Action.
+
 ## Build 25 — 2026-11-05 (head `042be25`, VALID)
 
 - A stated appointment misread as a change is created instead (P9).
