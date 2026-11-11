@@ -151,4 +151,4 @@ One entry per problem. Status: **open**, **fixed (build N)**, or
   `QuickActionResult.awaitingApproval` lists what is waiting; Quick Task shows
   Approve / Don't; the chat card shows Approve and updates in place
   (`AppModel.approve`).
-- **Status:** fixed, ships in build 27.
+- **Status:** fixed (build 27), awaiting device confirmation.

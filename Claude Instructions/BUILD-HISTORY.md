@@ -18,10 +18,11 @@ Cancelled the same way at 17:56–18:11 UTC, and so was a Swift Tests re-run.
 No reason given by the API; the owner was asked to look at the run page and
 at GitHub → Settings → Billing (Actions minutes) in case macOS minutes ran out.
 
-## Build 27 — in progress
+## Build 27 — 2026-11-11 (head `a3d4d2c`, VALID)
 
 - Approve button for actions that wait for approval, in Quick Task and chat
   (P10).
+- **Owner found:** waiting for the device report.
 
 ## Build 26 — 2026-11-11 (head `a07bf3b`, VALID)
 

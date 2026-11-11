@@ -4,11 +4,12 @@ Last updated 2026-11-11. Update this at the end of every session.
 
 ## Where things stand
 
-- **Build 27 in progress**: Approve button (P10).
+- **Latest on TestFlight: build 27** (VALID, head `a3d4d2c`): Approve button
+  in Quick Task and chat (P10). All four CI lanes green.
 - **Build 26** (VALID, on TestFlight): the cloud model does its own actions when chosen
   (owner's plan to test the app independently of the model; see ROADMAP
   "Decision — 2026-11-11").
-- **Latest on TestFlight: build 25** (VALID, head `042be25`): a stated
+- Build 25 (VALID, head `042be25`): a stated
   appointment that Metis Action misreads as a change is created instead (P9).
 - Build 24 (VALID, head `acd662e`): calendar
   lookup for "move the dentist…" (P7); "move the/reschedule/postpone" go to
