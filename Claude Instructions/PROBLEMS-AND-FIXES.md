@@ -175,4 +175,4 @@ One entry per problem. Status: **open**, **fixed (build N)**, or
   the run (`RemoteRequestStyleMemory`).
 - **Later option:** OpenAI's Responses API (`/v1/responses`) would allow tools
   *with* reasoning. Not needed while "none" works.
-- **Status:** fixed, ships in build 28.
+- **Status:** fixed (build 28), awaiting device confirmation.
