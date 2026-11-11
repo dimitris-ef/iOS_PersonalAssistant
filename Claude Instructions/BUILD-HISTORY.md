@@ -23,7 +23,7 @@ at GitHub → Settings → Billing (Actions minutes) in case macOS minutes ran o
 - Approve button for actions that wait for approval, in Quick Task and chat
   (P10).
 
-## Build 26 — 2026-11-11 (head `a07bf3b`)
+## Build 26 — 2026-11-11 (head `a07bf3b`, VALID)
 
 - A chosen, set-up cloud model does actions itself (chat and Quick Task);
   the chat menu names it. On-device models keep Metis Action.
