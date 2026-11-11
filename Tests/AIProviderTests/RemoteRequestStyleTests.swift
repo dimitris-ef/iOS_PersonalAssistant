@@ -40,6 +40,17 @@ final class RemoteRequestStyleTests: XCTestCase {
         XCTAssertEqual(needsEffort?.reasoningEffort, "none")
     }
 
+    /// The owner's own error from build 27, verbatim.
+    func testGPT6LunasToolRefusalAddsReasoningEffortNone() {
+        let next = RemoteRequestStyle.openAI.adjusted(
+            afterRejection: "Function tools with reasoning effort are not supported for "
+                + "gpt-6-luna in /v1/chat/completions. To use function tools, use "
+                + "/v1/responses or set reasoning effort to none."
+        )
+        XCTAssertEqual(next?.reasoningEffort, "none")
+        XCTAssertEqual(next?.tokenLimitField, .maxCompletionTokens)
+    }
+
     func testAnErrorThatNamesNoSettingIsNotRetried() {
         XCTAssertNil(RemoteRequestStyle.classic.adjusted(afterRejection: "The model does not exist."))
         XCTAssertNil(RemoteRequestStyle.classic.adjusted(afterRejection: nil))

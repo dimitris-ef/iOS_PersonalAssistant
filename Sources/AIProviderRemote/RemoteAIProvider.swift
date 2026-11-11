@@ -18,6 +18,9 @@ public struct RemoteAIProvider: AIProvider {
     private let credentials: any CredentialProvider
     private let configurationSource: any RemoteAIConfigurationSource
     private let logger: any RemoteAILogging
+    /// Settings that worked, per host and model, so a refusal is paid for on
+    /// the first message rather than on every one.
+    private let learnedStyles = RemoteRequestStyleMemory()
 
     public init(
         adapter: any RemoteAPIAdapter = OpenAICompatibleAdapter(),
@@ -88,9 +91,9 @@ public struct RemoteAIProvider: AIProvider {
         // Starts from the host's best guess and, if the service refuses a
         // setting by name, changes that setting and asks again — at most
         // twice. See `RemoteRequestStyle`.
-        var style = RemoteRequestStyle.initial(
-            forHost: RemoteAIEndpoint(baseURL: configuration.baseURL)?.host ?? ""
-        )
+        let host = RemoteAIEndpoint(baseURL: configuration.baseURL)?.host ?? ""
+        let styleKey = "\(host)|\(request.model?.rawValue ?? configuration.model)"
+        var style = await learnedStyles.style(for: styleKey) ?? .initial(forHost: host)
         var adjustments = 0
 
         while true {
@@ -149,6 +152,7 @@ public struct RemoteAIProvider: AIProvider {
 
             do {
                 let response = try adapter.parse(httpResponse, for: request)
+                if adjustments > 0 { await learnedStyles.remember(style, for: styleKey) }
                 logger.log(
                     .responseReceived(
                         status: httpResponse.statusCode,
@@ -168,4 +172,16 @@ public struct RemoteAIProvider: AIProvider {
         guard let value = response.header("Retry-After") else { return nil }
         return TimeInterval(value.trimmingCharacters(in: .whitespaces))
     }
+}
+
+/// What `RemoteAIProvider` has learned about each host and model this run.
+///
+/// In memory only: a new app version or a changed model starts from the
+/// host's best guess again, which costs one refused request at most.
+actor RemoteRequestStyleMemory {
+    private var styles: [String: RemoteRequestStyle] = [:]
+
+    func style(for key: String) -> RemoteRequestStyle? { styles[key] }
+
+    func remember(_ style: RemoteRequestStyle, for key: String) { styles[key] = style }
 }
