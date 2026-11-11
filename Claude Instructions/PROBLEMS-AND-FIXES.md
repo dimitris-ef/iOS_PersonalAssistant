@@ -166,6 +166,13 @@ One entry per problem. Status: **open**, **fixed (build N)**, or
   a 400 whose message names a setting (`max_tokens`, `max_completion_tokens`,
   `temperature`, `reasoning_effort`) changes that one setting and retries, at
   most twice (`RemoteAIProvider.respond`). No model names are hard-coded.
-- **Not verified:** OpenAI's docs host is blocked from the cloud session, so
-  GPT-6 Luna's exact parameters were not confirmed; the retry covers it.
+- **Confirmed on build 27** (owner's screen): "This model doesn't support
+  tool calling. Function tools with reasoning effort are not supported for
+  GPT-6 Luna in v1/chat/completions. To use function tools, use v1/responses
+  or set reasoning effort to none." The retry sends `reasoning_effort: "none"`
+  for exactly this message (test `testGPT6LunasToolRefusalAddsReasoningEffortNone`),
+  and the working settings are remembered per host and model for the rest of
+  the run (`RemoteRequestStyleMemory`).
+- **Later option:** OpenAI's Responses API (`/v1/responses`) would allow tools
+  *with* reasoning. Not needed while "none" works.
 - **Status:** fixed, ships in build 28.
