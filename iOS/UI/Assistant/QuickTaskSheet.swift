@@ -1,3 +1,4 @@
+import AssistantTools
 import SwiftUI
 
 /// Quick Task: one sentence, straight to the action model, no chat kept.
@@ -9,7 +10,10 @@ struct QuickTaskSheet: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
     @State private var text = ""
-    @State private var outcome: (message: String, succeeded: Bool)?
+    @State private var outcome: AppModel.QuickTaskOutcome?
+    /// Actions shown with Approve / Don't, removed as they are answered.
+    @State private var pending: [ToolRequest] = []
+    @State private var isApproving = false
     @FocusState private var isFocused: Bool
 
     var body: some View {
@@ -34,7 +38,30 @@ struct QuickTaskSheet: View {
                     )
                 }
 
-                if model.isPerformingQuickTask {
+                if !pending.isEmpty {
+                    Section {
+                        ForEach(Array(pending.enumerated()), id: \.offset) { index, request in
+                            VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
+                                Label(request.summary, systemImage: "hand.raised")
+                                    .fixedSize(horizontal: false, vertical: true)
+                                HStack(spacing: Theme.Spacing.md) {
+                                    Button("Approve") { approve(at: index) }
+                                        .buttonStyle(.borderedProminent)
+                                    Button("Don't") { pending.remove(at: index) }
+                                        .buttonStyle(.bordered)
+                                }
+                                .disabled(isApproving)
+                            }
+                            .padding(.vertical, Theme.Spacing.xs)
+                        }
+                    } header: {
+                        Text("Needs your approval")
+                    } footer: {
+                        Text("Changing or deleting something that already exists waits for you to say yes.")
+                    }
+                }
+
+                if model.isPerformingQuickTask || isApproving {
                     Section {
                         HStack(spacing: Theme.Spacing.sm) {
                             ProgressView()
@@ -76,12 +103,25 @@ struct QuickTaskSheet: View {
         .presentationDetents([.medium, .large])
     }
 
+    private func approve(at index: Int) {
+        guard pending.indices.contains(index) else { return }
+        let request = pending[index]
+        isApproving = true
+        Task {
+            let result = await model.approve(request)
+            pending.removeAll { $0 == request }
+            outcome = AppModel.QuickTaskOutcome(message: result.message, succeeded: result.succeeded)
+            isApproving = false
+        }
+    }
+
     private func perform() {
         let sentence = text
         guard !sentence.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         Task {
             guard let result = await model.performQuickTask(sentence) else { return }
             outcome = result
+            pending = result.awaitingApproval
             // Cleared only when it worked, so a sentence that failed can be
             // fixed rather than typed again.
             if result.succeeded { text = "" }

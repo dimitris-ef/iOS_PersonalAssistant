@@ -15,11 +15,29 @@ public struct QuickActionResult: Sendable {
     public let text: String
     public let results: [ToolResult]
     public let status: AgentTurnStatus
+    /// Actions that need the person's approval before they run — moving or
+    /// deleting an event, cancelling an alarm. Run with
+    /// `perform(_:approvedByUser:)` when they tap Approve.
+    public let awaitingApproval: [ToolRequest]
 
-    public init(text: String, results: [ToolResult], status: AgentTurnStatus) {
+    public init(
+        text: String,
+        results: [ToolResult],
+        status: AgentTurnStatus,
+        awaitingApproval: [ToolRequest] = []
+    ) {
         self.text = text
         self.results = results
         self.status = status
+        self.awaitingApproval = awaitingApproval
+    }
+
+    /// The requests in `plan` whose results say they are waiting for approval.
+    static func awaitingApproval(
+        in plan: AssistantActionPlan, results: [ToolResult]
+    ) -> [ToolRequest] {
+        let waiting = Set(results.filter { $0.outcome == .awaitingConfirmation }.map(\.actionID))
+        return plan.actions.filter { waiting.contains($0.id) }.map(\.request)
     }
 }
 
@@ -261,7 +279,10 @@ public final class AssistantEngine: Sendable {
                 provider: cloud, context: context, conversationID: scratch.id
             )
             try await linkReminderPlans(turn.reminderPlans)
-            return QuickActionResult(text: turn.text, results: turn.results, status: turn.status)
+            return QuickActionResult(
+                text: turn.text, results: turn.results, status: turn.status,
+                awaitingApproval: QuickActionResult.awaitingApproval(in: turn.plan, results: turn.results)
+            )
         }
 
         let decision = await routeDecision(for: text)
@@ -283,7 +304,10 @@ public final class AssistantEngine: Sendable {
             conversationID: scratch.id
         )
         try await linkReminderPlans(turn.reminderPlans)
-        return QuickActionResult(text: turn.text, results: turn.results, status: turn.status)
+        return QuickActionResult(
+            text: turn.text, results: turn.results, status: turn.status,
+            awaitingApproval: QuickActionResult.awaitingApproval(in: turn.plan, results: turn.results)
+        )
     }
 
     public func send(_ text: String, in conversationID: Conversation.ID) async throws -> AssistantTurnResult {
@@ -552,7 +576,8 @@ public final class AssistantEngine: Sendable {
     public func perform(
         _ request: ToolRequest,
         origin: ActionOrigin = .user,
-        idempotencyKey: String? = nil
+        idempotencyKey: String? = nil,
+        approvedByUser: Bool = false
     ) async throws -> (plan: AssistantActionPlan, results: [ToolResult]) {
         let callID = ToolCallID()
 
@@ -593,7 +618,7 @@ public final class AssistantEngine: Sendable {
         }
 
         let calendar = await upcomingEvents()
-        let context = try await contextAssembler.assemble(
+        var context = try await contextAssembler.assemble(
             conversation: Conversation(createdAt: dateProvider.now),
             // No query text: nothing here is being interpreted, so there is
             // nothing for memory retrieval to be relevant *to*. Structured
@@ -602,6 +627,15 @@ public final class AssistantEngine: Sendable {
             calendarEvents: calendar.events,
             calendarIsReadable: calendar.isReadable
         )
+
+        // The person tapped Approve on exactly this request. For this one call
+        // its kind is allowed; a kind the settings *deny* stays denied, because
+        // Approve answers "ask me first", not "never".
+        if approvedByUser,
+            context.settings.authorization(for: request.kind) == .requiresConfirmation
+        {
+            context.settings.toolAuthorizations[request.kind] = .allowed
+        }
 
         let decoded = ToolDecodingOutcome(
             accepted: [DecodedToolCall(callID: callID, request: request)]

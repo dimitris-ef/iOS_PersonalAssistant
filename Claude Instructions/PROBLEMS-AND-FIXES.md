@@ -132,4 +132,23 @@ One entry per problem. Status: **open**, **fixed (build N)**, or
   in `ActionTurnProvider` before resolving. Real changes are untouched.
 - **Fix (model side, later):** v0.2 training needs more "I have a … at …"
   style sentences labelled `calendar.create` (ROADMAP "Next" 3).
-- **Status:** fixed (build 25), awaiting device confirmation.
+- **Status:** fixed (build 25), confirmed on the phone (barber, 12:30).
+
+## P10 — "Waiting for approval" with no way to approve (build 25)
+
+- **Owner saw:** Quick Task "move the barber appointment I have tomorrow … to
+  another day" answered that it was waiting for approval — and there was
+  nothing to tap.
+- **Plain cause:** moving or deleting an event and cancelling an alarm are set
+  to ask first (so a wrong guess cannot silently move the wrong appointment).
+  The app could *ask*, but no screen had ever been given an Approve button —
+  not Quick Task, and not the chat either. So those actions could never run.
+- **Technical:** `AssistantSettings.defaultToolAuthorizations` marks
+  `updateCalendarEvent`, `deleteCalendarEvent`, `cancelAlarm` as
+  `.requiresConfirmation`; `ToolExecutor` returns `.awaitingConfirmation`; the
+  UI only drew a badge. Now `AssistantEngine.perform(_:approvedByUser:)` runs
+  the same request with that one kind allowed (a *denied* kind stays denied);
+  `QuickActionResult.awaitingApproval` lists what is waiting; Quick Task shows
+  Approve / Don't; the chat card shows Approve and updates in place
+  (`AppModel.approve`).
+- **Status:** fixed, ships in build 27.

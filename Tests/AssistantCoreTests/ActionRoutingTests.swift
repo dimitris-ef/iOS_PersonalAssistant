@@ -479,4 +479,39 @@ final class ActionRoutingTests: XCTestCase {
         let actionCalls = await harness.backend.callCount
         XCTAssertEqual(actionCalls, 1)
     }
+
+    // MARK: Approve — build 25 waited for an approval nothing could give
+
+    func testMovingAnEventWaitsForApprovalAndApprovalRunsIt() async throws {
+        let harness = try await makeHarness()
+        let request = ToolRequest.updateCalendarEvent(
+            UpdateCalendarEventInput(eventID: CalendarItem.ID(), start: now.addingTimeInterval(86_400))
+        )
+
+        let asked = try await harness.engine.perform(request)
+        XCTAssertEqual(asked.results.first?.outcome, .awaitingConfirmation, "it asks first by default")
+
+        let approved = try await harness.engine.perform(request, approvedByUser: true)
+        XCTAssertNotEqual(
+            approved.results.first?.outcome, .awaitingConfirmation,
+            "an approved request is carried out, not asked about again"
+        )
+    }
+
+    /// Approve answers "ask me first", not "never": a denied kind stays denied.
+    func testApprovalDoesNotOverrideADenial() async throws {
+        let harness = try await makeHarness()
+        var settings = try await harness.repositories.settings.settings()
+        settings.toolAuthorizations[.updateCalendarEvent] = .denied
+        try await harness.repositories.settings.update(settings)
+        let request = ToolRequest.updateCalendarEvent(
+            UpdateCalendarEventInput(eventID: CalendarItem.ID(), title: "Moved")
+        )
+
+        let result = try await harness.engine.perform(request, approvedByUser: true)
+
+        guard case .denied? = result.results.first?.outcome else {
+            return XCTFail("expected denied, got \(String(describing: result.results.first?.outcome))")
+        }
+    }
 }

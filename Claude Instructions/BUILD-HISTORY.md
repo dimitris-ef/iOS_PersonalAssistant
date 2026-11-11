@@ -18,7 +18,12 @@ Cancelled the same way at 17:56–18:11 UTC, and so was a Swift Tests re-run.
 No reason given by the API; the owner was asked to look at the run page and
 at GitHub → Settings → Billing (Actions minutes) in case macOS minutes ran out.
 
-## Build 26 — in progress
+## Build 27 — in progress
+
+- Approve button for actions that wait for approval, in Quick Task and chat
+  (P10).
+
+## Build 26 — 2026-11-11 (head `a07bf3b`)
 
 - A chosen, set-up cloud model does actions itself (chat and Quick Task);
   the chat menu names it. On-device models keep Metis Action.
@@ -26,7 +31,9 @@ at GitHub → Settings → Billing (Actions minutes) in case macOS minutes ran o
 ## Build 25 — 2026-11-05 (head `042be25`, VALID)
 
 - A stated appointment misread as a change is created instead (P9).
-- **Owner found:** waiting for the device report.
+- **Owner found:** (1) "I have an appointment tomorrow at the barber at
+  12:30 p.m." added correctly; (2) moving it stopped at "waiting for approval"
+  with nothing to tap (P10); (3) reminder set; (4) task added.
 
 ## Build 24 — 2026-11-04 (head `acd662e`, VALID)
 

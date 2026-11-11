@@ -9,9 +9,34 @@ import SwiftUI
 /// `AssistantActionPresentation` and a body here.
 struct AssistantActionCardView: View {
     let action: AssistantActionPresentation
+    @Environment(AppModel.self) private var model
     @State private var route: DetailRoute?
+    @State private var isApproving = false
 
     var body: some View {
+        VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
+            card
+            // Moving or deleting an event and cancelling an alarm wait for a
+            // yes. Until build 26 the card said so and offered no way to give
+            // one, so those requests never happened.
+            if action.fidelity == .awaitingConfirmation {
+                Button {
+                    isApproving = true
+                    Task {
+                        await model.approve(actionID: action.id)
+                        isApproving = false
+                    }
+                } label: {
+                    Label("Approve", systemImage: "checkmark")
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+                .disabled(isApproving)
+            }
+        }
+    }
+
+    private var card: some View {
         Group {
             switch action {
             case .calendarEvent(let model):

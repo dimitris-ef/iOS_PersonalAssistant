@@ -4,7 +4,8 @@ Last updated 2026-11-11. Update this at the end of every session.
 
 ## Where things stand
 
-- **Build 26 in progress**: the cloud model does its own actions when chosen
+- **Build 27 in progress**: Approve button (P10).
+- **Build 26**: the cloud model does its own actions when chosen
   (owner's plan to test the app independently of the model; see ROADMAP
   "Decision — 2026-11-11").
 - **Latest on TestFlight: build 25** (VALID, head `042be25`): a stated

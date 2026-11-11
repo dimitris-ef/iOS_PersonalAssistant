@@ -16,6 +16,18 @@ enum AssistantActionPresentation: Identifiable, Equatable {
     case reminderPlan(ReminderPlanPresentation)
     case unsupported(GenericActionModel)
 
+    /// Whether it happened, for the cases that carry one.
+    var fidelity: ActionFidelity? {
+        switch self {
+        case .calendarEvent(let model): return model.fidelity
+        case .task(let model): return model.fidelity
+        case .alarm(let model): return model.fidelity
+        case .memory(let model): return model.fidelity
+        case .unsupported(let model): return model.fidelity
+        case .reminderPlan: return nil
+        }
+    }
+
     var id: AssistantAction.ID {
         switch self {
         case .calendarEvent(let model): return model.id

@@ -262,6 +262,14 @@ final class AppModel {
 
     // MARK: Quick Task
 
+    /// What a Quick Task did, for the sheet.
+    struct QuickTaskOutcome {
+        var message: String
+        var succeeded: Bool
+        /// Actions waiting for the person's Approve.
+        var awaitingApproval: [ToolRequest] = []
+    }
+
     /// True while a Quick Task is running.
     private(set) var isPerformingQuickTask = false
 
@@ -270,7 +278,7 @@ final class AppModel {
     /// Returns what to show in the Quick Task sheet, or nil when nothing was
     /// sent. Errors are returned as the sentence rather than raised as a
     /// banner, because the banner sits behind the sheet where nobody sees it.
-    func performQuickTask(_ text: String) async -> (message: String, succeeded: Bool)? {
+    func performQuickTask(_ text: String) async -> QuickTaskOutcome? {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, !isPerformingQuickTask else { return nil }
         isPerformingQuickTask = true
@@ -279,10 +287,64 @@ final class AppModel {
             let result = try await environment.engine.performQuickAction(trimmed)
             await reload()
             let succeeded = result.status == .success || result.status == .partialSuccess
-            return (result.text, succeeded)
+            return QuickTaskOutcome(
+                message: result.text,
+                succeeded: succeeded,
+                awaitingApproval: result.awaitingApproval
+            )
+        } catch {
+            return QuickTaskOutcome(message: Self.describe(error), succeeded: false)
+        }
+    }
+
+    /// Carries out an action the person has just approved.
+    ///
+    /// Moving or deleting an event and cancelling an alarm ask first (the
+    /// default in settings). Until build 26 nothing on screen could answer, so
+    /// those requests stopped at "waiting for your approval" for good.
+    /// Returns the sentence to show.
+    func approve(_ request: ToolRequest) async -> (message: String, succeeded: Bool) {
+        do {
+            let outcome = try await environment.engine.perform(
+                request, origin: .user, approvedByUser: true
+            )
+            await reload()
+            guard let result = outcome.results.first else {
+                return ("Nothing happened.", false)
+            }
+            return (result.message, result.outcome.didChangeAnything)
         } catch {
             return (Self.describe(error), false)
         }
+    }
+
+    /// Approves the action under a chat reply, and updates its card.
+    func approve(actionID: AssistantAction.ID) async {
+        guard
+            let entry = actionPlans.first(where: { entry in
+                entry.value.actions.contains { $0.id == actionID }
+            }),
+            let action = entry.value.actions.first(where: { $0.id == actionID })
+        else { return }
+        let planID = entry.key
+        let plan = entry.value
+        let outcome = await approve(action.request)
+        // The card under the reply now says what happened, in place of
+        // "waiting for your approval".
+        if var results = toolResults[planID],
+            let index = results.firstIndex(where: { $0.actionID == actionID })
+        {
+            results[index].outcome = outcome.succeeded
+                ? .executed : .failed(reason: outcome.message)
+            results[index].message = outcome.message
+            toolResults[planID] = results
+            try? await environment.repositories.actionPlans.save(
+                ActionPlanRecord(plan: plan, results: results, conversationID: conversation.id)
+            )
+        }
+        banner = BannerMessage(
+            text: outcome.message, style: outcome.succeeded ? .success : .warning
+        )
     }
 
     // MARK: Chats
