@@ -52,18 +52,37 @@ public struct OpenAICompatibleAdapter: RemoteAPIAdapter {
         configuration: RemoteAIConfiguration,
         credential: String
     ) throws -> HTTPRequest {
+        let host = RemoteAIEndpoint(baseURL: configuration.baseURL)?.host ?? ""
+        return try makeRequest(
+            from: request,
+            configuration: configuration,
+            credential: credential,
+            style: .initial(forHost: host)
+        )
+    }
+
+    public func makeRequest(
+        from request: AIRequest,
+        configuration: RemoteAIConfiguration,
+        credential: String,
+        style: RemoteRequestStyle
+    ) throws -> HTTPRequest {
         guard let endpoint = RemoteAIEndpoint(baseURL: configuration.baseURL) else {
             throw RemoteAIError.invalidEndpoint(configuration.baseURL)
         }
 
         let model = request.model?.rawValue ?? configuration.model
+        let limit = request.options.maximumOutputTokens ?? configuration.maximumOutputTokens
         let payload = OpenAIChatRequest(
             model: model,
             messages: messages(for: request),
             tools: request.tools.isEmpty ? nil : request.tools.map(tool(from:)),
             toolChoice: request.tools.isEmpty ? nil : "auto",
-            temperature: request.options.temperature ?? configuration.temperature,
-            maxTokens: request.options.maximumOutputTokens ?? configuration.maximumOutputTokens
+            temperature: style.sendsTemperature
+                ? (request.options.temperature ?? configuration.temperature) : nil,
+            maxTokens: style.tokenLimitField == .maxTokens ? limit : nil,
+            maxCompletionTokens: style.tokenLimitField == .maxCompletionTokens ? limit : nil,
+            reasoningEffort: style.reasoningEffort
         )
 
         let encoder = JSONEncoder()

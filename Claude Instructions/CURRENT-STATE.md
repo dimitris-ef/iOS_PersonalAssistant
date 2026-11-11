@@ -4,6 +4,8 @@ Last updated 2026-11-11. Update this at the end of every session.
 
 ## Where things stand
 
+- **Build 28 in progress**: cloud requests adapt to the service (P11). Owner is
+  setting up OpenAI `gpt-6-luna` (endpoint `https://api.openai.com/v1`).
 - **Latest on TestFlight: build 27** (VALID, head `a3d4d2c`): Approve button
   in Quick Task and chat (P10). All four CI lanes green.
 - **Build 26** (VALID, on TestFlight): the cloud model does its own actions when chosen

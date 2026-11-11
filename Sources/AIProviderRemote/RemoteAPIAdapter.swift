@@ -33,10 +33,30 @@ public protocol RemoteAPIAdapter: Sendable {
         credential: String
     ) throws -> HTTPRequest
 
+    /// The same, with the optional settings chosen by `style`. Adapters that
+    /// have no such settings inherit a default that ignores it.
+    func makeRequest(
+        from request: AIRequest,
+        configuration: RemoteAIConfiguration,
+        credential: String,
+        style: RemoteRequestStyle
+    ) throws -> HTTPRequest
+
     /// Parses a successful response into the app's shape, including any tool
     /// calls, which must come from the API's structured tool-calling output
     /// rather than from parsing the assistant's prose.
     func parse(_ response: HTTPResponse, for request: AIRequest) throws -> AIResponse
+}
+
+extension RemoteAPIAdapter {
+    public func makeRequest(
+        from request: AIRequest,
+        configuration: RemoteAIConfiguration,
+        credential: String,
+        style: RemoteRequestStyle
+    ) throws -> HTTPRequest {
+        try makeRequest(from: request, configuration: configuration, credential: credential)
+    }
 }
 
 /// Supplies API credentials to the provider.

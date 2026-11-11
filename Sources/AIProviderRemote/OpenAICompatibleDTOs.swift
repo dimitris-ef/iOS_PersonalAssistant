@@ -18,11 +18,17 @@ struct OpenAIChatRequest: Encodable {
     var toolChoice: String?
     var temperature: Double?
     var maxTokens: Int?
+    /// OpenAI's name for the same limit on its reasoning models. At most one
+    /// of the two is ever set — see `RemoteRequestStyle`.
+    var maxCompletionTokens: Int?
+    var reasoningEffort: String?
 
     enum CodingKeys: String, CodingKey {
         case model, messages, tools, temperature
         case toolChoice = "tool_choice"
         case maxTokens = "max_tokens"
+        case maxCompletionTokens = "max_completion_tokens"
+        case reasoningEffort = "reasoning_effort"
     }
 
     struct Message: Encodable {

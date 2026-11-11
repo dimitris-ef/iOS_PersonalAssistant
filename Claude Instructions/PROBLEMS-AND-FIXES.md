@@ -152,3 +152,20 @@ One entry per problem. Status: **open**, **fixed (build N)**, or
   Approve / Don't; the chat card shows Approve and updates in place
   (`AppModel.approve`).
 - **Status:** fixed (build 27), awaiting device confirmation.
+
+## P11 — Cloud model settings newer OpenAI models refuse (found before it bit)
+
+- **Context:** the owner set up OpenAI's `gpt-6-luna` as the cloud model
+  (2026-11-11).
+- **Plain cause:** the app always sent two optional settings — a reply-length
+  limit called `max_tokens`, and a "temperature". OpenAI's recent reasoning
+  models refuse both (they want `max_completion_tokens` and their own
+  temperature). A refused setting fails the whole message.
+- **Fix:** `RemoteRequestStyle`. For `api.openai.com` the app sends
+  `max_completion_tokens` and no temperature from the start. For any service,
+  a 400 whose message names a setting (`max_tokens`, `max_completion_tokens`,
+  `temperature`, `reasoning_effort`) changes that one setting and retries, at
+  most twice (`RemoteAIProvider.respond`). No model names are hard-coded.
+- **Not verified:** OpenAI's docs host is blocked from the cloud session, so
+  GPT-6 Luna's exact parameters were not confirmed; the retry covers it.
+- **Status:** fixed, ships in build 28.

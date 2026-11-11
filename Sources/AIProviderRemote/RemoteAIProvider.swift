@@ -85,64 +85,82 @@ public struct RemoteAIProvider: AIProvider {
             throw error.asProviderError
         }
 
-        let httpRequest: HTTPRequest
-        do {
-            httpRequest = try adapter.makeRequest(
-                from: request,
-                configuration: configuration,
-                credential: credential
-            )
-        } catch let error as RemoteAIError {
-            logger.log(.failed(category: error.category, status: nil))
-            throw error.asProviderError
-        }
-
-        logger.log(
-            .requestStarted(
-                host: httpRequest.url.host ?? "?",
-                model: request.model?.rawValue ?? configuration.model,
-                toolCount: request.tools.count
-            )
+        // Starts from the host's best guess and, if the service refuses a
+        // setting by name, changes that setting and asks again — at most
+        // twice. See `RemoteRequestStyle`.
+        var style = RemoteRequestStyle.initial(
+            forHost: RemoteAIEndpoint(baseURL: configuration.baseURL)?.host ?? ""
         )
+        var adjustments = 0
 
-        let started = Date()
-        let httpResponse: HTTPResponse
-        do {
-            httpResponse = try await transport.send(httpRequest)
-        } catch {
-            let mapped = RemoteAIError.from(transport: error)
-            logger.log(.failed(category: mapped.category, status: nil))
-            throw mapped.asProviderError
-        }
+        while true {
+            let httpRequest: HTTPRequest
+            do {
+                httpRequest = try adapter.makeRequest(
+                    from: request,
+                    configuration: configuration,
+                    credential: credential,
+                    style: style
+                )
+            } catch let error as RemoteAIError {
+                logger.log(.failed(category: error.category, status: nil))
+                throw error.asProviderError
+            }
 
-        // Honours cancellation between the network returning and parsing, so an
-        // abandoned turn does not do pointless work.
-        try Task.checkCancellation()
-
-        guard httpResponse.isSuccess else {
-            let apiError = OpenAICompatibleErrorBody.parse(httpResponse.body)
-            let mapped = RemoteAIError.from(
-                status: httpResponse.statusCode,
-                apiError: apiError,
-                retryAfter: Self.retryAfter(from: httpResponse)
-            )
-            logger.log(.failed(category: mapped.category, status: httpResponse.statusCode))
-            throw mapped.asProviderError
-        }
-
-        do {
-            let response = try adapter.parse(httpResponse, for: request)
             logger.log(
-                .responseReceived(
-                    status: httpResponse.statusCode,
-                    duration: Date().timeIntervalSince(started),
-                    toolNames: response.toolCalls.map(\.name)
+                .requestStarted(
+                    host: httpRequest.url.host ?? "?",
+                    model: request.model?.rawValue ?? configuration.model,
+                    toolCount: request.tools.count
                 )
             )
-            return response
-        } catch let error as RemoteAIError {
-            logger.log(.failed(category: error.category, status: httpResponse.statusCode))
-            throw error.asProviderError
+
+            let started = Date()
+            let httpResponse: HTTPResponse
+            do {
+                httpResponse = try await transport.send(httpRequest)
+            } catch {
+                let mapped = RemoteAIError.from(transport: error)
+                logger.log(.failed(category: mapped.category, status: nil))
+                throw mapped.asProviderError
+            }
+
+            // Honours cancellation between the network returning and parsing,
+            // so an abandoned turn does not do pointless work.
+            try Task.checkCancellation()
+
+            guard httpResponse.isSuccess else {
+                let apiError = OpenAICompatibleErrorBody.parse(httpResponse.body)
+                if httpResponse.statusCode == 400, adjustments < 2,
+                    let next = style.adjusted(afterRejection: apiError?.message)
+                {
+                    style = next
+                    adjustments += 1
+                    continue
+                }
+                let mapped = RemoteAIError.from(
+                    status: httpResponse.statusCode,
+                    apiError: apiError,
+                    retryAfter: Self.retryAfter(from: httpResponse)
+                )
+                logger.log(.failed(category: mapped.category, status: httpResponse.statusCode))
+                throw mapped.asProviderError
+            }
+
+            do {
+                let response = try adapter.parse(httpResponse, for: request)
+                logger.log(
+                    .responseReceived(
+                        status: httpResponse.statusCode,
+                        duration: Date().timeIntervalSince(started),
+                        toolNames: response.toolCalls.map(\.name)
+                    )
+                )
+                return response
+            } catch let error as RemoteAIError {
+                logger.log(.failed(category: error.category, status: httpResponse.statusCode))
+                throw error.asProviderError
+            }
         }
     }
 

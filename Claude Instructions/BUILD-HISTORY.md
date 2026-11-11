@@ -18,6 +18,11 @@ Cancelled the same way at 17:56–18:11 UTC, and so was a Swift Tests re-run.
 No reason given by the API; the owner was asked to look at the run page and
 at GitHub → Settings → Billing (Actions minutes) in case macOS minutes ran out.
 
+## Build 28 — in progress
+
+- Cloud model requests adapt to what the service accepts (P11) — for the
+  owner's OpenAI `gpt-6-luna`.
+
 ## Build 27 — 2026-11-11 (head `a3d4d2c`, VALID)
 
 - Approve button for actions that wait for approval, in Quick Task and chat
