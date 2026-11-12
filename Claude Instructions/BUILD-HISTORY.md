@@ -18,12 +18,18 @@ Cancelled the same way at 17:56–18:11 UTC, and so was a Swift Tests re-run.
 No reason given by the API; the owner was asked to look at the run page and
 at GitHub → Settings → Billing (Actions minutes) in case macOS minutes ran out.
 
-## Build 29 — in progress
+## Build 29 — 2026-11-12 (head `401fd2f`) — uploaded, not yet seen processed
 
 - One ID per calendar event, and repair of earlier events (P12).
 - Keyboard can be put away (P13).
 - Chats: Edit with multi-select delete, long-press delete (P14).
 - Temporary chat (P15).
+- All CI lanes green. The TestFlight run archived, validated and uploaded
+  successfully (21:35 UTC), but App Store Connect never listed build 29.1
+  within the workflow's 45-minute wait, so the run is marked failed. Either
+  Apple's processing was slow (it will appear on its own) or Apple rejected
+  the binary after upload (an email to the account owner says why). Owner
+  asked to check TestFlight and email before any re-upload.
 
 ## Build 28 — 2026-11-11 (head `059e278`, VALID)
 

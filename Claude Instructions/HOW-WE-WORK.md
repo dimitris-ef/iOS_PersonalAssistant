@@ -26,6 +26,10 @@ repo `dimitris-ef/0.8b-training-001`).
   number = the workflow's run number. It succeeds only when App Store Connect
   reports the build VALID. Takes ~15–20 min: wait, then check once. A run that
   is cancelled still uses up its number (build 19).
+- **"Build N never appeared in App Store Connect"** after a successful
+  upload (build 29): Apple is slow or rejected the binary after upload. Ask
+  the owner to look in TestFlight and in their email before uploading again;
+  a re-upload uses a new build number.
 - **A job "cancelled" after exactly 15 minutes** with no logs means GitHub never
   gave it a macOS machine (builds 19 and 22). It is not the code. Re-run it
   later; do not change code because of it.
