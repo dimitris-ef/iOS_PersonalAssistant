@@ -514,4 +514,31 @@ final class ActionRoutingTests: XCTestCase {
             return XCTFail("expected denied, got \(String(describing: result.results.first?.outcome))")
         }
     }
+
+    // MARK: Temporary chat — build 29
+
+    func testATemporaryChatActsButSavesNoConversation() async throws {
+        let harness = try await makeHarness()
+        let before = try await harness.repositories.conversations.allConversations()
+
+        let first = try await harness.engine.sendTemporary(
+            "Remind me in 10 minutes to change the bottles.",
+            in: Conversation(createdAt: now)
+        )
+        // The caller carries the conversation into the next message.
+        let second = try await harness.engine.sendTemporary(
+            "Why do people use reminders?", in: first.conversation
+        )
+
+        XCTAssertEqual(first.results.first?.kind, .createReminder, "the action still happens")
+        XCTAssertTrue(first.results.first?.outcome.didChangeAnything == true)
+        XCTAssertEqual(second.conversation.messages.count, 4, "both turns, in memory")
+        let after = try await harness.repositories.conversations.allConversations()
+        XCTAssertEqual(after.map(\.id), before.map(\.id), "nothing was saved")
+        XCTAssertEqual(after.first?.messages.count, before.first?.messages.count)
+        let history = try await harness.repositories.actionPlans.records(
+            inConversation: first.conversation.id
+        )
+        XCTAssertTrue(history.isEmpty, "no action history either")
+    }
 }

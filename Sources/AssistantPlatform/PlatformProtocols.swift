@@ -40,6 +40,16 @@ public protocol CalendarService: PlatformService {
     func deleteEvent(id: CalendarItem.ID) async throws -> PlatformReceipt
     func event(id: CalendarItem.ID) async throws -> CalendarItem?
     func events(in window: TimeWindow) async throws -> [CalendarItem]
+    /// Makes the event `existing` known by `appID` from now on.
+    ///
+    /// Repairs events created before build 29, whose reminder plans and chat
+    /// cards hold an id the calendar never returned. A calendar that already
+    /// keeps the id it was created with (every mock) has nothing to do.
+    func linkEvent(_ existing: CalendarItem.ID, toAppID appID: CalendarItem.ID) async throws
+}
+
+extension CalendarService {
+    public func linkEvent(_ existing: CalendarItem.ID, toAppID appID: CalendarItem.ID) async throws {}
 }
 
 /// The system reminders list.

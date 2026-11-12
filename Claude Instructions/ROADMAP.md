@@ -47,6 +47,21 @@ controlling the phone from another device.
 
 ## Later — asked for, not started
 
+- **Virtual profile: places, travel and smart departure** (owner, 2026-11-12).
+  The assistant should know *where* things are and plan around it like a real
+  assistant. Pieces:
+  1. Places memory — home, work, "the barber is at …"; learned when mentioned,
+     or asked once ("Which barber? Where is it?") and never again.
+  2. Current location, with permission — is the owner at home?
+  3. Live travel time with traffic from Apple Maps (`MKDirections` ETA, on
+     device, no API key or cost).
+  4. Smart departure — on the day, re-check travel time and move the "time to
+     leave" reminder earlier when there is traffic, saying why.
+  5. Ask instead of guessing when a place is unknown.
+  Already there to build on: events carry `travelDuration` and
+  `preparationDuration`; reminder plans have preparation and leave stages; the
+  profile has a default preparation time; memory stores facts.
+
 - **"Did you do it?" follow-through** (owner, 2026-11-04). Not only create a
   reminder, but afterwards ask whether the task was done, and whether on time.
   Based on the answer, keep reminding with different notifications, or set an

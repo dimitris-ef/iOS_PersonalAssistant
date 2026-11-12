@@ -175,4 +175,59 @@ One entry per problem. Status: **open**, **fixed (build N)**, or
   the run (`RemoteRequestStyleMemory`).
 - **Later option:** OpenAI's Responses API (`/v1/responses`) would allow tools
   *with* reasoning. Not needed while "none" works.
-- **Status:** fixed (build 28), awaiting device confirmation.
+- **Status:** fixed (build 28), confirmed on the phone — the cloud model works.
+
+## P12 — "Event not found" / "No reminders are planned" for the same event (build 28)
+
+- **Owner saw:** with the cloud model, "tomorrow morning I really really have
+  to go to the Serres racing circuit at 9am" was added to the calendar with
+  reminders (which fired). But tapping the event card in chat said "Event not
+  found. It may have been removed", and Today → Up next → Preview reminder
+  said "No reminders are planned for this yet".
+- **Plain cause:** the event had two IDs. The app planned it (and its
+  reminders) under one; after Apple's Calendar saved it, the app read it back
+  under another. Each side looked for the other's ID and found nothing. The
+  reminders themselves were fine — notifications do not need the lookup.
+- **Technical:** `ToolExecutor` discarded `createEvent`'s result;
+  `AppleEventKitStore` derived every event's domain id from EventKit's
+  `eventIdentifier`; the planned → EventKit alias was in memory only. The
+  mock calendar keeps the id it is given, which is why no test caught it.
+- **Fix:** `AppleEventKitStore` now records, on disk (UserDefaults key
+  `AppleEventKitStore.appAssignedEventIDs`), EventKit identifier → the id the
+  app created the event with, and reads every such event back under that id —
+  one id everywhere, across restarts. Events made before build 29 are
+  reconnected once at launch: `EventLinkRepair` matches an orphaned reminder
+  plan to the single event with the same title and start (±60 s) and
+  `CalendarService.linkEvent` records the link. Ambiguous matches are left
+  alone.
+- **Status:** fixed, ships in build 29.
+
+## P13 — The keyboard could not be put away (build 28)
+
+- **Owner saw:** once the keyboard was up in chat there was no way to hide it.
+- **Cause:** only swipe-down-to-dismiss existed, and only when the chat was
+  long enough to scroll.
+- **Fix:** tap anywhere on the conversation (simultaneous gesture, so card
+  buttons still work), a keyboard-down button above the keyboard, and
+  swipe-down as before.
+- **Status:** fixed, ships in build 29.
+
+## P14 — Deleting chats was hidden and one at a time (build 28)
+
+- **Owner saw:** no visible way to delete old chats.
+- **Cause:** only swipe-left existed.
+- **Fix:** Chats list → Edit → tick several → Delete (N); long-press a chat →
+  Delete; swipe-left as before. `AppModel.deleteConversations`.
+- **Status:** fixed, ships in build 29.
+
+## P15 — No temporary chat (owner's request)
+
+- **Asked:** a normal chat that is not saved — not Quick Task.
+- **Decided with the owner:** actions in it still happen (reminders, tasks,
+  events), and memories are kept; only the conversation is not saved.
+- **Built:** ✏️ menu → New Temporary Chat (also in the Chats list). Header says
+  "Temporary Chat", a notice says it is not saved. Held in `AppModel` only;
+  `AssistantEngine.sendTemporary` runs a full turn without writing the
+  conversation or its action history. Leaving it, starting another chat or
+  closing the app discards it.
+- **Status:** built, ships in build 29.

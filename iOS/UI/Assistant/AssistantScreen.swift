@@ -31,15 +31,22 @@ struct AssistantScreen: View {
                         }
                         .accessibilityLabel("Chats")
 
-                        Button {
-                            Task { await model.startNewConversation() }
+                        Menu {
+                            Button {
+                                Task { await model.startNewConversation() }
+                            } label: {
+                                Label("New Chat", systemImage: "square.and.pencil")
+                            }
+                            Button {
+                                Task { await model.startTemporaryConversation() }
+                            } label: {
+                                Label("New Temporary Chat", systemImage: "eye.slash")
+                            }
                         } label: {
                             Image(systemName: "square.and.pencil")
                         }
                         .accessibilityLabel("New Chat")
-                        .disabled(
-                            model.isAssistantResponding || model.conversation.messages.isEmpty
-                        )
+                        .disabled(model.isAssistantResponding)
                     }
                     ToolbarItem(placement: .principal) { AssistantHeaderView() }
                     ToolbarItemGroup(placement: .topBarTrailing) {
@@ -50,6 +57,17 @@ struct AssistantScreen: View {
                         }
                         .accessibilityLabel("Quick Task")
                         SettingsToolbarButton()
+                    }
+                    // Above the keyboard, so there is always a way to put it
+                    // away — build 28 had none unless the chat could scroll.
+                    ToolbarItemGroup(placement: .keyboard) {
+                        Spacer()
+                        Button {
+                            isComposerFocused = false
+                        } label: {
+                            Image(systemName: "keyboard.chevron.compact.down")
+                        }
+                        .accessibilityLabel("Hide keyboard")
                     }
                 }
                 .sheet(isPresented: $isShowingChats) { ConversationsListView() }
@@ -63,6 +81,11 @@ struct AssistantScreen: View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: Theme.Spacing.xl) {
+                    if model.isTemporaryConversation {
+                        ProviderNoticeView(
+                            text: "Temporary chat — not saved. Reminders, tasks and memories from it are kept."
+                        )
+                    }
                     if let notice = providerNotice {
                         ProviderNoticeView(text: notice)
                     }
@@ -88,6 +111,12 @@ struct AssistantScreen: View {
                 .padding(.bottom, Theme.Spacing.xl)
             }
             .scrollDismissesKeyboard(.interactively)
+            // A tap anywhere on the conversation puts the keyboard away.
+            // Simultaneous, so the buttons on cards (Approve, open an event)
+            // still receive their taps.
+            .simultaneousGesture(
+                TapGesture().onEnded { isComposerFocused = false }
+            )
             .onChange(of: model.conversation.messages.count) {
                 guard let last = model.conversation.messages.last?.id else { return }
                 withAnimation(Theme.transition) {
@@ -200,8 +229,16 @@ private struct AssistantHeaderView: View {
 
     var body: some View {
         VStack(spacing: 1) {
-            Text("Assistant")
-                .font(.headline)
+            // Said in the title, where it cannot be missed: nothing typed
+            // here is kept once you leave.
+            if model.isTemporaryConversation {
+                Label("Temporary Chat", systemImage: "eye.slash")
+                    .font(.headline)
+                    .labelStyle(.titleAndIcon)
+            } else {
+                Text("Assistant")
+                    .font(.headline)
+            }
             AssistantModelMenu()
         }
         .task { await model.refreshAssistantChoices() }

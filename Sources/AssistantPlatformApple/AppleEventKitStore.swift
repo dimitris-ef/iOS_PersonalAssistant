@@ -33,6 +33,25 @@ actor AppleEventKitStore {
     private var eventIdentifiers: [UUID: String] = [:]
     private var reminderIdentifiers: [UUID: String] = [:]
 
+    /// EventKit identifier → the id the app created (or linked) the event as.
+    ///
+    /// Build 28 had no such record: an event the app created was planned under
+    /// one id and read back under another (derived from EventKit's), so the
+    /// chat card said "Event not found" and Up Next said "No reminders are
+    /// planned" for the same event. Now the id an event is created with is the
+    /// id it is read back with, as it always was with the mock calendar — and
+    /// the record is on disk, so it survives a relaunch. Events the app did
+    /// not create are absent and keep their derived id.
+    private var appAssignedEventIDs: [String: UUID]
+    private let defaults: UserDefaults
+    static let appAssignedEventIDsKey = "AppleEventKitStore.appAssignedEventIDs"
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        let stored = defaults.dictionary(forKey: Self.appAssignedEventIDsKey) as? [String: String] ?? [:]
+        self.appAssignedEventIDs = stored.compactMapValues { UUID(uuidString: $0) }
+    }
+
     // MARK: Authorization
 
     nonisolated func calendarAuthorization() -> AppleCalendarAuthorization {
@@ -135,7 +154,9 @@ actor AppleEventKitStore {
             throw PlatformError.underlying("The calendar did not return an identifier for the event.")
         }
 
-        var saved = Self.item(from: event, externalIdentifier: externalIdentifier)
+        // The id the app planned with stays the event's id from now on.
+        assignAppID(item.id.rawValue, toExternal: externalIdentifier)
+        var saved = calendarItem(from: event, externalIdentifier: externalIdentifier)
         // Carried across because EventKit has nowhere to put them. See
         // `apply(_:to:)`.
         saved.importance = item.importance
@@ -167,7 +188,7 @@ actor AppleEventKitStore {
         }
 
         let externalIdentifier = event.eventIdentifier ?? item.externalIdentifier ?? ""
-        var saved = Self.item(from: event, externalIdentifier: externalIdentifier)
+        var saved = calendarItem(from: event, externalIdentifier: externalIdentifier)
         saved.importance = item.importance
         saved.travelDuration = item.travelDuration
         saved.preparationDuration = item.preparationDuration
@@ -180,19 +201,37 @@ actor AppleEventKitStore {
             throw PlatformError.notFound(identifier: id.description)
         }
         let title = event.title ?? "Event"
+        let removedExternal = event.eventIdentifier
         do {
             try store.remove(event, span: .futureEvents, commit: true)
         } catch {
             throw PlatformError.underlying("The event could not be removed from the calendar.")
         }
         eventIdentifiers.removeValue(forKey: id.rawValue)
+        if let removedExternal, appAssignedEventIDs.removeValue(forKey: removedExternal) != nil {
+            persistAppAssignedIDs()
+        }
         return receipt("Removed from your calendar: \(title)")
     }
 
     func event(id: CalendarItem.ID) throws -> CalendarItem? {
         guard let event = try eventObject(for: id) else { return nil }
         guard let externalIdentifier = event.eventIdentifier else { return nil }
-        return Self.item(from: event, externalIdentifier: externalIdentifier)
+        return calendarItem(from: event, externalIdentifier: externalIdentifier)
+    }
+
+    /// Makes `existing` known by `appID` from now on.
+    ///
+    /// The repair for events created before build 29: their reminder plans
+    /// and chat cards hold the id they were planned with, which nothing could
+    /// find. Linking it once makes every later read return that id.
+    func linkEvent(_ existing: CalendarItem.ID, toAppID appID: CalendarItem.ID) throws {
+        guard let event = try eventObject(for: existing),
+            let external = event.eventIdentifier
+        else {
+            throw PlatformError.notFound(identifier: existing.description)
+        }
+        assignAppID(appID.rawValue, toExternal: external)
     }
 
     func events(in window: TimeWindow) throws -> [CalendarItem] {
@@ -208,7 +247,7 @@ actor AppleEventKitStore {
         items.reserveCapacity(events.count)
         for event in events {
             guard let externalIdentifier = event.eventIdentifier else { continue }
-            let item = Self.item(from: event, externalIdentifier: externalIdentifier)
+            let item = calendarItem(from: event, externalIdentifier: externalIdentifier)
             remember(domainID: item.id.rawValue, external: externalIdentifier, isEvent: true)
             items.append(item)
         }
@@ -494,6 +533,29 @@ actor AppleEventKitStore {
     }
 
     // MARK: Bookkeeping
+
+    /// The domain value for an event: the app's own id when it has one,
+    /// otherwise the id derived from EventKit's identifier.
+    private func calendarItem(from event: EKEvent, externalIdentifier: String) -> CalendarItem {
+        var item = Self.item(from: event, externalIdentifier: externalIdentifier)
+        if let assigned = appAssignedEventIDs[externalIdentifier] {
+            item.id = CalendarItem.ID(assigned)
+        }
+        return item
+    }
+
+    private func assignAppID(_ appID: UUID, toExternal external: String) {
+        appAssignedEventIDs[external] = appID
+        remember(domainID: appID, external: external, isEvent: true)
+        persistAppAssignedIDs()
+    }
+
+    private func persistAppAssignedIDs() {
+        defaults.set(
+            appAssignedEventIDs.mapValues(\.uuidString),
+            forKey: Self.appAssignedEventIDsKey
+        )
+    }
 
     private func remember(domainID: UUID, external: String, isEvent: Bool) {
         if isEvent {

@@ -33,6 +33,11 @@ repo `dimitris-ef/0.8b-training-001`).
 
 ## Working with the owner
 
+- **Discuss first, code on "go"** (owner, 2026-11-12). When the owner reports
+  problems or ideas, investigate (reading code is fine) and propose fixes with
+  their trade-offs and any decisions needed. Do not change code, push, or start
+  builds until the owner says to go ahead.
+
 - Explain every problem **in plain terms as well as technically**.
 - The owner tests on their own iPhone and reports what happened. When the cause
   is unclear, say exactly what to try and what to report back.

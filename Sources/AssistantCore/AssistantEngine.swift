@@ -311,13 +311,30 @@ public final class AssistantEngine: Sendable {
     }
 
     public func send(_ text: String, in conversationID: Conversation.ID) async throws -> AssistantTurnResult {
-        guard var conversation = try await repositories.conversations.conversation(id: conversationID) else {
+        guard let conversation = try await repositories.conversations.conversation(id: conversationID) else {
             throw AssistantEngineError.conversationNotFound(conversationID)
         }
+        return try await runTurn(text, in: conversation, persists: true)
+    }
 
+    /// A turn in a temporary chat: everything a normal turn does — context,
+    /// memories, routing, actions, reminders — except that the conversation
+    /// and its action history are never written anywhere (owner's request,
+    /// build 29). The caller holds the conversation and passes it back in on
+    /// the next message; the returned result carries it.
+    public func sendTemporary(
+        _ text: String, in conversation: Conversation
+    ) async throws -> AssistantTurnResult {
+        try await runTurn(text, in: conversation, persists: false)
+    }
+
+    private func runTurn(
+        _ text: String, in existing: Conversation, persists: Bool
+    ) async throws -> AssistantTurnResult {
+        var conversation = existing
         let now = dateProvider.now
         conversation.append(Message(role: .user, text: text, createdAt: now))
-        try await repositories.conversations.save(conversation)
+        if persists { try await repositories.conversations.save(conversation) }
 
         // 1. What is relevant right now.
         //
@@ -375,7 +392,8 @@ public final class AssistantEngine: Sendable {
                         plainReply: MetisActionSystem.unavailableMessage,
                         in: &conversation,
                         providerID: ActionTurnProvider.providerID,
-                        status: .failed
+                        status: .failed,
+                        persists: persists
                     )
                 }
                 provider = actionProvider
@@ -396,19 +414,21 @@ public final class AssistantEngine: Sendable {
             actionPlanID: turn.plan.id
         )
         conversation.append(assistantMessage)
-        try await repositories.conversations.save(conversation)
+        if persists {
+            try await repositories.conversations.save(conversation)
 
-        // The message carries the plan's id; store the plan itself so that
-        // pointer still resolves after a relaunch and the reply keeps the cards
-        // beneath it. Saved after the conversation because the plan is attached
-        // to it.
-        try await repositories.actionPlans.save(
-            ActionPlanRecord(
-                plan: turn.plan,
-                results: turn.results,
-                conversationID: conversation.id
+            // The message carries the plan's id; store the plan itself so that
+            // pointer still resolves after a relaunch and the reply keeps the
+            // cards beneath it. Saved after the conversation because the plan
+            // is attached to it. A temporary chat keeps neither.
+            try await repositories.actionPlans.save(
+                ActionPlanRecord(
+                    plan: turn.plan,
+                    results: turn.results,
+                    conversationID: conversation.id
+                )
             )
-        )
+        }
 
         try await linkReminderPlans(turn.reminderPlans)
 
@@ -503,7 +523,8 @@ public final class AssistantEngine: Sendable {
         plainReply text: String,
         in conversation: inout Conversation,
         providerID: AIProviderIdentifier,
-        status: AgentTurnStatus
+        status: AgentTurnStatus,
+        persists: Bool = true
     ) async throws -> AssistantTurnResult {
         let plan = AssistantActionPlan(actions: [], createdAt: dateProvider.now)
         let message = Message(
@@ -513,7 +534,7 @@ public final class AssistantEngine: Sendable {
             actionPlanID: plan.id
         )
         conversation.append(message)
-        try await repositories.conversations.save(conversation)
+        if persists { try await repositories.conversations.save(conversation) }
         return AssistantTurnResult(
             conversation: conversation,
             assistantMessage: message,

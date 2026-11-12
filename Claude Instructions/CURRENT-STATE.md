@@ -1,9 +1,12 @@
 # Current state
 
-Last updated 2026-11-11. Update this at the end of every session.
+Last updated 2026-11-12. Update this at the end of every session.
 
 ## Where things stand
 
+- **Build 29 in progress**: P12 event ID fix + repair, P13 keyboard, P14 chat
+  deletion, P15 temporary chat. Next big feature after it: the virtual
+  profile (ROADMAP).
 - **Latest on TestFlight: build 28** (VALID, head `059e278`): cloud requests
   adapt to the service (P11). Owner uses OpenAI `gpt-6-luna`, endpoint
   `https://api.openai.com/v1`. Swift Tests for `983193a` were queued by GitHub

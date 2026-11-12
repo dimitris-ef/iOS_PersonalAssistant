@@ -174,6 +174,7 @@ final class AppModel {
             }
             conversation = try await loadOrStartConversation()
             await reload()
+            await repairEventLinks()
             await refreshProviderState()
         } catch {
             banner = BannerMessage(text: "Couldn't load your data.", style: .warning)
@@ -338,9 +339,12 @@ final class AppModel {
                 ? .executed : .failed(reason: outcome.message)
             results[index].message = outcome.message
             toolResults[planID] = results
-            try? await environment.repositories.actionPlans.save(
-                ActionPlanRecord(plan: plan, results: results, conversationID: conversation.id)
-            )
+            // A temporary chat keeps no action history.
+            if !isTemporaryConversation {
+                try? await environment.repositories.actionPlans.save(
+                    ActionPlanRecord(plan: plan, results: results, conversationID: conversation.id)
+                )
+            }
         }
         banner = BannerMessage(
             text: outcome.message, style: outcome.succeeded ? .success : .warning
@@ -361,17 +365,34 @@ final class AppModel {
     /// there was no way to.
     func startNewConversation() async {
         guard !isAssistantResponding else { return }
-        // An empty chat already is a new chat; making another would only
-        // litter the list with blanks.
-        guard !conversation.messages.isEmpty else { return }
+        // An empty saved chat already is a new chat; making another would
+        // only litter the list with blanks. From a temporary chat, a new chat
+        // means a saved one.
+        guard isTemporaryConversation || !conversation.messages.isEmpty else { return }
         do {
             conversation = try await environment.engine.startConversation(title: nil)
+            isTemporaryConversation = false
             actionPlans = [:]
             toolResults = [:]
             await refreshConversations()
         } catch {
             banner = BannerMessage(text: "Couldn't start a new chat.", style: .warning)
         }
+    }
+
+    /// True while the open chat is temporary: held here, in memory, and
+    /// never written to the store. Leaving it, starting another chat or
+    /// closing the app discards it (owner's request, build 29). What it *did*
+    /// — reminders, tasks, events, memories — is kept like any other chat's.
+    private(set) var isTemporaryConversation = false
+
+    /// Opens a temporary chat.
+    func startTemporaryConversation() async {
+        guard !isAssistantResponding else { return }
+        conversation = Conversation(createdAt: now)
+        isTemporaryConversation = true
+        actionPlans = [:]
+        toolResults = [:]
     }
 
     /// Switches to another chat, with the action cards under its replies.
@@ -382,23 +403,37 @@ final class AppModel {
             else { return }
             try await loadActionHistory(for: id)
             conversation = found
+            isTemporaryConversation = false
         } catch {
             banner = BannerMessage(text: "Couldn't open that chat.", style: .warning)
         }
     }
 
-    /// Deletes one chat. Tasks, reminders and memories it created stay —
+    /// Deletes chats. Tasks, reminders and memories they created stay —
     /// they belong to the app, not to the conversation they came from.
-    func deleteConversation(_ id: Conversation.ID) async {
-        guard !isAssistantResponding else { return }
-        do {
-            try await environment.repositories.conversations.delete(id: id)
-            if id == conversation.id {
-                conversation = try await loadOrStartConversation()
+    func deleteConversations(_ ids: Set<Conversation.ID>) async {
+        guard !isAssistantResponding, !ids.isEmpty else { return }
+        var failed = 0
+        for id in ids {
+            do {
+                try await environment.repositories.conversations.delete(id: id)
+            } catch {
+                failed += 1
             }
-            await refreshConversations()
-        } catch {
-            banner = BannerMessage(text: "Couldn't delete that chat.", style: .warning)
+        }
+        if !isTemporaryConversation, ids.contains(conversation.id) {
+            do {
+                conversation = try await loadOrStartConversation()
+            } catch {
+                banner = BannerMessage(text: "Couldn't load your chats.", style: .warning)
+            }
+        }
+        await refreshConversations()
+        if failed > 0 {
+            banner = BannerMessage(
+                text: failed == 1 ? "Couldn't delete one chat." : "Couldn't delete \(failed) chats.",
+                style: .warning
+            )
         }
     }
 
@@ -502,6 +537,20 @@ final class AppModel {
     /// this only while the question is genuinely open.
     func requestPermission(_ capability: PlatformCapability) async {
         permissions[capability] = await environment.services.permissions.request(capability)
+    }
+
+    /// Reconnects reminder plans to events created before build 29 (P12).
+    ///
+    /// Those events were read back under a different id from the one their
+    /// reminder plan and chat card hold. Linking an event to that id once
+    /// makes the calendar return it from then on, so both directions work.
+    private func repairEventLinks() async {
+        let links = EventLinkRepair.links(plans: reminderPlans, events: events)
+        guard !links.isEmpty else { return }
+        for link in links {
+            try? await environment.services.calendar.linkEvent(link.existing, toAppID: link.appID)
+        }
+        await reloadCalendar()
     }
 
     /// The calendar, separately, because it is the one source that can be
@@ -750,7 +799,12 @@ final class AppModel {
         guard await prepareLocalModelIfNeeded() else { return false }
 
         do {
-            let result = try await environment.engine.send(trimmed, in: conversation.id)
+            let result: AssistantTurnResult
+            if isTemporaryConversation {
+                result = try await environment.engine.sendTemporary(trimmed, in: conversation)
+            } else {
+                result = try await environment.engine.send(trimmed, in: conversation.id)
+            }
             conversation = result.conversation
             actionPlans[result.plan.id] = result.plan
             toolResults[result.plan.id] = result.results

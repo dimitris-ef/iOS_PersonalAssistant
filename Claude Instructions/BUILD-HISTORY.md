@@ -18,6 +18,13 @@ Cancelled the same way at 17:56–18:11 UTC, and so was a Swift Tests re-run.
 No reason given by the API; the owner was asked to look at the run page and
 at GitHub → Settings → Billing (Actions minutes) in case macOS minutes ran out.
 
+## Build 29 — in progress
+
+- One ID per calendar event, and repair of earlier events (P12).
+- Keyboard can be put away (P13).
+- Chats: Edit with multi-select delete, long-press delete (P14).
+- Temporary chat (P15).
+
 ## Build 28 — 2026-11-11 (head `059e278`, VALID)
 
 - Cloud model requests adapt to what the service accepts (P11) — for the
@@ -26,8 +33,11 @@ at GitHub → Settings → Billing (Actions minutes) in case macOS minutes ran o
   host and model.
 - Swift Tests for `983193a` were still queued by GitHub when this shipped;
   check them next session.
-- **Owner found:** (on build 27) GPT-6 Luna refused tools without
-  `reasoning_effort: "none"`. Build 28 device report pending.
+- **Owner found:** the cloud model (GPT-6 Luna) works. Barber appointment
+  and "charge the batteries" got staged reminders and alarms — liked a lot.
+  Problems: event card "Event not found" and Up next "No reminders are
+  planned" for the Serres circuit event (P12); keyboard cannot be hidden
+  (P13); deleting chats not findable (P14); asked for temporary chats (P15).
 
 ## Build 27 — 2026-11-11 (head `a3d4d2c`, VALID)
 

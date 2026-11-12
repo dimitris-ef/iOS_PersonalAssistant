@@ -49,6 +49,10 @@ struct EventKitCalendarService: CalendarService {
     func events(in window: TimeWindow) async throws -> [CalendarItem] {
         try await store.events(in: window)
     }
+
+    func linkEvent(_ existing: CalendarItem.ID, toAppID appID: CalendarItem.ID) async throws {
+        try await store.linkEvent(existing, toAppID: appID)
+    }
 }
 
 /// Apple's Reminders app, which is a different thing from this app's tasks.
