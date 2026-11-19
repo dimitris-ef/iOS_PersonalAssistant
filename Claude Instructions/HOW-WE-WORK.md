@@ -60,3 +60,13 @@ repo `dimitris-ef/0.8b-training-001`).
   "Purely additive" is not an exemption — that is what crashed build 16.
 - llama.cpp: `llama_sampler_sample` already accepts the token. Never call
   `llama_sampler_accept` after it (build 18/20 crash).
+
+## "A required agreement is missing or has expired" (HTTP 403)
+
+Seen 2026-11-19 in the "Confirm an App Store Connect record exists" step.
+Apple periodically updates the Developer Program License Agreement; until the
+Account Holder accepts it, the API refuses requests and uploaded builds are
+not processed (build 29 "never appeared"). Only the owner can fix it: accept
+the agreement at developer.apple.com/account or in App Store Connect →
+Business. Then re-run the deploy. Do not retry before that — it fails the
+same way.

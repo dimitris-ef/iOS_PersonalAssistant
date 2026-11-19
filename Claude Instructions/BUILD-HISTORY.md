@@ -18,11 +18,19 @@ Cancelled the same way at 17:56–18:11 UTC, and so was a Swift Tests re-run.
 No reason given by the API; the owner was asked to look at the run page and
 at GitHub → Settings → Billing (Actions minutes) in case macOS minutes ran out.
 
-## Build 30 — 2026-11-19 (head `eda88a6`, same app code as 29)
+## Build 30 — 2026-11-19 (head `eda88a6`, same app code as 29) — blocked by Apple agreement
 
 - Re-upload of build 29's code (only archive notes changed since `401fd2f`).
-  If build 29 did appear in TestFlight after all, the two are identical:
-  install either.
+- **Stopped in 1 minute at "Confirm an App Store Connect record exists":
+  App Store Connect returned HTTP 403 — "A required agreement is missing or
+  has expired. This request requires an in-effect agreement that has not
+  been signed or has expired."** Nothing was built or uploaded; number 30 is
+  not consumed by Apple.
+- This is very likely why build 29 never appeared: Apple took the upload
+  but will not process builds while an agreement is unsigned.
+- Fix (owner only, Account Holder): sign in at developer.apple.com/account
+  or App Store Connect → Business (Agreements) and accept the new
+  agreement. Then re-run TestFlight Deploy — no code change needed.
 
 ## Build 29 — 2026-11-12 (head `401fd2f`) — uploaded, not yet seen processed
 

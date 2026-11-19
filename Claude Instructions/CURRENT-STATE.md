@@ -4,8 +4,10 @@ Last updated 2026-11-19. Update this at the end of every session.
 
 ## Where things stand
 
-- **Build 30 uploading (2026-11-19)** = build 29's code again, because
-  Apple never confirmed build 29 (see BUILD-HISTORY): P12 event ID fix + repair, P13 keyboard, P14 chat
+- **BLOCKED on the owner (2026-11-19): App Store Connect says a required
+  agreement is missing or expired (HTTP 403).** The owner must accept it
+  (developer.apple.com/account or App Store Connect → Business), then
+  re-run TestFlight Deploy. Builds 29/30 hold this code: P12 event ID fix + repair, P13 keyboard, P14 chat
   deletion, P15 temporary chat. Next big feature after it: the virtual
   profile (ROADMAP).
 - **Latest on TestFlight: build 28** (VALID, head `059e278`): cloud requests
