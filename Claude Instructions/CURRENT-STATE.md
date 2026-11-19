@@ -1,10 +1,11 @@
 # Current state
 
-Last updated 2026-11-12. Update this at the end of every session.
+Last updated 2026-11-19. Update this at the end of every session.
 
 ## Where things stand
 
-- **Build 29 uploaded, not yet confirmed by Apple** (see BUILD-HISTORY): P12 event ID fix + repair, P13 keyboard, P14 chat
+- **Build 30 uploading (2026-11-19)** = build 29's code again, because
+  Apple never confirmed build 29 (see BUILD-HISTORY): P12 event ID fix + repair, P13 keyboard, P14 chat
   deletion, P15 temporary chat. Next big feature after it: the virtual
   profile (ROADMAP).
 - **Latest on TestFlight: build 28** (VALID, head `059e278`): cloud requests
